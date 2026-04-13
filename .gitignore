@@ -6,7 +6,7 @@ backend/.pytest_cache/
 backend/smart_crm.db
 backend/uvicorn.log
 backend/uvicorn.err.log
-非代码部分/
+_private/
 *.pyc
 *.pyo
 *.pyd
