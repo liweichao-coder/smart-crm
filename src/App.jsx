@@ -38,6 +38,7 @@ import {
   Routes,
   useLocation,
   useNavigate,
+  useOutletContext,
 } from 'react-router-dom'
 import avatar from './assets/vendor/unnamed.png'
 import {
@@ -58,18 +59,30 @@ import {
   taskItems,
 } from './data/mockData.js'
 
-const STORAGE_KEY = 'bottlecrm:selected-org'
+const STORAGE_KEY = 'huahenuancrm:selected-org'
 
 const navItems = [
-  { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | BottleCRM' },
-  { path: '/leads', label: '线索', icon: Target, title: 'Leads | BottleCRM' },
-  { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | BottleCRM' },
-  { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | BottleCRM' },
-  { path: '/opportunities', label: '商机', icon: Sparkles, title: 'Opportunities | BottleCRM' },
-  { path: '/goals', label: '销售目标', icon: Trophy, title: 'Sales Goals | BottleCRM' },
-  { path: '/cases', label: '工单', icon: Briefcase, title: 'Cases | BottleCRM' },
-  { path: '/tasks', label: '任务', icon: CheckSquare, title: 'Tasks | BottleCRM' },
+  { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 花和暖 CRM' },
+  { path: '/leads', label: '线索', icon: Target, title: 'Leads | 花和暖 CRM' },
+  { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 花和暖 CRM' },
+  { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 花和暖 CRM' },
+  { path: '/opportunities', label: '商机', icon: Sparkles, title: 'Opportunities | 花和暖 CRM' },
+  { path: '/goals', label: '销售目标', icon: Trophy, title: 'Sales Goals | 花和暖 CRM' },
+  { path: '/cases', label: '工单', icon: Briefcase, title: 'Cases | 花和暖 CRM' },
+  { path: '/tasks', label: '任务', icon: CheckSquare, title: 'Tasks | 花和暖 CRM' },
 ]
+
+const pageItems = [...navItems, { path: '/profile', label: '个人主页', title: 'Profile | 花和暖 CRM' }]
+
+const userProfile = {
+  name: 'ZRC 673468472',
+  email: 'zrc673468472@gmail.com',
+  phone: '+86 186 0000 2048',
+  position: 'CRM 运营管理员',
+  department: '客户增长中心',
+  location: '上海 · 浦东',
+  joinDate: '2024 年 2 月 18 日',
+}
 
 const statusToneMap = {
   active: 'success',
@@ -112,6 +125,7 @@ function App() {
       <Route path="/" element={<Navigate replace to="/login" />} />
       <Route element={<AppShell />}>
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route
           path="/accounts"
           element={
@@ -234,7 +248,7 @@ function LoginPage() {
   const [password, setPassword] = useState('')
 
   useEffect(() => {
-    document.title = '登录 | BottleCRM'
+    document.title = '登录 | 花和暖 CRM'
   }, [])
 
   return (
@@ -245,9 +259,9 @@ function LoginPage() {
       <main className="crm-auth-shell">
         <section className="crm-auth-showcase">
           <div className="crm-auth-brand">
-            <div className="crm-brand-mark">瓶</div>
+            <div className="crm-brand-mark">花</div>
             <div>
-              <strong>瓶子 CRM</strong>
+              <strong>花和暖 CRM</strong>
               <span>销售、客户与任务协同平台</span>
             </div>
           </div>
@@ -320,11 +334,16 @@ function LoginPage() {
 
 function RegisterPage() {
   const navigate = useNavigate()
-  const [account, setAccount] = useState('')
+  const [companyName, setCompanyName] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [agreed, setAgreed] = useState(true)
 
   useEffect(() => {
-    document.title = '注册 | BottleCRM'
+    document.title = '注册 | 花和暖 CRM'
   }, [])
 
   return (
@@ -332,29 +351,74 @@ function RegisterPage() {
       <div className="crm-auth-orb crm-auth-orb--primary" />
       <div className="crm-auth-orb crm-auth-orb--secondary" />
 
-      <main className="crm-auth-shell crm-auth-shell--reverse">
+      <main className="crm-auth-shell crm-auth-shell--compact">
         <section className="crm-auth-panel">
+          <div className="crm-auth-brand crm-auth-brand--panel">
+            <div className="crm-brand-mark">花</div>
+            <div>
+              <strong>花和暖 CRM</strong>
+              <span>管理员
+                注册</span>
+            </div>
+          </div>
+
           <div className="crm-auth-panel-head">
-            <span className="crm-overline">注册</span>
-            <h2>创建一个新的前端演示账号</h2>
-            <p>当前仅为前端页面演示，提交后将直接跳回登录页。</p>
+            <span className="crm-overline"></span>
+            <h2>创建你的工作空间</h2>
+            
           </div>
 
           <form
             className="crm-auth-form"
             onSubmit={(event) => {
               event.preventDefault()
+              if (!agreed) {
+                return
+              }
               navigate('/login')
             }}
           >
             <label className="crm-auth-field">
-              <span>账号</span>
+              <span>企业名称</span>
               <input
                 type="text"
-                value={account}
-                onChange={(event) => setAccount(event.target.value)}
-                placeholder="邮箱号或手机号"
-                autoComplete="username"
+                value={companyName}
+                onChange={(event) => setCompanyName(event.target.value)}
+                placeholder="请输入企业或团队名称"
+                autoComplete="organization"
+              />
+            </label>
+
+            <label className="crm-auth-field">
+              <span>联系人姓名</span>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                placeholder="请输入管理员姓名"
+                autoComplete="name"
+              />
+            </label>
+
+            <label className="crm-auth-field">
+              <span>工作邮箱</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="请输入常用工作邮箱"
+                autoComplete="email"
+              />
+            </label>
+
+            <label className="crm-auth-field">
+              <span>手机号</span>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="请输入手机号"
+                autoComplete="tel"
               />
             </label>
 
@@ -369,8 +433,24 @@ function RegisterPage() {
               />
             </label>
 
+            <label className="crm-auth-field">
+              <span>确认密码</span>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                placeholder="请再次输入密码"
+                autoComplete="new-password"
+              />
+            </label>
+
+            <label className="crm-auth-check">
+              <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+              <span>我已阅读并同意服务协议与隐私政策</span>
+            </label>
+
             <button className="crm-primary-button crm-auth-submit" type="submit">
-              注册并返回登录
+              创建账号
               <ArrowRight size={16} />
             </button>
           </form>
@@ -380,37 +460,6 @@ function RegisterPage() {
             <NavLink className="crm-link-button" to="/login">
               去登录
             </NavLink>
-          </div>
-        </section>
-
-        <section className="crm-auth-showcase">
-          <div className="crm-auth-brand">
-            <div className="crm-brand-mark">瓶</div>
-            <div>
-              <strong>瓶子 CRM</strong>
-              <span>延续当前项目的深色玻璃拟态风格</span>
-            </div>
-          </div>
-
-          <div className="crm-auth-copy">
-            <span className="crm-overline">快速开始</span>
-            <h1>用一个账号连接销售漏斗与客户协作</h1>
-            <p>注册页仅保留账号和密码字段，满足当前前端演示和路由联调需求。</p>
-          </div>
-
-          <div className="crm-auth-stats">
-            <article className="crm-auth-stat-card">
-              <strong>8+</strong>
-              <span>业务页面已接入</span>
-            </article>
-            <article className="crm-auth-stat-card">
-              <strong>100%</strong>
-              <span>前端内链跳转</span>
-            </article>
-            <article className="crm-auth-stat-card">
-              <strong>2步</strong>
-              <span>注册后回到登录</span>
-            </article>
           </div>
         </section>
       </main>
@@ -424,7 +473,8 @@ function AppShell() {
   const [selectedOrg, setSelectedOrg] = useState(loadStoredOrg())
   const location = useLocation()
   const navigate = useNavigate()
-  const currentPage = navItems.find((item) => location.pathname.startsWith(item.path)) ?? navItems[0]
+  const currentPage = pageItems.find((item) => location.pathname.startsWith(item.path)) ?? navItems[0]
+  const isProfilePage = location.pathname.startsWith('/profile')
 
   useEffect(() => {
     document.title = currentPage.title
@@ -471,11 +521,18 @@ function AppShell() {
               <PanelLeftClose size={18} />
               <span>{collapsed ? '展开侧边栏' : '收起侧边栏'}</span>
             </button>
-            <button className="crm-user-card" type="button" onClick={() => navigate('/org')}>
+            <button
+              className={`crm-user-card ${isProfilePage ? 'is-active' : ''}`}
+              type="button"
+              onClick={() => {
+                setSidebarOpen(false)
+                navigate('/profile')
+              }}
+            >
               <img src={avatar} alt="用户头像" />
               <div>
-                <strong>ZRC 673468472</strong>
-                <span>zrc673468472@gmail.com</span>
+                <strong>{userProfile.name}</strong>
+                <span>{userProfile.email}</span>
               </div>
               <ChevronsUpDown size={16} />
             </button>
@@ -517,15 +574,15 @@ function OrgSelectionPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    document.title = '选择组织 | BottleCRM'
+    document.title = '选择组织 | 花和暖 CRM'
   }, [])
 
   return (
     <div className="crm-org-page">
       <header className="crm-org-header">
         <div className="crm-org-brand">
-          <div className="crm-brand-mark">瓶</div>
-          <strong>瓶子 CRM</strong>
+          <div className="crm-brand-mark">花</div>
+          <strong>花和暖 CRM</strong>
         </div>
         <button className="crm-ghost-button" type="button" onClick={() => navigate('/login')}>
           <LogOut size={16} />
@@ -952,6 +1009,100 @@ function GoalsPage() {
             <p>{goal.note}</p>
           </article>
         ))}
+      </section>
+    </div>
+  )
+}
+
+function ProfilePage() {
+  const navigate = useNavigate()
+  const { selectedOrg } = useOutletContext()
+
+  const profileInfo = [
+    { label: '邮箱', value: userProfile.email },
+    { label: '手机号', value: userProfile.phone },
+    { label: '岗位', value: userProfile.position },
+    { label: '部门', value: userProfile.department },
+    { label: '办公地点', value: userProfile.location },
+    { label: '加入时间', value: userProfile.joinDate },
+  ]
+
+  const securityInfo = [
+    { label: '登录方式', value: '账号密码', tone: 'neutral' },
+    { label: '账户状态', value: '正常', tone: 'success' },
+    { label: '组织权限', value: '管理员', tone: 'accent' },
+  ]
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel crm-profile-hero">
+        <div className="crm-profile-hero-main">
+          <img className="crm-profile-avatar" src={avatar} alt="用户头像" />
+          <div className="crm-profile-copy">
+            <span className="crm-overline">个人主页</span>
+            <h2>{userProfile.name}</h2>
+            <div className="crm-profile-meta">
+              <span>{userProfile.position}</span>
+              <span>{selectedOrg.name}</span>
+              <span>{selectedOrg.role}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="crm-profile-actions">
+          <button className="crm-ghost-button" type="button" onClick={() => navigate('/org')}>
+            <Building2 size={16} />
+            切换组织
+          </button>
+          <button className="crm-ghost-button crm-ghost-button--danger" type="button" onClick={() => navigate('/login')}>
+            <LogOut size={16} />
+            退出登录
+          </button>
+        </div>
+      </section>
+
+      <section className="crm-three-col-grid crm-profile-cards">
+        <article className="crm-panel crm-profile-card">
+          <PanelHeader title="基础信息" />
+          <div className="crm-profile-info-list">
+            {profileInfo.map((item) => (
+              <div key={item.label} className="crm-profile-info-item">
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="crm-panel crm-profile-card">
+          <PanelHeader title="账号安全" />
+          <div className="crm-profile-info-list">
+            {securityInfo.map((item) => (
+              <div key={item.label} className="crm-profile-info-item">
+                <span>{item.label}</span>
+                <StatusBadge value={item.value} tone={item.tone} />
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="crm-panel crm-profile-card">
+          <PanelHeader title="当前组织" />
+          <div className="crm-profile-info-list">
+            <div className="crm-profile-info-item">
+              <span>组织名称</span>
+              <strong>{selectedOrg.name}</strong>
+            </div>
+            <div className="crm-profile-info-item">
+              <span>我的角色</span>
+              <strong>{selectedOrg.role}</strong>
+            </div>
+            <div className="crm-profile-info-item">
+              <span>工作区状态</span>
+              <StatusBadge value="已连接" tone="success" />
+            </div>
+          </div>
+        </article>
       </section>
     </div>
   )
