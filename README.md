@@ -1,6 +1,6 @@
-# BottleCRM React Frontend
+# 花和暖 CRM React Frontend
 
-基于 React + Vite 搭建的前端项目骨架，当前目标是复刻导出的 BottleCRM 页面视觉和基础交互。
+基于 React + Vite 搭建的前端项目骨架，当前目标是实现花和暖 CRM 的页面视觉和基础交互。
 
 ## 当前范围
 
