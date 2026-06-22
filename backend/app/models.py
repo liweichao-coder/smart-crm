@@ -312,6 +312,7 @@ class OrderApprovalRequestBase(SQLModel):
     status: OrderApprovalStatus = Field(default=OrderApprovalStatus.pending, index=True)
     reason: str = ""
     risk_summary: str = ""
+    risk_level: str = Field(default="medium", index=True)
     requested_total: float = 0
     previous_order_status: OrderStatus = Field(default=OrderStatus.draft)
     target_order_status: OrderStatus = Field(default=OrderStatus.confirmed)
@@ -320,6 +321,7 @@ class OrderApprovalRequestBase(SQLModel):
 
 class OrderApprovalRequest(OrderApprovalRequestBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    sla_due_at: Optional[datetime] = None
     decided_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 

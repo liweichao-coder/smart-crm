@@ -57,6 +57,8 @@ The course exam requires a full software engineering process package, not only c
 - Added owner data-scope enforcement for sales users across contacts, leads/opportunities, cases, tasks, orders, dashboard metrics, notifications, and Copilot recommendation flows. `/api/auth/me` and `/api/admin/permission-matrix` now expose `data_scope` so the frontend can explain all-data vs own-data access.
 - Added a real order approval workflow with `OrderApprovalRequest`, `/api/order-approvals`, `/api/orders/{id}/approval-requests`, `/api/order-approvals/{id}/decision`, seeded pending/approved approval records, order-center approval actions, `approval:manage` permission, notification-center approval reminders, and business audit logs.
 - Added enforceable order approval policy checks for order status transitions. High-value orders, low-confidence AI orders, urgent delivery windows, multi-line orders, and direct fulfillment require manager approval for non-approval roles; direct sales confirmation now returns a 403 policy message instead of silently bypassing the approval workflow.
+- Added approval risk scoring and SLA tracking: approval requests now store `risk_level` and `sla_due_at`, return `sla_status` and remaining hours, support `risk_level`/`sla_status` filters, and surface overdue/high-risk approvals in the notification center.
+- Added SQLite lightweight migration coverage for existing `orderapprovalrequest` tables so older demo databases receive `risk_level` and `sla_due_at` without a manual reset.
 - Added real customer owner data scope with a persisted `Customer.owner` field, SQLite lightweight migration/backfill, customer list/create/update/delete owner checks, dashboard customer filtering, and customer ownership checks before order creation or Copilot order drafts.
 - Added current-user owner defaults for create/update flows. The backend now normalizes empty, unassigned, pending, or placeholder owners to the authenticated user, while the frontend opens customer/lead/opportunity/case/task/order forms with the active user as the owner fallback.
 - Replaced the remaining static organization mock source in the frontend: organization selection, sidebar workspace name, and the create-organization action now use the authenticated backend session/register flow.
@@ -122,6 +124,8 @@ The course exam requires a full software engineering process package, not only c
 - Added backend field-level validation for email, phone, status/category enums, goal targets, non-empty order lines, and order due-date ordering. Invalid CRM payloads now fail at the FastAPI/Pydantic layer with 422 instead of silently entering the database.
 - After field-level validation upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 40 passed.
 - After order approval policy enforcement, `backend/.venv/Scripts/python.exe -m pytest -q`: 41 passed. Coverage now verifies that a sales role can create a high-risk draft order, cannot directly confirm it, can submit approval, and a manager decision advances the order to `confirmed`.
+- After approval SLA upgrade, targeted pytest passed for approval SLA migration, notification SLA messaging, order approval workflow, and approval policy enforcement; frontend lint also passed.
+- Full regression after approval SLA upgrade: `npm test -- --run` passed 27 tests, `npm run build` passed, and `backend/.venv/Scripts/python.exe -m pytest -q` passed 42 tests.
 - After light workspace style refinement, browser visual smoke with system Chrome covered `/login` and `/dashboard`: auth orbs `0`, panel radius `8px`, desktop horizontal overflow `false`, mobile 390px horizontal overflow `false`, and mobile menu visible.
 - `npm run lint`: passed.
 - `npm test`: 27 passed.
@@ -158,7 +162,7 @@ The course exam requires a full software engineering process package, not only c
 - Sales BI report regression succeeded: `/api/reports/sales-performance` returns real metrics, revenue trend, owner/region breakdowns, funnel, AI impact, inventory risks, filter echoing, invalid date-range rejection, and sales-role 403.
 - Permission matrix regression succeeded: `/api/admin/permission-matrix` returns the backend permission catalog, role matrix, module access matrix, and sales-role 403.
 - Owner data-scope regression succeeded: a sales role sees only `李伟超` owner records for leads, tasks, orders, and Copilot recommendations; cross-owner lead/order/task updates and Copilot task conversion return 403.
-- Order approval workflow regression succeeded: a draft order can be submitted for approval, duplicate pending approvals are rejected, sales users cannot approve, approval managers can approve, the order status advances to `confirmed`, and `order_approval` business audit logs are written.
+- Order approval workflow regression succeeded: a draft order can be submitted for approval, duplicate pending approvals are rejected, sales users cannot approve, approval managers can approve, the order status advances to `confirmed`, `risk_level`/`sla_due_at`/`sla_status` are returned, and `order_approval` business audit logs are written.
 - Customer owner-scope regression succeeded: a sales role sees only `李伟超` customers, new customers default to the current salesperson, cross-owner customer create/update returns 403, and orders cannot be created against another salesperson's customer.
 - Current-user owner default regression succeeded: a sales role can create contact, lead, case, task, and order payloads with empty or placeholder owners, and the API persists `李伟超`; frontend unit tests cover owner placeholder normalization.
 - Environment doctor smoke succeeded: `python -m app.manage doctor` reported the local demo database ready with 12 customers, 10 products, 15 leads/opportunities, 12 orders, 22 order items, 22 inventory movements, and 2 approval records.
@@ -170,5 +174,5 @@ The course exam requires a full software engineering process package, not only c
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, multi-level approval SLA, saved view preferences, and cross-table consistency checks.
+- Add fuller end-to-end browser smoke coverage, approval transfer/reminder records, saved view preferences, and cross-table consistency checks.
 - Capture screenshots and export Word/PPT final materials.

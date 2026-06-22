@@ -102,6 +102,74 @@ def test_customer_owner_lightweight_migration_backfills_from_contacts(monkeypatc
     assert owner == "李伟超"
 
 
+def test_order_approval_sla_lightweight_migration(monkeypatch) -> None:
+    migration_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    with migration_engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE customer (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                company VARCHAR NOT NULL,
+                industry VARCHAR NOT NULL,
+                city VARCHAR NOT NULL,
+                contact_person VARCHAR NOT NULL,
+                phone VARCHAR NOT NULL,
+                email VARCHAR NOT NULL,
+                source VARCHAR NOT NULL,
+                level VARCHAR NOT NULL,
+                annual_revenue FLOAT NOT NULL,
+                status VARCHAR NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE orderapprovalrequest (
+                id INTEGER PRIMARY KEY,
+                order_id INTEGER NOT NULL,
+                owner VARCHAR NOT NULL,
+                requester VARCHAR NOT NULL,
+                reviewer VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                reason VARCHAR NOT NULL,
+                risk_summary VARCHAR NOT NULL,
+                requested_total FLOAT NOT NULL,
+                previous_order_status VARCHAR NOT NULL,
+                target_order_status VARCHAR NOT NULL,
+                decision_comment VARCHAR NOT NULL,
+                decided_at DATETIME,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO orderapprovalrequest
+            (id, order_id, owner, requester, reviewer, status, reason, risk_summary, requested_total, previous_order_status, target_order_status, decision_comment, decided_at, created_at)
+            VALUES (1, 1, '李伟超', '李伟超', '销售经理', 'pending', '旧版审批', '旧版风险摘要', 120000, 'draft', 'confirmed', '', NULL, '2026-06-23 00:00:00')
+            """
+        )
+
+    monkeypatch.setattr(database, "engine", migration_engine)
+    database.run_lightweight_migrations()
+
+    with migration_engine.connect() as connection:
+        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(orderapprovalrequest)").fetchall()}
+        migrated = connection.exec_driver_sql(
+            "SELECT risk_level, sla_due_at FROM orderapprovalrequest WHERE id = 1"
+        ).one()
+
+    assert {"risk_level", "sla_due_at"} <= columns
+    assert migrated.risk_level == "medium"
+    assert migrated.sla_due_at is not None
+
+
 def test_dashboard_payload() -> None:
     with TestClient(app) as client:
         response = client.get("/api/dashboard")
@@ -131,6 +199,7 @@ def test_notifications_are_data_driven(monkeypatch) -> None:
     copilot_notifications = copilot_response.json()
     assert any(item["entity_type"] == "copilot_recommendation" for item in copilot_notifications)
     assert any(item["entity_type"] == "ai_interaction" and item["severity"] == "warning" for item in copilot_notifications)
+    assert any(item["entity_type"] == "order_approval" and "SLA" in item["message"] for item in copilot_notifications)
 
 
 def test_sales_performance_report_payload_and_filters() -> None:
@@ -1074,6 +1143,7 @@ def test_order_approval_workflow() -> None:
             json={"reason": "重复提交审批"},
         )
         pending_approvals = client.get("/api/order-approvals?status=pending").json()
+        medium_approvals = client.get("/api/order-approvals?risk_level=medium").json()
 
         register_payload = {
             "organization_name": "审批权限测试组",
@@ -1116,8 +1186,13 @@ def test_order_approval_workflow() -> None:
     assert approval_payload["order_id"] == order_id
     assert approval_payload["owner"] == "李伟超"
     assert "AI" in approval_payload["risk_summary"]
+    assert approval_payload["risk_level"] == "medium"
+    assert approval_payload["sla_due_at"]
+    assert approval_payload["sla_status"] in {"on_track", "due_soon"}
+    assert approval_payload["sla_hours_remaining"] is not None
     assert duplicate_response.status_code == 400
     assert any(item["id"] == approval_payload["id"] for item in pending_approvals)
+    assert any(item["id"] == approval_payload["id"] for item in medium_approvals)
     assert denied_decision.status_code == 403
     assert decision_response.status_code == 200
     assert decision_response.json()["status"] == "approved"
@@ -1192,6 +1267,8 @@ def test_order_approval_policy_blocks_sales_direct_confirmation() -> None:
     assert approval_response.status_code == 201
     assert "高价值订单" in approval_response.json()["risk_summary"]
     assert "AI" in approval_response.json()["risk_summary"]
+    assert approval_response.json()["risk_level"] in {"high", "critical"}
+    assert approval_response.json()["sla_due_at"]
     assert pending_denied_confirmation.status_code == 403
     assert "待审批申请" in pending_denied_confirmation.json()["detail"]
     assert decision_response.status_code == 200

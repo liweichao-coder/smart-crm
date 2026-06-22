@@ -54,6 +54,29 @@ def run_lightweight_migrations() -> None:
                     )
                 )
 
+        approval_exists = connection.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='orderapprovalrequest'")
+        ).first()
+        if approval_exists:
+            approval_columns = {
+                row[1] for row in connection.execute(text("PRAGMA table_info(orderapprovalrequest)")).fetchall()
+            }
+            if "risk_level" not in approval_columns:
+                connection.execute(
+                    text("ALTER TABLE orderapprovalrequest ADD COLUMN risk_level VARCHAR NOT NULL DEFAULT 'medium'")
+                )
+            if "sla_due_at" not in approval_columns:
+                connection.execute(text("ALTER TABLE orderapprovalrequest ADD COLUMN sla_due_at DATETIME"))
+                connection.execute(
+                    text(
+                        """
+                        UPDATE orderapprovalrequest
+                        SET sla_due_at = datetime(created_at, '+24 hours')
+                        WHERE status = 'pending' AND sla_due_at IS NULL
+                        """
+                    )
+                )
+
 
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)

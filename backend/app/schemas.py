@@ -874,10 +874,14 @@ class OrderApprovalRead(BaseModel):
     status: OrderApprovalStatus
     reason: str
     risk_summary: str
+    risk_level: str
     requested_total: float
     previous_order_status: OrderStatus
     target_order_status: OrderStatus
     decision_comment: str
+    sla_due_at: datetime | None
+    sla_status: str
+    sla_hours_remaining: int | None
     decided_at: datetime | None
     created_at: datetime
 

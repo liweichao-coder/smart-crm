@@ -108,6 +108,18 @@ ORDER_APPROVAL_AI_CONFIDENCE_THRESHOLD = 0.85
 ORDER_APPROVAL_FAST_DELIVERY_DAYS = 7
 ORDER_APPROVAL_ITEM_COUNT_THRESHOLD = 3
 ORDER_APPROVAL_REQUIRED_STATUSES = {OrderStatus.confirmed, OrderStatus.fulfilled}
+ORDER_APPROVAL_RISK_SLA_HOURS = {
+    "critical": 4,
+    "high": 12,
+    "medium": 24,
+    "low": 48,
+}
+ORDER_APPROVAL_RISK_LABELS = {
+    "critical": "关键",
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+}
 ALL_PERMISSIONS = "*"
 KNOWN_PERMISSIONS = {
     "approval:manage",
@@ -829,18 +841,33 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int =
     ).all()
     approvals = filter_by_owner_scope(approvals, current_user)[:6]
     for approval in approvals:
+        risk_level = normalize_order_approval_risk_level(approval.risk_level)
+        risk_label = ORDER_APPROVAL_RISK_LABELS[risk_level]
+        sla_status, sla_hours_remaining = get_order_approval_sla_details(approval)
+        if sla_status == "overdue":
+            severity = "critical"
+            sla_message = f"SLA 已逾期 {abs(sla_hours_remaining or 0)} 小时"
+        elif risk_level == "critical":
+            severity = "critical"
+            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 待补充"
+        elif risk_level == "high" or sla_status == "due_soon":
+            severity = "warning"
+            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 待补充"
+        else:
+            severity = "warning" if approval.requested_total >= 100000 else "info"
+            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 待补充"
         notifications.append(
             make_notification(
                 notification_id=f"order-approval-{approval.id}",
                 category="审批",
-                severity="warning" if approval.requested_total >= 100000 else "info",
-                title=f"订单审批：#{approval.order_id}",
-                message=f"{approval.owner} 提交，金额 {approval.requested_total:.0f} 元，待 {approval.reviewer or '销售经理'} 处理。",
+                severity=severity,
+                title=f"订单审批：#{approval.order_id}（{risk_label}风险）",
+                message=f"{approval.owner} 提交，金额 {approval.requested_total:.0f} 元，{sla_message}，待 {approval.reviewer or '销售经理'} 处理。",
                 href="/orders",
                 action_label="查看审批",
                 entity_type="order_approval",
                 entity_id=approval.id,
-                created_at=approval.created_at,
+                created_at=approval.sla_due_at if sla_status == "overdue" and approval.sla_due_at else approval.created_at,
             )
         )
 
@@ -1157,6 +1184,83 @@ def build_order_approval_risk_summary(
     return "；".join(risk_flags) or "订单金额、交付周期和 AI 置信度均未触发高风险规则。"
 
 
+def normalize_order_approval_risk_level(value: str | None) -> str:
+    normalized = (value or "medium").strip().lower()
+    return normalized if normalized in ORDER_APPROVAL_RISK_SLA_HOURS else "medium"
+
+
+def evaluate_order_approval_risk_level(
+    order: SalesOrder,
+    session: Session | None = None,
+    target_order_status: OrderStatus | str | None = None,
+) -> str:
+    target_status = normalize_order_status(target_order_status or order.status)
+    risk_score = 0
+
+    if order.total_amount >= ORDER_APPROVAL_AMOUNT_THRESHOLD * 3:
+        risk_score += 3
+    elif order.total_amount >= ORDER_APPROVAL_AMOUNT_THRESHOLD:
+        risk_score += 2
+
+    if order.created_by_ai:
+        risk_score += 1
+        if order.ai_confidence_score < 0.65:
+            risk_score += 2
+        elif order.ai_confidence_score < ORDER_APPROVAL_AI_CONFIDENCE_THRESHOLD:
+            risk_score += 1
+
+    delivery_window_days = (order.due_date - order.order_date).days
+    if delivery_window_days <= 3:
+        risk_score += 2
+    elif delivery_window_days <= ORDER_APPROVAL_FAST_DELIVERY_DAYS:
+        risk_score += 1
+
+    item_count = count_order_items(order, session)
+    if item_count >= ORDER_APPROVAL_ITEM_COUNT_THRESHOLD + 2:
+        risk_score += 2
+    elif item_count >= ORDER_APPROVAL_ITEM_COUNT_THRESHOLD:
+        risk_score += 1
+
+    if target_status == OrderStatus.fulfilled:
+        risk_score += 2
+    if order.status != OrderStatus.draft:
+        risk_score += 1
+
+    if risk_score >= 7:
+        return "critical"
+    if risk_score >= 4:
+        return "high"
+    if risk_score >= 2:
+        return "medium"
+    return "low"
+
+
+def calculate_order_approval_sla_due_at(created_at: datetime, risk_level: str) -> datetime:
+    normalized_level = normalize_order_approval_risk_level(risk_level)
+    return created_at + timedelta(hours=ORDER_APPROVAL_RISK_SLA_HOURS[normalized_level])
+
+
+def get_order_approval_sla_details(
+    approval: OrderApprovalRequest,
+    now: datetime | None = None,
+) -> tuple[str, int | None]:
+    if approval.status != OrderApprovalStatus.pending:
+        return "closed", None
+    if not approval.sla_due_at:
+        return "unset", None
+
+    current_time = now or datetime.utcnow()
+    seconds_remaining = (approval.sla_due_at - current_time).total_seconds()
+    if seconds_remaining < 0:
+        hours_remaining = -ceil(abs(seconds_remaining) / 3600)
+        return "overdue", hours_remaining
+
+    hours_remaining = ceil(seconds_remaining / 3600)
+    if hours_remaining <= 4:
+        return "due_soon", hours_remaining
+    return "on_track", hours_remaining
+
+
 def ensure_order_status_transition_allowed(
     order: SalesOrder,
     session: Session,
@@ -1182,6 +1286,7 @@ def ensure_order_status_transition_allowed(
 def serialize_order_approval(approval: OrderApprovalRequest, session: Session) -> OrderApprovalRead:
     order = session.get(SalesOrder, approval.order_id)
     customer = session.get(Customer, order.customer_id) if order else None
+    sla_status, sla_hours_remaining = get_order_approval_sla_details(approval)
     return OrderApprovalRead(
         id=approval.id or 0,
         order_id=approval.order_id,
@@ -1192,10 +1297,14 @@ def serialize_order_approval(approval: OrderApprovalRequest, session: Session) -
         status=approval.status,
         reason=approval.reason,
         risk_summary=approval.risk_summary,
+        risk_level=normalize_order_approval_risk_level(approval.risk_level),
         requested_total=approval.requested_total,
         previous_order_status=approval.previous_order_status,
         target_order_status=approval.target_order_status,
         decision_comment=approval.decision_comment,
+        sla_due_at=approval.sla_due_at,
+        sla_status=sla_status,
+        sla_hours_remaining=sla_hours_remaining,
         decided_at=approval.decided_at,
         created_at=approval.created_at,
     )
@@ -2749,6 +2858,8 @@ def list_order_approvals(
     owner: str = "",
     status: str = "",
     reviewer: str = "",
+    risk_level: str = "",
+    sla_status: str = "",
 ) -> list[OrderApprovalRead] | dict:
     approvals = session.exec(select(OrderApprovalRequest).order_by(OrderApprovalRequest.created_at.desc())).all()
     approvals = filter_by_owner_scope(approvals, current_user)
@@ -2756,10 +2867,12 @@ def list_order_approvals(
     serialized_approvals = filter_records(
         serialized_approvals,
         q=q,
-        fields=("customer_name", "owner", "requester", "reviewer", "status", "reason", "risk_summary", "decision_comment"),
+        fields=("customer_name", "owner", "requester", "reviewer", "status", "reason", "risk_summary", "risk_level", "sla_status", "decision_comment"),
         owner=owner,
         status=status,
         reviewer=reviewer,
+        risk_level=risk_level,
+        sla_status=sla_status,
     )
     return paginate_or_list(serialized_approvals, page=page, per_page=per_page)
 
@@ -2785,6 +2898,8 @@ def submit_order_approval_request(
         raise HTTPException(status_code=400, detail="该订单已有待审批申请")
 
     reason = payload.reason.strip() or "订单确认前需要经理复核商务条款、库存和交付风险。"
+    requested_at = datetime.utcnow()
+    risk_level = evaluate_order_approval_risk_level(order, session, payload.target_order_status)
     approval = OrderApprovalRequest(
         order_id=order.id or order_id,
         owner=order.owner,
@@ -2793,9 +2908,12 @@ def submit_order_approval_request(
         status=OrderApprovalStatus.pending,
         reason=summarize_text(reason, limit=360),
         risk_summary=summarize_text(build_order_approval_risk_summary(order, session, payload.target_order_status), limit=500),
+        risk_level=risk_level,
+        sla_due_at=calculate_order_approval_sla_due_at(requested_at, risk_level),
         requested_total=order.total_amount,
         previous_order_status=order.status,
         target_order_status=payload.target_order_status,
+        created_at=requested_at,
     )
     session.add(approval)
     session.flush()
@@ -2806,7 +2924,7 @@ def submit_order_approval_request(
         entity_id=approval.id,
         operator=current_user.full_name,
         summary=f"提交订单 #{order.id} 审批",
-        detail=f"目标状态 {payload.target_order_status.value}；{approval.risk_summary}",
+        detail=f"目标状态 {payload.target_order_status.value}；风险等级 {approval.risk_level}；SLA {approval.sla_due_at}；{approval.risk_summary}",
     )
     session.commit()
     session.refresh(approval)

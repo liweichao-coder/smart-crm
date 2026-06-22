@@ -270,6 +270,36 @@ const approvalStatusLabelMap = {
   rejected: '已驳回',
 }
 
+const approvalRiskLabelMap = {
+  critical: '关键风险',
+  high: '高风险',
+  medium: '中风险',
+  low: '低风险',
+}
+
+const approvalRiskToneMap = {
+  critical: 'danger',
+  high: 'warning',
+  medium: 'info',
+  low: 'neutral',
+}
+
+const approvalSlaLabelMap = {
+  overdue: 'SLA 已逾期',
+  due_soon: 'SLA 临近',
+  on_track: 'SLA 正常',
+  closed: 'SLA 已关闭',
+  unset: 'SLA 未设置',
+}
+
+const approvalSlaToneMap = {
+  overdue: 'danger',
+  due_soon: 'warning',
+  on_track: 'success',
+  closed: 'neutral',
+  unset: 'neutral',
+}
+
 const inventorySourceLabelMap = {
   manual_restock: '人工补货',
   order_deduction: '订单扣减',
@@ -304,6 +334,7 @@ const businessEntityLabelMap = {
   goal: '销售目标',
   product: '商品',
   order: '订单',
+  order_approval: '订单审批',
 }
 
 const caseStatusValueMap = {
@@ -4183,9 +4214,12 @@ function OrdersPage() {
                       <strong>{approvalStatusLabelMap[approval.status] ?? approval.status}</strong>
                       <span>{approval.reason}</span>
                       <small>{approval.risk_summary}</small>
+                      <small>{formatApprovalSla(approval)}</small>
                       {approval.decision_comment ? <small>{approval.reviewer}：{approval.decision_comment}</small> : null}
                     </div>
                     <div className="crm-approval-actions">
+                      <StatusBadge value={approvalRiskLabelMap[approval.risk_level] ?? '中风险'} tone={approvalRiskToneMap[approval.risk_level] ?? 'info'} />
+                      <StatusBadge value={approvalSlaLabelMap[approval.sla_status] ?? 'SLA 未设置'} tone={approvalSlaToneMap[approval.sla_status] ?? 'neutral'} />
                       <StatusBadge value={formatCurrency(approval.requested_total)} tone={approval.requested_total >= 100000 ? 'warning' : 'neutral'} />
                       {approval.status === 'pending' && canApproveOrders ? (
                         <div className="crm-stack-inline">
@@ -5539,6 +5573,19 @@ function ResourceSyncState({ loading, error }) {
 
 function StatusBadge({ value, tone = 'neutral', isNumeric = false }) {
   return <span className={`crm-badge tone-${tone} ${isNumeric ? 'is-numeric' : ''}`}>{value}</span>
+}
+
+function formatApprovalSla(approval) {
+  const statusLabel = approvalSlaLabelMap[approval?.sla_status] ?? 'SLA 未设置'
+  const remainingHours = Number(approval?.sla_hours_remaining)
+  const hasRemainingHours = Number.isFinite(remainingHours)
+  const hourText = hasRemainingHours
+    ? remainingHours < 0
+      ? `逾期 ${Math.abs(remainingHours)} 小时`
+      : `剩余 ${remainingHours} 小时`
+    : '暂无倒计时'
+  const dueText = approval?.sla_due_at ? formatDateTime(approval.sla_due_at) : '未设置截止时间'
+  return `${statusLabel} / ${dueText} / ${hourText}`
 }
 
 function renderCell(value, column) {
