@@ -46,6 +46,9 @@ The course exam requires a full software engineering process package, not only c
 - Updated the frontend API layer and remote-record hook so current pages keep using array responses while future pages can consume paginated `{ items, total, page }` responses.
 - Added real authentication tables and APIs: organization registration, PBKDF2 password hashing, login, Bearer token sessions, `/api/auth/me`, logout, and auth audit logs.
 - Connected frontend login/register routes to the backend auth APIs, persisted the session token, attached `Authorization` headers to API requests, and protected workspace routes client-side.
+- Added server-side RBAC permission policies for business APIs, including 401 for unauthenticated access and 403 for roles without catalog or audit permissions.
+- Added permission-aware frontend navigation so users only see modules allowed by the permission list returned from `/api/auth/me`.
+- Added root `pytest.ini` so backend tests can be run from the repository root with `backend/.venv/Scripts/python.exe -m pytest`.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -78,6 +81,7 @@ The course exam requires a full software engineering process package, not only c
 - After business operation audit upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 21 passed.
 - After paginated list query upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 22 passed.
 - After real authentication upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 24 passed.
+- After RBAC upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 26 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -109,9 +113,10 @@ The course exam requires a full software engineering process package, not only c
 - Secondary resource audit regression succeeded: contacts, leads/opportunities, cases, tasks, and goals now write create/update/delete logs.
 - Paginated query regression succeeded: customers, products, leads, orders, and business audit logs return correct `items`, `total`, `page`, and filter-constrained rows when pagination parameters are supplied.
 - Authentication regression succeeded: demo login returns a Bearer token, `/api/auth/me` returns the current user and organization, logout revokes the token, registration creates a new organization, and duplicate emails are rejected.
+- RBAC regression succeeded: unauthenticated business API calls return 401, while a sales role can read/write customers but cannot manage products or read audit logs.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps
 
-- Add complete RBAC policies, stricter field-level validation, fuller end-to-end browser smoke coverage, and URL-synced table filter state.
+- Add data-scope permissions, stricter field-level validation, fuller end-to-end browser smoke coverage, and URL-synced table filter state.
 - Capture screenshots and export Word/PPT final materials.

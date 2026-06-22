@@ -80,6 +80,24 @@ auth_scheme = HTTPBearer(auto_error=False)
 RESTOCK_DANGER_THRESHOLD = 80
 RESTOCK_WARNING_THRESHOLD = 300
 AUTH_SESSION_DAYS = 7
+ALL_PERMISSIONS = "*"
+KNOWN_PERMISSIONS = {
+    "ai:use",
+    "audit:read",
+    "catalog:manage",
+    "crm:read",
+    "crm:write",
+    "dashboard:read",
+    "inventory:manage",
+    "order:manage",
+}
+ROLE_PERMISSIONS = {
+    "管理员": {ALL_PERMISSIONS},
+    "销售": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read"},
+    "销售经理": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read", "audit:read"},
+    "支持": {"crm:read", "case:write", "task:write", "dashboard:read"},
+    "审计员": {"crm:read", "audit:read", "dashboard:read"},
+}
 CATEGORY_TARGET_STOCK = {
     "硬件": 600,
     "软件": 1200,
@@ -187,6 +205,18 @@ def find_user_by_account(session: Session, account: str) -> AuthUser | None:
     return session.exec(select(AuthUser).where(AuthUser.phone == normalized)).first()
 
 
+def user_permissions(user: AuthUser) -> list[str]:
+    permissions = ROLE_PERMISSIONS.get(user.role, {"crm:read"})
+    if ALL_PERMISSIONS in permissions:
+        return [ALL_PERMISSIONS, *sorted(KNOWN_PERMISSIONS)]
+    return sorted(permissions)
+
+
+def has_permission(user: AuthUser, permission: str) -> bool:
+    permissions = set(ROLE_PERMISSIONS.get(user.role, {"crm:read"}))
+    return ALL_PERMISSIONS in permissions or permission in permissions
+
+
 def serialize_auth_organization(user: AuthUser, organization: Organization) -> AuthOrganizationRead:
     return AuthOrganizationRead(
         id=organization.id,
@@ -211,6 +241,7 @@ def serialize_auth_user(user: AuthUser, organization: Organization) -> AuthUserR
         department=user.department,
         location=user.location,
         status=user.status,
+        permissions=user_permissions(user),
         created_at=user.created_at,
         last_login_at=user.last_login_at,
     )
@@ -271,6 +302,16 @@ def require_current_auth(
     if not user or user.status != "active":
         raise HTTPException(status_code=401, detail="账号不可用")
     return user, auth_session
+
+
+def require_permission(permission: str):
+    def dependency(current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)]) -> AuthUser:
+        user, _ = current
+        if not has_permission(user, permission):
+            raise HTTPException(status_code=403, detail="当前账号没有访问权限")
+        return user
+
+    return dependency
 
 
 def product_recent_order_quantity(product_id: int, session: Session) -> int:
@@ -682,7 +723,11 @@ def logout(
     return AuthLogoutResponse(revoked=True)
 
 
-@app.get("/api/auth/audit-logs", response_model=list[AuthAuditLogRead] | PaginatedResponse[AuthAuditLogRead])
+@app.get(
+    "/api/auth/audit-logs",
+    response_model=list[AuthAuditLogRead] | PaginatedResponse[AuthAuditLogRead],
+    dependencies=[Depends(require_permission("audit:read"))],
+)
 def list_auth_audit_logs(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -696,7 +741,7 @@ def list_auth_audit_logs(
     return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/customers", response_model=list[CustomerRead] | PaginatedResponse[CustomerRead])
+@app.get("/api/customers", response_model=list[CustomerRead] | PaginatedResponse[CustomerRead], dependencies=[Depends(require_permission("crm:read"))])
 def list_customers(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -720,7 +765,7 @@ def list_customers(
     return paginate_or_list(customers, page=page, per_page=per_page)
 
 
-@app.post("/api/customers", response_model=CustomerRead, status_code=201)
+@app.post("/api/customers", response_model=CustomerRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
 def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
     contact_person = payload.contact_person or payload.name or payload.company
     customer = Customer(
@@ -752,7 +797,7 @@ def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
     return customer
 
 
-@app.patch("/api/customers/{customer_id}", response_model=CustomerRead)
+@app.patch("/api/customers/{customer_id}", response_model=CustomerRead, dependencies=[Depends(require_permission("crm:write"))])
 def update_customer(customer_id: int, payload: CustomerUpdate, session: SessionDep) -> Customer:
     customer = session.get(Customer, customer_id)
     if not customer:
@@ -777,7 +822,7 @@ def update_customer(customer_id: int, payload: CustomerUpdate, session: SessionD
     return customer
 
 
-@app.delete("/api/customers/{customer_id}")
+@app.delete("/api/customers/{customer_id}", dependencies=[Depends(require_permission("crm:write"))])
 def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | int | str]:
     customer = session.get(Customer, customer_id)
     if not customer:
@@ -799,7 +844,7 @@ def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | i
     return delete_response("customer", customer_id)
 
 
-@app.get("/api/products", response_model=list[ProductRead] | PaginatedResponse[ProductRead])
+@app.get("/api/products", response_model=list[ProductRead] | PaginatedResponse[ProductRead], dependencies=[Depends(require_permission("crm:read"))])
 def list_products(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -812,7 +857,7 @@ def list_products(
     return paginate_or_list(products, page=page, per_page=per_page)
 
 
-@app.post("/api/products", response_model=ProductRead, status_code=201)
+@app.post("/api/products", response_model=ProductRead, status_code=201, dependencies=[Depends(require_permission("catalog:manage"))])
 def create_product(payload: ProductCreate, session: SessionDep) -> Product:
     existing = session.exec(select(Product).where(Product.sku == payload.sku)).first()
     if existing:
@@ -834,7 +879,7 @@ def create_product(payload: ProductCreate, session: SessionDep) -> Product:
     return product
 
 
-@app.patch("/api/products/{product_id}", response_model=ProductRead)
+@app.patch("/api/products/{product_id}", response_model=ProductRead, dependencies=[Depends(require_permission("catalog:manage"))])
 def update_product(product_id: int, payload: ProductUpdate, session: SessionDep) -> Product:
     product = session.get(Product, product_id)
     if not product:
@@ -861,7 +906,7 @@ def update_product(product_id: int, payload: ProductUpdate, session: SessionDep)
     return product
 
 
-@app.delete("/api/products/{product_id}")
+@app.delete("/api/products/{product_id}", dependencies=[Depends(require_permission("catalog:manage"))])
 def delete_product(product_id: int, session: SessionDep) -> dict[str, bool | int | str]:
     product = session.get(Product, product_id)
     if not product:
@@ -884,12 +929,12 @@ def delete_product(product_id: int, session: SessionDep) -> dict[str, bool | int
     return delete_response("product", product_id)
 
 
-@app.get("/api/inventory/restock-alerts", response_model=list[InventoryRestockAlertRead])
+@app.get("/api/inventory/restock-alerts", response_model=list[InventoryRestockAlertRead], dependencies=[Depends(require_permission("crm:read"))])
 def get_restock_alerts(session: SessionDep) -> list[InventoryRestockAlertRead]:
     return list_restock_alerts(session)
 
 
-@app.get("/api/inventory/movements", response_model=list[InventoryMovementRead] | PaginatedResponse[InventoryMovementRead])
+@app.get("/api/inventory/movements", response_model=list[InventoryMovementRead] | PaginatedResponse[InventoryMovementRead], dependencies=[Depends(require_permission("crm:read"))])
 def get_inventory_movements(
     session: SessionDep,
     limit: int = 30,
@@ -909,7 +954,7 @@ def get_inventory_movements(
     return paginate_or_list(movements, page=page, per_page=per_page)
 
 
-@app.post("/api/products/{product_id}/restock", response_model=ProductRestockResponse)
+@app.post("/api/products/{product_id}/restock", response_model=ProductRestockResponse, dependencies=[Depends(require_permission("inventory:manage"))])
 def restock_product(product_id: int, payload: ProductRestockRequest, session: SessionDep) -> ProductRestockResponse:
     product = session.get(Product, product_id)
     if not product:
@@ -948,7 +993,7 @@ def restock_product(product_id: int, payload: ProductRestockRequest, session: Se
     )
 
 
-@app.get("/api/contacts", response_model=list[ContactRead] | PaginatedResponse[ContactRead])
+@app.get("/api/contacts", response_model=list[ContactRead] | PaginatedResponse[ContactRead], dependencies=[Depends(require_permission("crm:read"))])
 def list_contacts(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -968,7 +1013,7 @@ def list_contacts(
     return paginate_or_list(contacts, page=page, per_page=per_page)
 
 
-@app.post("/api/contacts", response_model=ContactRead, status_code=201)
+@app.post("/api/contacts", response_model=ContactRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
 def create_contact(payload: ContactCreate, session: SessionDep) -> Contact:
     contact = Contact(**payload.model_dump())
     session.add(contact)
@@ -987,7 +1032,7 @@ def create_contact(payload: ContactCreate, session: SessionDep) -> Contact:
     return contact
 
 
-@app.patch("/api/contacts/{contact_id}", response_model=ContactRead)
+@app.patch("/api/contacts/{contact_id}", response_model=ContactRead, dependencies=[Depends(require_permission("crm:write"))])
 def update_contact(contact_id: int, payload: ContactUpdate, session: SessionDep) -> Contact:
     contact = session.get(Contact, contact_id)
     if not contact:
@@ -1009,7 +1054,7 @@ def update_contact(contact_id: int, payload: ContactUpdate, session: SessionDep)
     return contact
 
 
-@app.delete("/api/contacts/{contact_id}")
+@app.delete("/api/contacts/{contact_id}", dependencies=[Depends(require_permission("crm:write"))])
 def delete_contact(contact_id: int, session: SessionDep) -> dict[str, bool | int | str]:
     contact = session.get(Contact, contact_id)
     if not contact:
@@ -1028,7 +1073,7 @@ def delete_contact(contact_id: int, session: SessionDep) -> dict[str, bool | int
     return delete_response("contact", contact_id)
 
 
-@app.get("/api/leads", response_model=list[LeadRead] | PaginatedResponse[LeadRead])
+@app.get("/api/leads", response_model=list[LeadRead] | PaginatedResponse[LeadRead], dependencies=[Depends(require_permission("crm:read"))])
 def list_leads(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -1052,7 +1097,7 @@ def list_leads(
     return paginate_or_list(leads, page=page, per_page=per_page)
 
 
-@app.post("/api/leads", response_model=LeadRead, status_code=201)
+@app.post("/api/leads", response_model=LeadRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
 def create_lead(payload: SalesLeadCreate, session: SessionDep) -> SalesLead:
     lead = SalesLead(**payload.model_dump())
     session.add(lead)
@@ -1071,7 +1116,7 @@ def create_lead(payload: SalesLeadCreate, session: SessionDep) -> SalesLead:
     return lead
 
 
-@app.patch("/api/leads/{lead_id}", response_model=LeadRead)
+@app.patch("/api/leads/{lead_id}", response_model=LeadRead, dependencies=[Depends(require_permission("crm:write"))])
 def update_lead(lead_id: int, payload: SalesLeadUpdate, session: SessionDep) -> SalesLead:
     lead = session.get(SalesLead, lead_id)
     if not lead:
@@ -1093,7 +1138,7 @@ def update_lead(lead_id: int, payload: SalesLeadUpdate, session: SessionDep) -> 
     return lead
 
 
-@app.delete("/api/leads/{lead_id}")
+@app.delete("/api/leads/{lead_id}", dependencies=[Depends(require_permission("crm:write"))])
 def delete_lead(lead_id: int, session: SessionDep) -> dict[str, bool | int | str]:
     lead = session.get(SalesLead, lead_id)
     if not lead:
@@ -1112,7 +1157,7 @@ def delete_lead(lead_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("lead", lead_id)
 
 
-@app.get("/api/cases", response_model=list[SupportCaseRead] | PaginatedResponse[SupportCaseRead])
+@app.get("/api/cases", response_model=list[SupportCaseRead] | PaginatedResponse[SupportCaseRead], dependencies=[Depends(require_permission("crm:read"))])
 def list_cases(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -1134,7 +1179,7 @@ def list_cases(
     return paginate_or_list(cases, page=page, per_page=per_page)
 
 
-@app.post("/api/cases", response_model=SupportCaseRead, status_code=201)
+@app.post("/api/cases", response_model=SupportCaseRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
 def create_case(payload: SupportCaseCreate, session: SessionDep) -> SupportCase:
     support_case = SupportCase(**payload.model_dump())
     session.add(support_case)
@@ -1153,7 +1198,7 @@ def create_case(payload: SupportCaseCreate, session: SessionDep) -> SupportCase:
     return support_case
 
 
-@app.patch("/api/cases/{case_id}", response_model=SupportCaseRead)
+@app.patch("/api/cases/{case_id}", response_model=SupportCaseRead, dependencies=[Depends(require_permission("crm:write"))])
 def update_case(case_id: int, payload: SupportCaseUpdate, session: SessionDep) -> SupportCase:
     support_case = session.get(SupportCase, case_id)
     if not support_case:
@@ -1175,7 +1220,7 @@ def update_case(case_id: int, payload: SupportCaseUpdate, session: SessionDep) -
     return support_case
 
 
-@app.delete("/api/cases/{case_id}")
+@app.delete("/api/cases/{case_id}", dependencies=[Depends(require_permission("crm:write"))])
 def delete_case(case_id: int, session: SessionDep) -> dict[str, bool | int | str]:
     support_case = session.get(SupportCase, case_id)
     if not support_case:
@@ -1194,7 +1239,7 @@ def delete_case(case_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("case", case_id)
 
 
-@app.get("/api/tasks", response_model=list[TaskItemRead] | PaginatedResponse[TaskItemRead])
+@app.get("/api/tasks", response_model=list[TaskItemRead] | PaginatedResponse[TaskItemRead], dependencies=[Depends(require_permission("crm:read"))])
 def list_tasks(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -1216,7 +1261,7 @@ def list_tasks(
     return paginate_or_list(tasks, page=page, per_page=per_page)
 
 
-@app.post("/api/tasks", response_model=TaskItemRead, status_code=201)
+@app.post("/api/tasks", response_model=TaskItemRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
 def create_task(payload: TaskItemCreate, session: SessionDep) -> TaskItem:
     task = TaskItem(**payload.model_dump())
     session.add(task)
@@ -1235,7 +1280,7 @@ def create_task(payload: TaskItemCreate, session: SessionDep) -> TaskItem:
     return task
 
 
-@app.patch("/api/tasks/{task_id}", response_model=TaskItemRead)
+@app.patch("/api/tasks/{task_id}", response_model=TaskItemRead, dependencies=[Depends(require_permission("crm:write"))])
 def update_task(task_id: int, payload: TaskItemUpdate, session: SessionDep) -> TaskItem:
     task = session.get(TaskItem, task_id)
     if not task:
@@ -1257,7 +1302,7 @@ def update_task(task_id: int, payload: TaskItemUpdate, session: SessionDep) -> T
     return task
 
 
-@app.delete("/api/tasks/{task_id}")
+@app.delete("/api/tasks/{task_id}", dependencies=[Depends(require_permission("crm:write"))])
 def delete_task(task_id: int, session: SessionDep) -> dict[str, bool | int | str]:
     task = session.get(TaskItem, task_id)
     if not task:
@@ -1276,7 +1321,7 @@ def delete_task(task_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("task", task_id)
 
 
-@app.get("/api/goals", response_model=list[SalesGoalRead] | PaginatedResponse[SalesGoalRead])
+@app.get("/api/goals", response_model=list[SalesGoalRead] | PaginatedResponse[SalesGoalRead], dependencies=[Depends(require_permission("crm:read"))])
 def list_goals(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -1289,7 +1334,7 @@ def list_goals(
     return paginate_or_list(goals, page=page, per_page=per_page)
 
 
-@app.post("/api/goals", response_model=SalesGoalRead, status_code=201)
+@app.post("/api/goals", response_model=SalesGoalRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
 def create_goal(payload: SalesGoalCreate, session: SessionDep) -> SalesGoal:
     progress = payload.progress
     if progress is None:
@@ -1318,7 +1363,7 @@ def create_goal(payload: SalesGoalCreate, session: SessionDep) -> SalesGoal:
     return goal
 
 
-@app.patch("/api/goals/{goal_id}", response_model=SalesGoalRead)
+@app.patch("/api/goals/{goal_id}", response_model=SalesGoalRead, dependencies=[Depends(require_permission("crm:write"))])
 def update_goal(goal_id: int, payload: SalesGoalUpdate, session: SessionDep) -> SalesGoal:
     goal = session.get(SalesGoal, goal_id)
     if not goal:
@@ -1342,7 +1387,7 @@ def update_goal(goal_id: int, payload: SalesGoalUpdate, session: SessionDep) -> 
     return goal
 
 
-@app.delete("/api/goals/{goal_id}")
+@app.delete("/api/goals/{goal_id}", dependencies=[Depends(require_permission("crm:write"))])
 def delete_goal(goal_id: int, session: SessionDep) -> dict[str, bool | int | str]:
     goal = session.get(SalesGoal, goal_id)
     if not goal:
@@ -1361,7 +1406,7 @@ def delete_goal(goal_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("goal", goal_id)
 
 
-@app.get("/api/ai-audit-logs", response_model=list[AIInteractionLogRead] | PaginatedResponse[AIInteractionLogRead])
+@app.get("/api/ai-audit-logs", response_model=list[AIInteractionLogRead] | PaginatedResponse[AIInteractionLogRead], dependencies=[Depends(require_permission("audit:read"))])
 def list_ai_audit_logs(
     session: SessionDep,
     limit: int = 30,
@@ -1392,7 +1437,7 @@ def list_ai_audit_logs(
     return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/business-audit-logs", response_model=list[BusinessAuditLogRead] | PaginatedResponse[BusinessAuditLogRead])
+@app.get("/api/business-audit-logs", response_model=list[BusinessAuditLogRead] | PaginatedResponse[BusinessAuditLogRead], dependencies=[Depends(require_permission("audit:read"))])
 def list_business_audit_logs(
     session: SessionDep,
     limit: int = 40,
@@ -1423,7 +1468,7 @@ def list_business_audit_logs(
     return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/orders", response_model=list[SalesOrderRead] | PaginatedResponse[SalesOrderRead])
+@app.get("/api/orders", response_model=list[SalesOrderRead] | PaginatedResponse[SalesOrderRead], dependencies=[Depends(require_permission("order:manage"))])
 def list_orders(
     session: SessionDep,
     page: int | None = Query(default=None, ge=1),
@@ -1448,7 +1493,7 @@ def list_orders(
     return paginate_or_list(serialized_orders, page=page, per_page=per_page)
 
 
-@app.get("/api/orders/export.csv")
+@app.get("/api/orders/export.csv", dependencies=[Depends(require_permission("order:manage"))])
 def export_orders_csv(session: SessionDep) -> Response:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
     csv_content = build_orders_csv([serialize_order(order, session) for order in orders])
@@ -1459,7 +1504,7 @@ def export_orders_csv(session: SessionDep) -> Response:
     )
 
 
-@app.get("/api/orders/{order_id}/inventory-movements", response_model=list[InventoryMovementRead])
+@app.get("/api/orders/{order_id}/inventory-movements", response_model=list[InventoryMovementRead], dependencies=[Depends(require_permission("order:manage"))])
 def get_order_inventory_movements(order_id: int, session: SessionDep) -> list[InventoryMovementRead]:
     order = session.get(SalesOrder, order_id)
     if not order:
@@ -1473,7 +1518,7 @@ def get_order_inventory_movements(order_id: int, session: SessionDep) -> list[In
     return [serialize_inventory_movement(movement, session) for movement in movements]
 
 
-@app.patch("/api/orders/{order_id}", response_model=SalesOrderRead)
+@app.patch("/api/orders/{order_id}", response_model=SalesOrderRead, dependencies=[Depends(require_permission("order:manage"))])
 def update_order(order_id: int, payload: SalesOrderUpdate, session: SessionDep) -> SalesOrderRead:
     order = session.get(SalesOrder, order_id)
     if not order:
@@ -1501,7 +1546,7 @@ def update_order(order_id: int, payload: SalesOrderUpdate, session: SessionDep) 
     return serialize_order(order, session)
 
 
-@app.post("/api/orders", response_model=SalesOrderRead, status_code=201)
+@app.post("/api/orders", response_model=SalesOrderRead, status_code=201, dependencies=[Depends(require_permission("order:manage"))])
 def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRead:
     customer = session.get(Customer, payload.customer_id)
     if not customer:
@@ -1577,7 +1622,7 @@ def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRe
     return serialize_order(order, session)
 
 
-@app.post("/api/vision-extract", response_model=VisionExtractResponse)
+@app.post("/api/vision-extract", response_model=VisionExtractResponse, dependencies=[Depends(require_permission("ai:use"))])
 async def vision_extract(file: Annotated[UploadFile, File(...)], session: SessionDep) -> VisionExtractResponse:
     start_time = perf_counter()
     filename = file.filename or "uploaded-file"
@@ -1597,7 +1642,7 @@ async def vision_extract(file: Annotated[UploadFile, File(...)], session: Sessio
     return result
 
 
-@app.get("/api/copilot/summary", response_model=CopilotSummaryResponse)
+@app.get("/api/copilot/summary", response_model=CopilotSummaryResponse, dependencies=[Depends(require_permission("ai:use"))])
 async def copilot_summary(session: SessionDep) -> CopilotSummaryResponse:
     start_time = perf_counter()
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
@@ -1616,7 +1661,7 @@ async def copilot_summary(session: SessionDep) -> CopilotSummaryResponse:
     return result
 
 
-@app.post("/api/copilot/follow-up", response_model=CopilotFollowUpResponse)
+@app.post("/api/copilot/follow-up", response_model=CopilotFollowUpResponse, dependencies=[Depends(require_permission("ai:use"))])
 async def copilot_follow_up(payload: CopilotFollowUpRequest, session: SessionDep) -> CopilotFollowUpResponse:
     start_time = perf_counter()
     lead = session.get(SalesLead, payload.lead_id) if payload.lead_id else None
@@ -1637,7 +1682,7 @@ async def copilot_follow_up(payload: CopilotFollowUpRequest, session: SessionDep
     return result
 
 
-@app.post("/api/copilot/order-draft", response_model=CopilotOrderDraftResponse)
+@app.post("/api/copilot/order-draft", response_model=CopilotOrderDraftResponse, dependencies=[Depends(require_permission("ai:use"))])
 async def copilot_order_draft(payload: CopilotOrderDraftRequest, session: SessionDep) -> CopilotOrderDraftResponse:
     start_time = perf_counter()
     customer = session.get(Customer, payload.customer_id)
@@ -1669,7 +1714,7 @@ async def copilot_order_draft(payload: CopilotOrderDraftRequest, session: Sessio
     return result
 
 
-@app.get("/api/dashboard", response_model=DashboardResponse)
+@app.get("/api/dashboard", response_model=DashboardResponse, dependencies=[Depends(require_permission("dashboard:read"))])
 def get_dashboard(session: SessionDep) -> DashboardResponse:
     orders = session.exec(select(SalesOrder)).all()
     leads = session.exec(select(SalesLead)).all()

@@ -1,17 +1,32 @@
 from collections import Counter
 
 import pytest
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient as FastAPITestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app import database
 from app.config import settings
 import app.main as main_module
+from app.models import AuthUser
 from app.seed import seed_data
 
 
 app = main_module.app
+
+
+class TestClient(FastAPITestClient):
+    def __init__(self, *args, auth: bool = True, **kwargs):
+        self._auto_auth = auth
+        super().__init__(*args, **kwargs)
+
+    def __enter__(self):
+        client = super().__enter__()
+        if self._auto_auth:
+            login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+            assert login.status_code == 200
+            client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})
+        return client
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +135,58 @@ def test_auth_register_new_workspace() -> None:
     assert "已注册" in duplicate.json()["detail"]
     assert me.status_code == 200
     assert me.json()["user"]["organization_name"] == "课程答辩测试组"
+
+
+def test_rbac_rejects_unauthenticated_business_api() -> None:
+    with TestClient(app, auth=False) as client:
+        protected_response = client.get("/api/customers")
+        login_response = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+
+    assert protected_response.status_code == 401
+    assert protected_response.json()["detail"] == "请先登录"
+    assert login_response.status_code == 200
+
+
+def test_rbac_sales_role_permissions() -> None:
+    register_payload = {
+        "organization_name": "销售权限测试组",
+        "full_name": "销售权限用户",
+        "email": "sales-rbac@smart-crm.local",
+        "phone": "18800002222",
+        "password": "Sales@2026",
+        "confirm_password": "Sales@2026",
+    }
+
+    with TestClient(app, auth=False) as client:
+        created = client.post("/api/auth/register", json=register_payload)
+        assert created.status_code == 201
+
+        with Session(main_module.engine) as session:
+            user = session.exec(select(AuthUser).where(AuthUser.email == "sales-rbac@smart-crm.local")).one()
+            user.role = "销售"
+            session.add(user)
+            session.commit()
+
+        login = client.post("/api/auth/login", json={"account": "sales-rbac@smart-crm.local", "password": "Sales@2026"})
+        token = login.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        me = client.get("/api/auth/me", headers=headers)
+        customers = client.get("/api/customers", headers=headers)
+        created_customer = client.post("/api/customers", json={"company": "销售权限客户", "contact_person": "销售员"}, headers=headers)
+        denied_product = client.post(
+            "/api/products",
+            json={"name": "无权限商品", "sku": "RBAC-DENIED-001", "category": "软件", "unit_price": 100, "stock": 1},
+            headers=headers,
+        )
+        denied_audit = client.get("/api/business-audit-logs", headers=headers)
+
+    assert login.status_code == 200
+    assert me.json()["user"]["role"] == "销售"
+    assert "catalog:manage" not in me.json()["user"]["permissions"]
+    assert customers.status_code == 200
+    assert created_customer.status_code == 201
+    assert denied_product.status_code == 403
+    assert denied_audit.status_code == 403
 
 
 def test_paginated_collection_queries() -> None:

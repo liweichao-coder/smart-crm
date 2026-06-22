@@ -108,20 +108,20 @@ import { buildClientRecord, createDraftFromColumns } from './resourceUtils.js'
 const STORAGE_KEY = 'huahenuancrm:selected-org'
 
 const navItems = [
-  { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM' },
-  { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM' },
-  { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM' },
-  { path: '/business-audit', label: '操作审计', icon: ClipboardList, title: 'Business Audit | 深大 AI CRM' },
-  { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM' },
-  { path: '/orders', label: '订单', icon: Activity, title: 'Orders | 深大 AI CRM' },
-  { path: '/products', label: '商品', icon: Package, title: 'Products | 深大 AI CRM' },
-  { path: '/leads', label: '线索', icon: Target, title: 'Leads | 深大 AI CRM' },
-  { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 深大 AI CRM' },
-  { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 深大 AI CRM' },
-  { path: '/opportunities', label: '商机', icon: Sparkles, title: 'Opportunities | 深大 AI CRM' },
-  { path: '/goals', label: '销售目标', icon: Trophy, title: 'Sales Goals | 深大 AI CRM' },
-  { path: '/cases', label: '工单', icon: Briefcase, title: 'Cases | 深大 AI CRM' },
-  { path: '/tasks', label: '任务', icon: CheckSquare, title: 'Tasks | 深大 AI CRM' },
+  { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM', permission: 'dashboard:read' },
+  { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM', permission: 'ai:use' },
+  { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM', permission: 'audit:read' },
+  { path: '/business-audit', label: '操作审计', icon: ClipboardList, title: 'Business Audit | 深大 AI CRM', permission: 'audit:read' },
+  { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM', permission: 'ai:use' },
+  { path: '/orders', label: '订单', icon: Activity, title: 'Orders | 深大 AI CRM', permission: 'order:manage' },
+  { path: '/products', label: '商品', icon: Package, title: 'Products | 深大 AI CRM', permission: 'catalog:manage' },
+  { path: '/leads', label: '线索', icon: Target, title: 'Leads | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/opportunities', label: '商机', icon: Sparkles, title: 'Opportunities | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/goals', label: '销售目标', icon: Trophy, title: 'Sales Goals | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/cases', label: '工单', icon: Briefcase, title: 'Cases | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/tasks', label: '任务', icon: CheckSquare, title: 'Tasks | 深大 AI CRM', permission: 'crm:read' },
 ]
 
 const pageItems = [...navItems, { path: '/profile', label: '个人主页', title: 'Profile | 深大 AI CRM' }]
@@ -134,6 +134,7 @@ const userProfile = {
   department: '客户增长中心',
   location: '上海 · 浦东',
   joinDate: '2024 年 2 月 18 日',
+  permissions: ['*'],
 }
 
 const statusToneMap = {
@@ -648,6 +649,14 @@ function RequireAuth({ authSession, children }) {
     return <Navigate replace to="/login" />
   }
   return children
+}
+
+function hasClientPermission(authSession, permission) {
+  if (!permission) {
+    return true
+  }
+  const permissions = authSession?.user?.permissions ?? []
+  return permissions.includes('*') || permissions.includes(permission)
 }
 
 function App() {
@@ -1231,6 +1240,7 @@ function AppShell({ authSession, onLogout }) {
   const [selectedOrg, setSelectedOrg] = useState(loadStoredOrg())
   const location = useLocation()
   const navigate = useNavigate()
+  const allowedNavItems = navItems.filter((item) => hasClientPermission(authSession, item.permission))
   const currentPage = pageItems.find((item) => location.pathname.startsWith(item.path)) ?? navItems[0]
   const isProfilePage = location.pathname.startsWith('/profile')
   const activeProfile = buildUserProfile(authSession?.user)
@@ -1261,7 +1271,7 @@ function AppShell({ authSession, onLogout }) {
           <div className="crm-sidebar-group">
             <div className="crm-sidebar-label">CRM</div>
             <nav className="crm-nav">
-              {navItems.map(({ path, label, icon: Icon }) => (
+              {allowedNavItems.map(({ path, label, icon: Icon }) => (
                 <NavLink
                   key={path}
                   to={path}
@@ -3468,6 +3478,7 @@ function ProfilePage() {
     { label: '登录方式', value: '账号密码', tone: 'neutral' },
     { label: '账户状态', value: '正常', tone: 'success' },
     { label: '组织权限', value: selectedOrg.role, tone: 'accent' },
+    { label: '权限策略', value: activeProfile.permissions.includes('*') ? '全部权限' : `${activeProfile.permissions.length} 项权限`, tone: 'info' },
   ]
 
   return (
@@ -3873,6 +3884,7 @@ function buildUserProfile(user) {
     department: user.department || userProfile.department,
     location: user.location || userProfile.location,
     joinDate: formatProfileDate(user.created_at),
+    permissions: user.permissions ?? [],
   }
 }
 

@@ -41,6 +41,7 @@ class AuthUserRead(BaseModel):
     department: str
     location: str
     status: str
+    permissions: list[str]
     created_at: datetime
     last_login_at: datetime | None = None
 

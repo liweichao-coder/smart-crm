@@ -106,7 +106,8 @@ Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.token)" } `
 Manual API smoke:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/copilot/summary
+Invoke-WebRequest -UseBasicParsing -Headers @{ Authorization = "Bearer $($login.token)" } `
+  http://127.0.0.1:8000/api/copilot/summary
 ```
 
 If `SMART_CRM_LLM_API_KEY` is configured and valid, Copilot responses should report `fallback_used: false`. Without a key, the system still returns explainable rule-based recommendations with `fallback_used: true`.
@@ -118,7 +119,9 @@ $text = "客户：云川医疗 联系人：陈敏`n智能巡检终端 x2`n客户
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($text)
 $file = Join-Path $env:TEMP "smart-crm-order.txt"
 [System.IO.File]::WriteAllBytes($file, $bytes)
-curl.exe -F "file=@$file;type=text/plain" http://127.0.0.1:8000/api/vision-extract
+curl.exe -H "Authorization: Bearer $($login.token)" `
+  -F "file=@$file;type=text/plain" `
+  http://127.0.0.1:8000/api/vision-extract
 ```
 
 Set `SMART_CRM_LLM_VISION_MODEL` to a vision-capable OpenAI-compatible model when the configured provider supports image inputs. If it is empty, Smart CRM reuses `SMART_CRM_LLM_MODEL`; when the provider rejects image messages, the API falls back to local text parsing or catalog fallback and marks `fallback_used: true`.
@@ -126,21 +129,36 @@ Set `SMART_CRM_LLM_VISION_MODEL` to a vision-capable OpenAI-compatible model whe
 Resource API smoke:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/customers
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/contacts
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/leads
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/cases
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/tasks
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/goals
+$auth = @{ Authorization = "Bearer $($login.token)" }
+Invoke-WebRequest -UseBasicParsing -Headers $auth http://127.0.0.1:8000/api/customers
+Invoke-WebRequest -UseBasicParsing -Headers $auth http://127.0.0.1:8000/api/contacts
+Invoke-WebRequest -UseBasicParsing -Headers $auth http://127.0.0.1:8000/api/leads
+Invoke-WebRequest -UseBasicParsing -Headers $auth http://127.0.0.1:8000/api/cases
+Invoke-WebRequest -UseBasicParsing -Headers $auth http://127.0.0.1:8000/api/tasks
+Invoke-WebRequest -UseBasicParsing -Headers $auth http://127.0.0.1:8000/api/goals
+```
+
+RBAC smoke:
+
+```powershell
+try {
+  Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/customers
+} catch {
+  $_.Exception.Response.StatusCode.value__
+}
+# Expected: 401 without Authorization.
+
+# The default demo admin has all permissions. Pytest also covers a sales-role account:
+# customer read/write succeeds, while product create and audit-log read return 403.
 ```
 
 Paginated search/filter smoke:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/api/customers?page=1&per_page=3&q=深圳"
-Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/api/products?page=1&per_page=2&category=软件"
-Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/api/leads?page=1&per_page=5&stage=proposal&ai_assisted=true"
-Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/api/orders?page=1&per_page=2&status=draft&created_by_ai=true"
+Invoke-WebRequest -UseBasicParsing -Headers $auth "http://127.0.0.1:8000/api/customers?page=1&per_page=3&q=深圳"
+Invoke-WebRequest -UseBasicParsing -Headers $auth "http://127.0.0.1:8000/api/products?page=1&per_page=2&category=软件"
+Invoke-WebRequest -UseBasicParsing -Headers $auth "http://127.0.0.1:8000/api/leads?page=1&per_page=5&stage=proposal&ai_assisted=true"
+Invoke-WebRequest -UseBasicParsing -Headers $auth "http://127.0.0.1:8000/api/orders?page=1&per_page=2&status=draft&created_by_ai=true"
 ```
 
 When `page` or `per_page` is provided, list APIs return `{ items, total, page, per_page, pages, has_next, has_previous }`. Without pagination parameters they keep returning the original array shape, so the existing frontend remains compatible.
