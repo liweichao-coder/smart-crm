@@ -56,12 +56,14 @@ import {
   fetchDashboard,
   fetchGoals,
   fetchLeads,
+  fetchOrders,
   fetchProducts,
   fetchTasks,
   extractOrderFromFile,
   generateFollowUp,
 } from './api.js'
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
+import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { buildClientRecord, createDraftFromColumns } from './resourceUtils.js'
 
 const STORAGE_KEY = 'huahenuancrm:selected-org'
@@ -70,6 +72,7 @@ const navItems = [
   { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM' },
   { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM' },
   { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM' },
+  { path: '/orders', label: '订单', icon: Activity, title: 'Orders | 深大 AI CRM' },
   { path: '/leads', label: '线索', icon: Target, title: 'Leads | 深大 AI CRM' },
   { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 深大 AI CRM' },
   { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 深大 AI CRM' },
@@ -106,6 +109,9 @@ const statusToneMap = {
   open: 'accent',
   working: 'warning',
   closed: 'neutral',
+  draft: 'warning',
+  confirmed: 'accent',
+  fulfilled: 'success',
 }
 
 const boardToneMap = {
@@ -148,6 +154,12 @@ const dashboardMetricMeta = {
   'AI 参与订单': { icon: Sparkles, tone: 'proposal' },
   在跟进商机: { icon: Target, tone: 'qualified' },
   客户总数: { icon: Users, tone: 'won' },
+}
+
+const orderStatusLabelMap = {
+  draft: '草稿',
+  confirmed: '已确认',
+  fulfilled: '已履约',
 }
 
 function mapStageLabel(stage) {
@@ -378,6 +390,7 @@ function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/capture" element={<CapturePage />} />
+        <Route path="/orders" element={<OrdersPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/accounts" element={<AccountsPage />} />
         <Route path="/contacts" element={<ContactsPage />} />
@@ -1513,6 +1526,208 @@ function CapturePage() {
           {result.raw_text_excerpt ? <small>{result.raw_text_excerpt}</small> : null}
         </section>
       ) : null}
+    </div>
+  )
+}
+
+function OrdersPage() {
+  const navigate = useNavigate()
+  const [orders, setOrders] = useState([])
+  const [products, setProducts] = useState([])
+  const [activeTab, setActiveTab] = useState('all')
+  const [selectedOrderId, setSelectedOrderId] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    Promise.all([fetchOrders(), fetchProducts()])
+      .then(([nextOrders, nextProducts]) => {
+        if (mounted) {
+          setOrders(nextOrders)
+          setProducts(nextProducts)
+          setSelectedOrderId(nextOrders[0]?.id ?? null)
+          setError('')
+        }
+      })
+      .catch((nextError) => {
+        if (mounted) {
+          setError(nextError.message || '订单和库存数据加载失败')
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const summary = useMemo(() => summarizeOrders(orders), [orders])
+  const visibleOrders = useMemo(() => filterOrders(orders, activeTab), [activeTab, orders])
+  const selectedOrder = useMemo(() => {
+    return visibleOrders.find((order) => order.id === selectedOrderId) ?? visibleOrders[0] ?? orders[0] ?? null
+  }, [orders, selectedOrderId, visibleOrders])
+  const lowStockProducts = useMemo(() => pickLowStockProducts(products), [products])
+  const maxStock = useMemo(() => Math.max(1, ...products.map((product) => Number(product.stock ?? 0))), [products])
+
+  return (
+    <div className="crm-page-stack">
+      <ResourceHeader
+        title="订单中心"
+        subtitle="查看智能录单提交后的真实订单、订单明细和库存扣减结果。"
+        icon={Activity}
+        createLabel="去智能录单"
+        tabs={ORDER_FILTERS}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onCreate={() => navigate('/capture')}
+      />
+      <ResourceSyncState loading={loading} error={error} />
+
+      <section className="crm-metric-grid">
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-won">
+            <TrendingUp size={18} />
+          </div>
+          <div>
+            <span>订单总额</span>
+            <strong>{formatCurrency(summary.totalRevenue)}</strong>
+            <small>{summary.orderCount} 张订单 / {summary.totalItems} 个明细条目</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-proposal">
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <span>AI 创建订单</span>
+            <strong>{summary.aiOrderCount}</strong>
+            <small>平均置信度 {formatPercent(summary.avgConfidence)}</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-new">
+            <FileText size={18} />
+          </div>
+          <div>
+            <span>草稿待确认</span>
+            <strong>{summary.draftCount}</strong>
+            <small>可从智能录单继续提交</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-qualified">
+            <Shield size={18} />
+          </div>
+          <div>
+            <span>低库存关注</span>
+            <strong>{lowStockProducts.filter((product) => getStockTone(product) !== 'success').length}</strong>
+            <small>按库存余量自动排序</small>
+          </div>
+        </article>
+      </section>
+
+      <section className="crm-dashboard-grid">
+        <div className="crm-panel">
+          <PanelHeader title="订单列表" />
+          <small>{visibleOrders.length} 条订单，点击任意行查看明细。</small>
+          <div className="crm-table-wrap">
+            <table className="crm-table">
+              <thead>
+                <tr>
+                  <th>订单</th>
+                  <th>客户</th>
+                  <th>状态</th>
+                  <th>来源</th>
+                  <th>金额</th>
+                  <th>交付日期</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleOrders.map((order) => (
+                  <tr
+                    key={order.id}
+                    className={selectedOrder?.id === order.id ? 'is-selected' : ''}
+                    onClick={() => setSelectedOrderId(order.id)}
+                  >
+                    <td>
+                      <div className="crm-table-stack">
+                        <strong>#{order.id}</strong>
+                        <span>{order.owner}</span>
+                      </div>
+                    </td>
+                    <td>{order.customer_name}</td>
+                    <td><StatusBadge value={orderStatusLabelMap[order.status] ?? order.status} tone={statusToneMap[order.status] ?? 'neutral'} /></td>
+                    <td><StatusBadge value={order.created_by_ai ? 'AI' : '人工'} tone={order.created_by_ai ? 'accent' : 'neutral'} /></td>
+                    <td>{formatCurrency(order.total_amount)}</td>
+                    <td>{order.due_date}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!loading && !error && !visibleOrders.length ? <EmptyState icon={Activity} title="暂无匹配订单" subtitle="切换筛选条件或从智能录单创建新订单。" /> : null}
+        </div>
+
+        <div className="crm-panel">
+          <PanelHeader title="订单明细" />
+          {selectedOrder ? (
+            <div className="crm-progress-list">
+              <div className="crm-list-item">
+                <div>
+                  <strong>{selectedOrder.customer_name}</strong>
+                  <span>{selectedOrder.order_date} 创建 / {selectedOrder.due_date} 交付</span>
+                </div>
+                <div className="crm-list-value">{formatCurrency(selectedOrder.total_amount)}</div>
+              </div>
+              <div className="crm-list-item">
+                <div>
+                  <strong>{selectedOrder.created_by_ai ? 'AI Capture 录入' : '人工录入'}</strong>
+                  <span>{selectedOrder.notes || '暂无备注'}</span>
+                </div>
+                <StatusBadge value={formatPercent(selectedOrder.ai_confidence_score ?? 0)} tone={selectedOrder.created_by_ai ? 'accent' : 'neutral'} />
+              </div>
+              {selectedOrder.items.map((item) => (
+                <div key={item.id} className="crm-list-item">
+                  <div>
+                    <strong>{item.product_name}</strong>
+                    <span>{item.quantity} 件 x {formatCurrency(item.unit_price)}</span>
+                  </div>
+                  <div className="crm-list-value">{formatCurrency(item.line_total)}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={Activity} title="暂无订单明细" subtitle="后端订单数据同步后会显示在这里。" />
+          )}
+        </div>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="库存扣减追踪" />
+        <div className="crm-stock-grid">
+          {lowStockProducts.map((product) => {
+            const tone = getStockTone(product)
+            const stockWidth = Math.max(8, Math.round((Number(product.stock ?? 0) / maxStock) * 100))
+            return (
+              <article key={product.id} className="crm-stock-card">
+                <div>
+                  <strong>{product.name}</strong>
+                  <span>{product.sku} · {product.category} · {formatCurrency(product.unit_price)}</span>
+                </div>
+                <StatusBadge value={`${product.stock} 件`} tone={tone} />
+                <div className="crm-progress-track">
+                  <div className={`crm-progress-bar tone-${tone}`} style={{ width: `${stockWidth}%` }} />
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      </section>
     </div>
   )
 }

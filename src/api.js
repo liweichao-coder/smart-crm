@@ -74,6 +74,10 @@ export function fetchGoals() {
   return request('/api/goals')
 }
 
+export function fetchOrders() {
+  return request('/api/orders')
+}
+
 export function createOrder(payload) {
   return request('/api/orders', {
     method: 'POST',

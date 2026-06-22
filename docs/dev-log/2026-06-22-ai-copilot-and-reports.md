@@ -20,6 +20,8 @@ The course exam requires a full software engineering process package, not only c
 - Replaced deterministic AI capture samples with `/api/vision-extract` real upload parsing: image inputs use OpenAI-compatible multimodal messages when configured; text uploads use local extraction against the CRM customer/product catalog.
 - Added the frontend AI Capture page for uploading order images or text and reviewing extracted draft items.
 - Connected AI Capture draft review to `/api/orders`, so accepted drafts create real orders and trigger backend inventory deduction.
+- Added a dedicated Orders page backed by `/api/orders` and `/api/products`, including order filters, selected order details, AI/manual source badges, and low-stock inventory cards.
+- Added `src/orderUtils.js` and tests for order summary, filtering, and inventory severity logic.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -41,7 +43,7 @@ The course exam requires a full software engineering process package, not only c
 - `backend/.venv/Scripts/python.exe -m pytest`: 7 passed.
 - After AI capture upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 9 passed.
 - `npm run lint`: passed.
-- `npm test`: 12 passed.
+- `npm test`: 16 passed.
 - `npm run build`: passed.
 - Demo database reset succeeded with 12 customers, 10 products, 12 contacts, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, and 22 order items.
 - DeepSeek OpenAI-compatible smoke succeeded: summary and follow-up returned `fallback_used=false`.
@@ -55,9 +57,10 @@ The course exam requires a full software engineering process package, not only c
   - `/goals`: 4 cards.
   - `/dashboard`: metrics, focus strip, stage cards, tasks, opportunities, goals, and activities render from backend payloads.
   - `/capture`: upload UI calls `/api/vision-extract` and displays extracted customer, confidence, source, and order items.
+  - `/orders`: title `Orders | 深大 AI CRM`, 12 backend orders, 4 metrics, and 6 low-stock inventory cards render without console errors.
 - End-to-end AI Capture smoke succeeded: text upload returned `source=llm_text`, then `/api/orders` created order `#13`, total `37800`, with 2 items; demo DB was reset afterward.
 
 ## Next Steps
 
-- Add a dedicated order center UI for inspecting submitted AI orders and stock changes.
+- Add order editing/export and inventory restock reminders.
 - Capture screenshots and export Word/PPT final materials.
