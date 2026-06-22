@@ -707,6 +707,61 @@ def test_update_and_delete_business_resources() -> None:
         assert (entity_type, "delete") in audit_actions
 
 
+def test_customer_workspace_aggregates_account_plan(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    with TestClient(app) as client:
+        order = client.get("/api/orders").json()[0]
+        response = client.get(f"/api/customers/{order['customer_id']}/workspace")
+        audit_response = client.get("/api/ai-audit-logs?operation=customer_account_plan")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["customer"]["id"] == order["customer_id"]
+    assert {metric["label"] for metric in payload["metrics"]} == {"客户健康分", "累计收入", "在管商机", "服务风险"}
+    assert payload["orders"]
+    assert any(item["category"] == "订单" for item in payload["timeline"])
+    assert payload["account_plan"]["fallback_used"] is True
+    assert payload["account_plan"]["summary"]
+    assert payload["account_plan"]["next_actions"]
+
+    assert audit_response.status_code == 200
+    assert any(item["operation"] == "customer_account_plan" for item in audit_response.json())
+
+
+def test_customer_workspace_respects_sales_scope(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    register_payload = {
+        "organization_name": "客户工作台权限组",
+        "full_name": "李伟超",
+        "email": "workspace-sales@smart-crm.local",
+        "phone": "18800004444",
+        "password": "Sales@2026",
+        "confirm_password": "Sales@2026",
+    }
+
+    with TestClient(app, auth=False) as client:
+        created = client.post("/api/auth/register", json=register_payload)
+        assert created.status_code == 201
+        with Session(main_module.engine) as session:
+            user = session.exec(select(AuthUser).where(AuthUser.email == "workspace-sales@smart-crm.local")).one()
+            user.role = "销售"
+            other_customer = session.exec(select(Customer).where(Customer.owner != "李伟超")).first()
+            assert other_customer is not None
+            other_customer_id = other_customer.id
+            session.add(user)
+            session.commit()
+
+        login = client.post("/api/auth/login", json={"account": "workspace-sales@smart-crm.local", "password": "Sales@2026"})
+        headers = {"Authorization": f"Bearer {login.json()['token']}"}
+        own_customer = client.get("/api/customers", headers=headers).json()[0]
+        own_workspace = client.get(f"/api/customers/{own_customer['id']}/workspace", headers=headers)
+        denied_workspace = client.get(f"/api/customers/{other_customer_id}/workspace", headers=headers)
+
+    assert own_workspace.status_code == 200
+    assert own_workspace.json()["customer"]["owner"] == "李伟超"
+    assert denied_workspace.status_code == 403
+
+
 def test_create_order() -> None:
     with TestClient(app) as client:
         customers = client.get("/api/customers").json()

@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from .auth import generate_session_token, hash_password, hash_session_token, verify_password
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, InventoryMovement, OrderApprovalRequest, OrderApprovalStatus, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
     AuthAuditLogRead,
@@ -42,6 +42,8 @@ from .schemas import (
     CustomerCreate,
     CustomerRead,
     CustomerUpdate,
+    CustomerTimelineItem,
+    CustomerWorkspaceResponse,
     DashboardMetric,
     DashboardResponse,
     InventoryMovementRead,
@@ -885,6 +887,119 @@ def serialize_order(order: SalesOrder, session: Session) -> SalesOrderRead:
     )
 
 
+def customer_aliases(customer: Customer) -> set[str]:
+    return {value for value in {customer.company, customer.name, customer.contact_person} if value}
+
+
+def build_customer_workspace_metrics(
+    contacts: list[Contact],
+    leads: list[SalesLead],
+    orders: list[SalesOrder],
+    cases: list[SupportCase],
+) -> list[DashboardMetric]:
+    open_leads = [lead for lead in leads if lead.stage not in {LeadStage.won, LeadStage.lost}]
+    active_cases = [support_case for support_case in cases if support_case.status not in {"resolved", "closed"}]
+    total_revenue = sum(order.total_amount for order in orders)
+    pipeline_amount = sum(lead.expected_amount for lead in open_leads)
+    health_score = round(
+        max(
+            0,
+            min(
+                100,
+                50
+                + min(total_revenue / 50000, 20)
+                + min(pipeline_amount / 50000, 20)
+                + min(len(contacts) * 3, 12)
+                - len(active_cases) * 8,
+            ),
+        )
+    )
+
+    return [
+        DashboardMetric(label="客户健康分", value=str(health_score), hint="由收入、管道、联系人和服务风险综合计算"),
+        DashboardMetric(label="累计收入", value=f"{total_revenue:.0f}", hint=f"{len(orders)} 张订单"),
+        DashboardMetric(label="在管商机", value=f"{pipeline_amount:.0f}", hint=f"{len(open_leads)} 个未关闭机会"),
+        DashboardMetric(label="服务风险", value=str(len(active_cases)), hint="未关闭工单数量"),
+    ]
+
+
+def build_customer_timeline(
+    customer: Customer,
+    leads: list[SalesLead],
+    orders: list[SalesOrder],
+    cases: list[SupportCase],
+    recommendations: list[CopilotRecommendation],
+) -> list[CustomerTimelineItem]:
+    items: list[CustomerTimelineItem] = [
+        CustomerTimelineItem(
+            id=f"customer-{customer.id}",
+            category="客户",
+            title=f"客户档案创建：{customer.company}",
+            description=f"行业 {customer.industry}，等级 {customer.level}，负责人 {customer.owner}。",
+            timestamp=customer.created_at,
+            href="/accounts",
+            severity="info",
+        )
+    ]
+
+    for order in orders:
+        tone = "success" if order.status.value in {"confirmed", "fulfilled"} else "warning"
+        items.append(
+            CustomerTimelineItem(
+                id=f"order-{order.id}",
+                category="订单",
+                title=f"订单 #{order.id} {order.status.value}",
+                description=f"{'AI 创建' if order.created_by_ai else '人工创建'}，金额 {order.total_amount:.0f} 元，交付日 {order.due_date.isoformat()}。",
+                timestamp=order.created_at,
+                href="/orders",
+                severity=tone,
+            )
+        )
+
+    for lead in leads:
+        tone = "success" if lead.stage == LeadStage.won else "danger" if lead.stage == LeadStage.lost else "info"
+        items.append(
+            CustomerTimelineItem(
+                id=f"lead-{lead.id}",
+                category="商机",
+                title=lead.title,
+                description=f"阶段 {lead.stage.value}，金额 {lead.expected_amount:.0f} 元，下一步：{lead.next_action}",
+                timestamp=lead.created_at,
+                href="/opportunities",
+                severity=tone,
+            )
+        )
+
+    for support_case in cases:
+        tone = "danger" if support_case.priority == "hot" else "warning" if support_case.status not in {"resolved", "closed"} else "success"
+        items.append(
+            CustomerTimelineItem(
+                id=f"case-{support_case.id}",
+                category="工单",
+                title=support_case.title,
+                description=f"{support_case.status_label}，优先级 {support_case.priority}，截止 {support_case.due_date.isoformat()}。",
+                timestamp=support_case.created_at,
+                href="/cases",
+                severity=tone,
+            )
+        )
+
+    for recommendation in recommendations[:6]:
+        items.append(
+            CustomerTimelineItem(
+                id=f"recommendation-{recommendation.id}",
+                category="AI 建议",
+                title=recommendation.lead_title or recommendation.customer_name,
+                description=recommendation.next_best_action or recommendation.llm_summary or "Copilot 已生成客户经营建议。",
+                timestamp=recommendation.created_at,
+                href="/copilot",
+                severity="warning" if recommendation.grade in {"A", "B"} else "info",
+            )
+        )
+
+    return sorted(items, key=lambda item: item.timestamp, reverse=True)[:16]
+
+
 def build_order_approval_risk_summary(order: SalesOrder) -> str:
     risk_flags: list[str] = []
     if order.total_amount >= 100000:
@@ -1394,6 +1509,76 @@ def delete_customer(
     session.delete(customer)
     session.commit()
     return delete_response("customer", customer_id)
+
+
+@app.get("/api/customers/{customer_id}/workspace", response_model=CustomerWorkspaceResponse)
+async def get_customer_workspace(
+    customer_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
+) -> CustomerWorkspaceResponse:
+    customer = session.get(Customer, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    require_owner_scope(current_user, customer.owner)
+
+    aliases = customer_aliases(customer)
+    contacts = [
+        contact
+        for contact in session.exec(select(Contact).order_by(Contact.created_at.desc())).all()
+        if contact.company in aliases
+    ]
+    contacts = filter_by_owner_scope(contacts, current_user)
+
+    leads = [
+        lead
+        for lead in session.exec(select(SalesLead).order_by(SalesLead.created_at.desc())).all()
+        if lead.customer_name in aliases
+    ]
+    leads = filter_by_owner_scope(leads, current_user)
+
+    orders = session.exec(select(SalesOrder).where(SalesOrder.customer_id == customer.id).order_by(SalesOrder.created_at.desc())).all()
+    orders = filter_by_owner_scope(orders, current_user)
+
+    cases = [
+        support_case
+        for support_case in session.exec(select(SupportCase).order_by(SupportCase.created_at.desc())).all()
+        if support_case.account in aliases
+    ]
+    cases = filter_by_owner_scope(cases, current_user)
+
+    recommendations = [
+        recommendation
+        for recommendation in session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
+        if recommendation.customer_name in aliases
+    ]
+    recommendations = filter_by_owner_scope(recommendations, current_user)
+
+    start_time = perf_counter()
+    account_plan = await copilot_service.account_plan(customer, contacts, leads, orders, cases, recommendations)
+    save_ai_interaction(
+        session,
+        operation="customer_account_plan",
+        model=account_plan.model,
+        fallback_used=account_plan.fallback_used,
+        start_time=start_time,
+        request_summary=f"{customer.company} / {len(contacts)} contacts / {len(leads)} leads / {len(orders)} orders",
+        response_summary=account_plan.summary,
+        entity_type="customer",
+        entity_id=customer.id,
+    )
+
+    return CustomerWorkspaceResponse(
+        customer=customer,
+        metrics=build_customer_workspace_metrics(contacts, leads, orders, cases),
+        contacts=contacts,
+        leads=leads,
+        orders=[serialize_order(order, session) for order in orders],
+        cases=cases,
+        recommendations=[serialize_copilot_recommendation(recommendation) for recommendation in recommendations[:8]],
+        timeline=build_customer_timeline(customer, leads, orders, cases, recommendations),
+        account_plan=account_plan,
+    )
 
 
 @app.get("/api/products", response_model=list[ProductRead] | PaginatedResponse[ProductRead], dependencies=[Depends(require_permission("crm:read"))])

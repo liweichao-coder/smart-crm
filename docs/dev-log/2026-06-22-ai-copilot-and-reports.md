@@ -63,6 +63,7 @@ The course exam requires a full software engineering process package, not only c
 - Reworked panel-header actions so dashboard cards link to real modules, Copilot score rules expand inline, and informational labels render as non-clickable status text instead of inert buttons.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 - Added `python -m app.manage doctor` for teammate deployment checks. It verifies demo data counts, database setup, and LLM configuration state, returning non-zero when the local database is below the classroom-demo target.
+- Added a Customer 360 workspace with `GET /api/customers/{customer_id}/workspace`, account-level metrics, contacts/leads/orders/cases/recommendations, a chronological timeline, owner-scope enforcement, and an OpenAI-compatible LLM account plan with deterministic fallback.
 
 ## Report Changes
 
@@ -105,6 +106,7 @@ The course exam requires a full software engineering process package, not only c
 - After customer owner-scope upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 32 passed.
 - After current-user owner default upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 32 passed.
 - After environment doctor upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 34 passed.
+- After Customer 360 workspace upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 36 passed.
 - `npm run lint`: passed.
 - `npm test`: 24 passed.
 - `npm run build`: passed.
@@ -145,6 +147,8 @@ The course exam requires a full software engineering process package, not only c
 - Current-user owner default regression succeeded: a sales role can create contact, lead, case, task, and order payloads with empty or placeholder owners, and the API persists `李伟超`; frontend unit tests cover owner placeholder normalization.
 - Environment doctor smoke succeeded: `python -m app.manage doctor` reported the local demo database ready with 12 customers, 10 products, 15 leads/opportunities, 12 orders, 22 order items, 22 inventory movements, and 2 approval records.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
+- Customer 360 API smoke succeeded with the local LLM key: `/api/customers/{id}/workspace` returned customer metrics, 1 order, 4 timeline items, 3 next actions, and `account_plan.fallback_used=false`.
+- Browser smoke succeeded at `/accounts/{id}`: the customer workspace rendered account-plan content, metrics, orders, recommendations, and timeline without app errors.
 
 ## Next Steps
 

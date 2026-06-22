@@ -2155,6 +2155,42 @@ body {
   opacity: 0.62;
 }
 
+.crm-icon-flip {
+  transform: rotate(180deg);
+}
+
+.crm-account-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
+.crm-account-plan-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(148, 163, 184, 0.07);
+}
+
+.crm-account-plan-list strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.crm-account-plan-list span {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 @media (max-width: 1200px) {
   .crm-stage-row,
   .crm-metric-grid,
@@ -2162,6 +2198,7 @@ body {
   .crm-goal-grid,
   .crm-task-grid,
   .crm-board-grid,
+  .crm-account-plan-grid,
   .crm-stock-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2176,6 +2213,10 @@ body {
 }
 
 @media (max-width: 900px) {
+  .crm-account-plan-grid {
+    grid-template-columns: 1fr;
+  }
+
   .crm-auth-page {
     padding: 12px;
   }

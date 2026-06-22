@@ -714,3 +714,34 @@ class CopilotOrderDraftResponse(BaseModel):
     suggested_notes: str
     llm_summary: str
     fallback_used: bool
+
+
+class CustomerTimelineItem(BaseModel):
+    id: str
+    category: str
+    title: str
+    description: str
+    timestamp: datetime
+    href: str
+    severity: str = "info"
+
+
+class CustomerAccountPlanResponse(BaseModel):
+    summary: str
+    expansion_paths: list[str]
+    risks: list[str]
+    next_actions: list[str]
+    fallback_used: bool
+    model: str
+
+
+class CustomerWorkspaceResponse(BaseModel):
+    customer: CustomerRead
+    metrics: list[DashboardMetric]
+    contacts: list[ContactRead]
+    leads: list[LeadRead]
+    orders: list[SalesOrderRead]
+    cases: list[SupportCaseRead]
+    recommendations: list[CopilotRecommendationRead]
+    timeline: list[CustomerTimelineItem]
+    account_plan: CustomerAccountPlanResponse

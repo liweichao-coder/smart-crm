@@ -148,6 +148,10 @@ export function fetchCustomers(params) {
   return request(`/api/customers${buildQueryString(params)}`)
 }
 
+export function fetchCustomerWorkspace(customerId) {
+  return request(`/api/customers/${customerId}/workspace`)
+}
+
 export function createCustomer(payload) {
   return request('/api/customers', {
     method: 'POST',

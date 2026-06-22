@@ -10,8 +10,9 @@ from fastapi import UploadFile
 import httpx
 
 from .config import settings
-from .models import Customer, LeadStage, Product, SalesLead
+from .models import Contact, CopilotRecommendation, Customer, LeadStage, Product, SalesLead, SalesOrder, SupportCase
 from .schemas import (
+    CustomerAccountPlanResponse,
     CopilotFollowUpRequest,
     CopilotFollowUpResponse,
     CopilotOpportunityInsight,
@@ -546,4 +547,79 @@ class CopilotService:
             suggested_notes=f"AI Copilot 根据客户等级、行业和业务目标生成草稿，预计金额 {total:.0f} 元，提交前请人工复核库存和单价。",
             llm_summary=llm_summary,
             fallback_used=fallback,
+        )
+
+    async def account_plan(
+        self,
+        customer: Customer,
+        contacts: list[Contact],
+        leads: list[SalesLead],
+        orders: list[SalesOrder],
+        cases: list[SupportCase],
+        recommendations: list[CopilotRecommendation],
+    ) -> CustomerAccountPlanResponse:
+        open_leads = [lead for lead in leads if lead.stage not in {LeadStage.won, LeadStage.lost}]
+        won_leads = [lead for lead in leads if lead.stage == LeadStage.won]
+        active_cases = [case for case in cases if case.status not in {"resolved", "closed"}]
+        total_revenue = sum(order.total_amount for order in orders)
+        pipeline_amount = sum(lead.expected_amount for lead in open_leads)
+        latest_recommendations = [item.next_best_action for item in recommendations if item.next_best_action][:3]
+
+        context = (
+            f"客户：{customer.company}\n"
+            f"行业：{customer.industry}；等级：{customer.level}；城市：{customer.city}；负责人：{customer.owner}\n"
+            f"联系人：{len(contacts)} 位，关键联系人：{', '.join(contact.name + '/' + contact.role for contact in contacts[:4]) or '暂无'}\n"
+            f"订单：{len(orders)} 张，累计收入 {total_revenue:.0f} 元\n"
+            f"在管商机：{len(open_leads)} 个，管道金额 {pipeline_amount:.0f} 元；已赢单商机 {len(won_leads)} 个\n"
+            f"未关闭工单：{len(active_cases)} 个\n"
+            f"Copilot 最近建议：{'；'.join(latest_recommendations) or '暂无'}\n"
+            "请输出一段 80 字以内的客户经营摘要，包含关系状态、收入机会和当前风险。"
+        )
+        llm_summary, fallback = await self.llm.complete(
+            "你是 B2B CRM 客户成功和销售主管助手，请基于真实 CRM 数据输出中文客户经营摘要。",
+            context,
+        )
+
+        if not llm_summary:
+            llm_summary = (
+                f"{customer.company} 当前累计收入 {total_revenue:.0f} 元，在管商机 {len(open_leads)} 个，"
+                f"未关闭工单 {len(active_cases)} 个，建议围绕高价值商机和服务风险同步推进。"
+            )
+
+        expansion_paths = []
+        if open_leads:
+            top_lead = max(open_leads, key=lambda item: item.expected_amount)
+            expansion_paths.append(f"推进“{top_lead.title}”进入下一阶段，预计增量 {top_lead.expected_amount:.0f} 元。")
+        if orders:
+            expansion_paths.append("基于历史订单复购同类软件服务，优先复核续费和增购窗口。")
+        if contacts:
+            expansion_paths.append(f"围绕 {contacts[0].name} 建立多联系人关系图，补齐采购、技术和财务角色。")
+        if not expansion_paths:
+            expansion_paths.append("先补齐关键联系人和需求背景，再生成可执行商机。")
+
+        risks = []
+        if active_cases:
+            risks.append(f"存在 {len(active_cases)} 个未关闭工单，需避免服务问题影响成交。")
+        if not contacts:
+            risks.append("缺少联系人沉淀，客户关系稳定性不足。")
+        if pipeline_amount == 0:
+            risks.append("当前没有在管商机，客户经营可能停留在存量维护。")
+        if not risks:
+            risks.append("暂无高危服务阻塞，重点风险在于商机推进节奏。")
+
+        next_actions = latest_recommendations[:]
+        if open_leads:
+            next_actions.append(max(open_leads, key=lambda item: item.expected_amount).next_action)
+        if active_cases:
+            next_actions.append(f"先关闭工单“{active_cases[0].title}”，再推进商务沟通。")
+        if len(next_actions) < 3:
+            next_actions.append("安排一次客户复盘会议，确认预算、决策人和下一步时间点。")
+
+        return CustomerAccountPlanResponse(
+            summary=llm_summary,
+            expansion_paths=expansion_paths[:4],
+            risks=risks[:4],
+            next_actions=next_actions[:4],
+            fallback_used=fallback,
+            model=settings.llm_model,
         )

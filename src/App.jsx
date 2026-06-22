@@ -48,6 +48,7 @@ import {
   useLocation,
   useNavigate,
   useOutletContext,
+  useParams,
 } from 'react-router-dom'
 import avatar from './assets/vendor/unnamed.png'
 import {
@@ -79,6 +80,7 @@ import {
   deleteTask,
   exportOrdersCsv,
   fetchCustomers,
+  fetchCustomerWorkspace,
   fetchDashboard,
   fetchSalesPerformanceReport,
   fetchPermissionMatrix,
@@ -818,6 +820,7 @@ function App() {
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/accounts" element={<AccountsPage />} />
+        <Route path="/accounts/:customerId" element={<CustomerWorkspacePage />} />
         <Route path="/contacts" element={<ContactsPage />} />
         <Route path="/leads" element={<LeadsPage />} />
         <Route path="/opportunities" element={<OpportunitiesPage />} />
@@ -880,6 +883,8 @@ function AccountsPage() {
       onCreateRecord={(draft) => createCustomer(buildCustomerPayload(draft, activeProfile.name)).then(mapCustomerRecord)}
       onUpdateRecord={(id, draft) => updateCustomer(id, buildCustomerPayload(draft, activeProfile.name)).then(mapCustomerRecord)}
       onDeleteRecord={deleteCustomer}
+      getRecordHref={(record) => `/accounts/${record.id}`}
+      openRecordLabel="打开客户工作台"
       createLabel="新建客户"
       columns={[
         { key: 'name', label: '客户名称' },
@@ -894,6 +899,246 @@ function AccountsPage() {
         { key: 'closed', label: '关闭', predicate: (item) => item.status === 'closed' },
       ]}
     />
+  )
+}
+
+function formatWorkspaceMetric(metric) {
+  const numericValue = Number(metric.value)
+  if (Number.isFinite(numericValue) && (metric.label.includes('收入') || metric.label.includes('商机'))) {
+    return formatCurrency(numericValue)
+  }
+  if (metric.label.includes('健康')) {
+    return `${metric.value}分`
+  }
+  return metric.value
+}
+
+function CustomerWorkspacePage() {
+  const { customerId } = useParams()
+  const navigate = useNavigate()
+  const [workspace, setWorkspace] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    fetchCustomerWorkspace(customerId)
+      .then((payload) => {
+        if (mounted) {
+          setWorkspace(payload)
+          setError('')
+        }
+      })
+      .catch((requestError) => {
+        if (mounted) {
+          setError(requestError.message || '客户工作台加载失败')
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [customerId])
+
+  const customer = workspace?.customer
+  const accountPlan = workspace?.account_plan
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel crm-copilot-hero">
+        <div>
+          <button className="crm-ghost-button" type="button" onClick={() => navigate('/accounts')}>
+            <ArrowRight size={16} className="crm-icon-flip" />
+            返回客户列表
+          </button>
+          <span className="crm-overline">Customer 360</span>
+          <h2>{customer?.company ?? '客户工作台'}</h2>
+          <p>{customer ? `${customer.industry} / ${customer.city} / ${customer.owner}` : '正在加载客户经营视图'}</p>
+        </div>
+        <div className="crm-copilot-summary">
+          <Building2 size={18} />
+          <strong>{customer ? `${customer.level} 级客户 · ${customer.contact_person}` : '读取客户资料中'}</strong>
+        </div>
+      </section>
+
+      <ResourceSyncState loading={loading} error={error} />
+
+      {workspace ? (
+        <>
+          <section className="crm-metric-grid">
+            {workspace.metrics.map((metric) => (
+              <article key={metric.label} className="crm-panel crm-metric-card">
+                <div className="crm-metric-icon tone-qualified">
+                  <BarChart3 size={18} />
+                </div>
+                <div>
+                  <span>{metric.label}</span>
+                  <strong>{formatWorkspaceMetric(metric)}</strong>
+                  <small>{metric.hint}</small>
+                </div>
+              </article>
+            ))}
+          </section>
+
+          <section className="crm-dashboard-grid">
+            <div className="crm-panel">
+              <PanelHeader title="AI 账户计划" actionLabel={accountPlan?.fallback_used ? '规则兜底' : 'LLM 增强'} />
+              <div className="crm-script-box">
+                <span>{accountPlan?.model ?? 'account-plan'}</span>
+                <p>{accountPlan?.summary}</p>
+              </div>
+              <div className="crm-account-plan-grid">
+                <CustomerPlanList title="扩展路径" items={accountPlan?.expansion_paths ?? []} tone="success" />
+                <CustomerPlanList title="风险提醒" items={accountPlan?.risks ?? []} tone="warning" />
+                <CustomerPlanList title="下一步动作" items={accountPlan?.next_actions ?? []} tone="accent" />
+              </div>
+            </div>
+
+            <div className="crm-panel">
+              <PanelHeader title="关键联系人" actionLabel={`${workspace.contacts.length} 人`} />
+              <div className="crm-list compact">
+                {workspace.contacts.map((contact) => (
+                  <article key={contact.id} className="crm-list-item">
+                    <div>
+                      <strong>{contact.name}</strong>
+                      <span>{contact.role} / {contact.email}</span>
+                    </div>
+                    <StatusBadge value={contact.status} tone={contact.status === 'active' ? 'success' : 'neutral'} />
+                  </article>
+                ))}
+                {!workspace.contacts.length ? <EmptyState icon={Users} title="暂无联系人" subtitle="新建联系人后会出现在客户工作台。" /> : null}
+              </div>
+            </div>
+          </section>
+
+          <section className="crm-dashboard-grid">
+            <CustomerWorkspaceList
+              title="客户商机"
+              actionLabel={`${workspace.leads.length} 个`}
+              emptyIcon={Target}
+              emptyTitle="暂无商机"
+              items={workspace.leads}
+              renderItem={(lead) => (
+                <>
+                  <div>
+                    <strong>{lead.title}</strong>
+                    <span>{lead.stage} / {formatCurrency(lead.expected_amount)} / {lead.next_action}</span>
+                  </div>
+                  <StatusBadge value={lead.stage} tone={lead.stage === 'won' ? 'success' : lead.stage === 'lost' ? 'danger' : 'accent'} />
+                </>
+              )}
+            />
+            <CustomerWorkspaceList
+              title="订单闭环"
+              actionLabel={`${workspace.orders.length} 单`}
+              emptyIcon={Activity}
+              emptyTitle="暂无订单"
+              items={workspace.orders}
+              renderItem={(order) => (
+                <>
+                  <div>
+                    <strong>订单 #{order.id}</strong>
+                    <span>{order.status} / {formatCurrency(order.total_amount)} / {order.items.length} 个条目</span>
+                  </div>
+                  <StatusBadge value={order.created_by_ai ? 'AI' : '人工'} tone={order.created_by_ai ? 'accent' : 'neutral'} />
+                </>
+              )}
+            />
+          </section>
+
+          <section className="crm-dashboard-grid">
+            <CustomerWorkspaceList
+              title="服务工单"
+              actionLabel={`${workspace.cases.length} 条`}
+              emptyIcon={Briefcase}
+              emptyTitle="暂无工单"
+              items={workspace.cases}
+              renderItem={(supportCase) => (
+                <>
+                  <div>
+                    <strong>{supportCase.title}</strong>
+                    <span>{supportCase.status_label} / {supportCase.priority} / {supportCase.due_date}</span>
+                  </div>
+                  <StatusBadge value={supportCase.priority} tone={supportCase.priority === 'hot' ? 'danger' : 'warning'} />
+                </>
+              )}
+            />
+            <CustomerWorkspaceList
+              title="Copilot 推荐"
+              actionLabel={`${workspace.recommendations.length} 条`}
+              emptyIcon={Bot}
+              emptyTitle="暂无推荐"
+              items={workspace.recommendations}
+              renderItem={(record) => (
+                <>
+                  <div>
+                    <strong>{record.lead_title || record.customer_name}</strong>
+                    <span>{record.next_best_action || record.llm_summary}</span>
+                  </div>
+                  <div className="crm-score-pill">
+                    <span>{record.grade || '-'}</span>
+                    <strong>{record.rule_score ?? 0}</strong>
+                  </div>
+                </>
+              )}
+            />
+          </section>
+
+          <section className="crm-panel">
+            <PanelHeader title="客户时间线" actionLabel={`${workspace.timeline.length} 条`} />
+            <div className="crm-activity-list">
+              {workspace.timeline.map((item) => (
+                <article key={item.id} className="crm-activity-item">
+                  <div className={`crm-activity-icon tone-${item.severity}`}>
+                    <Activity size={16} />
+                  </div>
+                  <div>
+                    <strong>{item.category} · {item.title}</strong>
+                    <span>{item.description}</span>
+                  </div>
+                  <time>{formatDateTime(item.timestamp)}</time>
+                </article>
+              ))}
+            </div>
+          </section>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function CustomerPlanList({ title, items, tone }) {
+  return (
+    <div className="crm-account-plan-list">
+      <strong>{title}</strong>
+      {items.map((item) => (
+        <span key={item}>
+          <span className={`crm-dot tone-${tone}`} />
+          {item}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function CustomerWorkspaceList({ title, actionLabel, emptyIcon, emptyTitle, items, renderItem }) {
+  return (
+    <div className="crm-panel">
+      <PanelHeader title={title} actionLabel={actionLabel} />
+      <div className="crm-list compact">
+        {items.map((item) => (
+          <article key={item.id} className="crm-list-item">
+            {renderItem(item)}
+          </article>
+        ))}
+        {!items.length ? <EmptyState icon={emptyIcon} title={emptyTitle} subtitle="该客户暂未沉淀对应业务数据。" /> : null}
+      </div>
+    </div>
   )
 }
 
@@ -3578,6 +3823,8 @@ function TableResourcePage({
   onCreateRecord,
   onUpdateRecord,
   onDeleteRecord,
+  getRecordHref,
+  openRecordLabel = '打开详情',
 }) {
   const [rows, setRows] = useState(records)
   const [activeTab, setActiveTab] = useState(tabs[0].key)
@@ -3593,7 +3840,7 @@ function TableResourcePage({
   })
   const [draft, setDraft] = useState(createInitialDraft)
   const searchInputRef = useRef(null)
-  const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
+  const hasActions = Boolean(getRecordHref || onUpdateRecord || onDeleteRecord)
 
   useEffect(() => {
     setRows(records)
@@ -3711,6 +3958,11 @@ function TableResourcePage({
                   {hasActions ? (
                     <td className="crm-table-actions-cell">
                       <div className="crm-row-actions">
+                        {getRecordHref ? (
+                          <NavLink className="crm-icon-button" aria-label={openRecordLabel} title={openRecordLabel} to={getRecordHref(record)}>
+                            <ArrowRight size={15} />
+                          </NavLink>
+                        ) : null}
                         {onUpdateRecord ? (
                           <button className="crm-icon-button" type="button" aria-label="编辑记录" title="编辑" onClick={() => handleOpenEdit(record)}>
                             <Pencil size={15} />
