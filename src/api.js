@@ -126,6 +126,10 @@ export function fetchSalesPerformanceReport(params) {
   return request(`/api/reports/sales-performance${buildQueryString(params)}`)
 }
 
+export function fetchPermissionMatrix() {
+  return request('/api/admin/permission-matrix')
+}
+
 export function fetchCustomers(params) {
   return request(`/api/customers${buildQueryString(params)}`)
 }

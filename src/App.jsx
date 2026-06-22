@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   LayoutList,
+  KeyRound,
   LogOut,
   Menu,
   Package,
@@ -80,6 +81,7 @@ import {
   fetchCustomers,
   fetchDashboard,
   fetchSalesPerformanceReport,
+  fetchPermissionMatrix,
   fetchGoals,
   fetchInventoryMovements,
   fetchLeads,
@@ -115,6 +117,7 @@ const navItems = [
   { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM', permission: 'ai:use' },
   { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/business-audit', label: '操作审计', icon: ClipboardList, title: 'Business Audit | 深大 AI CRM', permission: 'audit:read' },
+  { path: '/permissions', label: '权限矩阵', icon: KeyRound, title: 'Permissions | 深大 AI CRM', permission: 'permissions:read' },
   { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM', permission: 'ai:use' },
   { path: '/orders', label: '订单', icon: Activity, title: 'Orders | 深大 AI CRM', permission: 'order:manage' },
   { path: '/products', label: '商品', icon: Package, title: 'Products | 深大 AI CRM', permission: 'catalog:manage' },
@@ -769,6 +772,7 @@ function App() {
         <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/ai-audit" element={<AiAuditPage />} />
         <Route path="/business-audit" element={<BusinessAuditPage />} />
+        <Route path="/permissions" element={<PermissionMatrixPage />} />
         <Route path="/capture" element={<CapturePage />} />
         <Route path="/orders" element={<OrdersPage />} />
         <Route path="/products" element={<ProductsPage />} />
@@ -2326,6 +2330,193 @@ function BusinessAuditPage() {
           </table>
         </div>
         {!loading && !error && !logs.length ? <EmptyState icon={ClipboardList} title="暂无业务审计记录" subtitle="创建客户、商品、订单或执行补货后会自动出现记录。" /> : null}
+      </section>
+    </div>
+  )
+}
+
+function PermissionMatrixPage() {
+  const [matrix, setMatrix] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    fetchPermissionMatrix()
+      .then((payload) => {
+        if (mounted) {
+          setMatrix(payload)
+          setError('')
+        }
+      })
+      .catch((nextError) => {
+        if (mounted) {
+          setError(nextError.message || '权限矩阵加载失败')
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const roles = useMemo(() => matrix?.roles ?? [], [matrix])
+  const permissions = useMemo(() => matrix?.permission_catalog ?? [], [matrix])
+  const modules = useMemo(() => matrix?.modules ?? [], [matrix])
+  const permissionMap = useMemo(() => new Map(permissions.map((permission) => [permission.key, permission])), [permissions])
+  const roleHasPermission = (role, permissionKey) => role.all_permissions || role.permissions.includes(permissionKey)
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel crm-copilot-hero">
+        <div>
+          <span className="crm-overline">Access Governance</span>
+          <h2>权限矩阵</h2>
+          <p>从 FastAPI 后端 RBAC 策略读取角色、权限和模块访问关系，验证菜单隐藏和接口 403 的规则来源。</p>
+        </div>
+        <div className="crm-copilot-summary">
+          <KeyRound size={18} />
+          <strong>{matrix ? `当前角色 ${matrix.current_role}，共 ${roles.length} 个角色、${permissions.length} 项权限、${modules.length} 个模块。` : '正在读取后端权限策略。'}</strong>
+        </div>
+      </section>
+
+      <ResourceSyncState loading={loading} error={error} />
+
+      <section className="crm-metric-grid">
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-accent">
+            <Users size={18} />
+          </div>
+          <div>
+            <span>角色数量</span>
+            <strong>{roles.length}</strong>
+            <small>来自后端 ROLE_PERMISSIONS</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-qualified">
+            <KeyRound size={18} />
+          </div>
+          <div>
+            <span>权限项</span>
+            <strong>{permissions.length}</strong>
+            <small>接口级权限目录</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-proposal">
+            <LayoutGrid size={18} />
+          </div>
+          <div>
+            <span>前端模块</span>
+            <strong>{modules.length}</strong>
+            <small>与侧栏模块权限一致</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-won">
+            <Shield size={18} />
+          </div>
+          <div>
+            <span>当前角色</span>
+            <strong>{matrix?.current_role ?? '-'}</strong>
+            <small>由 Bearer token 解析</small>
+          </div>
+        </article>
+      </section>
+
+      <section className="crm-three-col-grid">
+        {roles.map((role) => (
+          <article key={role.role} className="crm-panel crm-permission-role-card">
+            <div className="crm-permission-role-head">
+              <div>
+                <span className="crm-overline">Role</span>
+                <h3>{role.role}</h3>
+              </div>
+              <StatusBadge value={role.all_permissions ? '全部权限' : `${role.granted_count} 项`} tone={role.all_permissions ? 'success' : 'accent'} />
+            </div>
+            <p>{role.description}</p>
+            <div className="crm-permission-chip-list">
+              {role.permissions.slice(0, 8).map((permissionKey) => (
+                <span key={permissionKey}>{permissionMap.get(permissionKey)?.label ?? permissionKey}</span>
+              ))}
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="权限项矩阵" actionLabel="角色 x 接口能力" />
+        <div className="crm-table-wrap">
+          <table className="crm-table crm-permission-table">
+            <thead>
+              <tr>
+                <th>权限</th>
+                <th>分类</th>
+                {roles.map((role) => (
+                  <th key={role.role}>{role.role}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {permissions.map((permission) => (
+                <tr key={permission.key}>
+                  <td>
+                    <strong>{permission.label}</strong>
+                    <span>{permission.key}</span>
+                    <small>{permission.description}</small>
+                  </td>
+                  <td>{permission.category}</td>
+                  {roles.map((role) => (
+                    <td key={`${role.role}-${permission.key}`}>
+                      <span className={`crm-check-cell ${roleHasPermission(role, permission.key) ? 'is-allowed' : ''}`}>
+                        {roleHasPermission(role, permission.key) ? '允许' : '拒绝'}
+                      </span>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="模块访问矩阵" actionLabel="侧栏模块 x 角色" />
+        <div className="crm-table-wrap">
+          <table className="crm-table crm-permission-table">
+            <thead>
+              <tr>
+                <th>模块</th>
+                <th>路由</th>
+                <th>所需权限</th>
+                <th>可访问角色</th>
+              </tr>
+            </thead>
+            <tbody>
+              {modules.map((module) => (
+                <tr key={module.path}>
+                  <td>{module.label}</td>
+                  <td>{module.path}</td>
+                  <td>{permissionMap.get(module.permission)?.label ?? module.permission}</td>
+                  <td>
+                    <div className="crm-permission-chip-list">
+                      {module.roles.map((role) => (
+                        <span key={`${module.path}-${role}`}>{role}</span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!loading && !error && !modules.length ? <EmptyState icon={KeyRound} title="暂无权限矩阵" subtitle="后端权限策略为空时会显示在这里。" /> : null}
       </section>
     </div>
   )

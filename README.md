@@ -19,6 +19,7 @@
 - Sales Goals 目标页
 - AI Audit AI 审计页
 - Business Audit 操作审计页
+- Permission Matrix 权限矩阵页
 - Sales Reports 销售报表页
 - AI Capture 智能录单页
 - Orders 订单中心页
@@ -39,6 +40,7 @@
 - AI 副驾、智能录单和订单草稿接口会写入 `AIInteractionLog` 审计表，可在 AI 审计页查看模型、状态、耗时和摘要。
 - 客户、联系人、线索/商机、工单、任务、目标、商品、订单和补货等写库动作会写入 `BusinessAuditLog` 审计表，可在操作审计页查看操作人、对象、状态、摘要和细节。
 - 订单中心已接入 `/api/orders`、`/api/products` 和 `/api/inventory/*`，可查看订单筛选、订单明细、AI 标记、置信度、低库存预警、建议补货量、库存流水和本订单库存审计，并支持订单生命周期编辑、订单商品明细编辑、订单金额重算和订单明细 CSV 导出。
+- 权限矩阵已接入 `/api/admin/permission-matrix`，从后端 RBAC 策略读取角色、权限目录和前端模块访问关系。
 - 服务端 RBAC 已覆盖主要业务 API：未登录请求返回 401，销售角色可维护客户但不能维护商品目录、经营报表或读取审计；后续可继续增强字段级、数据范围级权限和审批策略。
 
 ## 环境要求
@@ -107,7 +109,7 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 - 继续补字段级校验、数据范围级权限、端到端冒烟测试和更细粒度权限审计。
 - 将通用卡片、表格、看板拆为独立组件。
 - 把筛选、分页、列显示等状态同步到 URL 参数。
-- 继续补权限矩阵页面、URL 同步筛选状态和更完整的端到端冒烟测试。
+- 继续补 URL 同步筛选状态和更完整的端到端冒烟测试。
 - 详见 `docs/deployment.md` 和 `docs/dev-log/`。
 
 ## 目录结构

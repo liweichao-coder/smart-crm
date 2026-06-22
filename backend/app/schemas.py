@@ -78,6 +78,36 @@ class AuthLogoutResponse(BaseModel):
     revoked: bool
 
 
+class PermissionCatalogItem(BaseModel):
+    key: str
+    label: str
+    category: str
+    description: str
+
+
+class RolePermissionRead(BaseModel):
+    role: str
+    description: str
+    permissions: list[str]
+    granted_count: int
+    all_permissions: bool
+
+
+class ModulePermissionRead(BaseModel):
+    path: str
+    label: str
+    permission: str
+    roles: list[str]
+
+
+class PermissionMatrixResponse(BaseModel):
+    generated_at: datetime
+    current_role: str
+    permission_catalog: list[PermissionCatalogItem]
+    roles: list[RolePermissionRead]
+    modules: list[ModulePermissionRead]
+
+
 class AuthAuditLogRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

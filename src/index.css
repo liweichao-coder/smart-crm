@@ -649,6 +649,72 @@ p {
   font-size: 12px;
 }
 
+.crm-permission-role-card {
+  align-content: start;
+}
+
+.crm-permission-role-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crm-permission-role-head h3 {
+  margin: 4px 0 0;
+  font-size: 22px;
+}
+
+.crm-permission-role-card p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.crm-permission-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.crm-permission-chip-list span {
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.crm-permission-table td:first-child {
+  min-width: 220px;
+}
+
+.crm-permission-table td:first-child span,
+.crm-permission-table td:first-child small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.crm-check-cell {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 54px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+.crm-check-cell.is-allowed {
+  background: var(--stage-won-bg);
+  color: var(--stage-won);
+}
+
 .crm-three-col-grid,
 .crm-goal-grid,
 .crm-task-grid {

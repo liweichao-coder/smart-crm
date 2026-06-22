@@ -147,6 +147,14 @@ Invoke-RestMethod -Headers $auth "http://127.0.0.1:8000/api/reports/sales-perfor
 
 The report response is aggregated from real orders, opportunities, AI order markers, and inventory risk rules. It includes `metrics`, `revenue_trend`, `owner_performance`, `region_performance`, `funnel`, `ai_impact`, and `inventory_risks`.
 
+Permission matrix smoke:
+
+```powershell
+Invoke-RestMethod -Headers $auth http://127.0.0.1:8000/api/admin/permission-matrix
+```
+
+The permission matrix response is generated from backend RBAC policy constants and includes `permission_catalog`, `roles`, and `modules`.
+
 RBAC smoke:
 
 ```powershell
@@ -158,7 +166,7 @@ try {
 # Expected: 401 without Authorization.
 
 # The default demo admin has all permissions. Pytest also covers a sales-role account:
-# customer read/write succeeds, while product create, sales report, and audit-log read return 403.
+# customer read/write succeeds, while product create, sales report, permission matrix, and audit-log read return 403.
 ```
 
 Paginated search/filter smoke:

@@ -92,6 +92,27 @@ def test_sales_performance_report_payload_and_filters() -> None:
     assert "开始日期" in invalid_range.json()["detail"]
 
 
+def test_permission_matrix_payload() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/admin/permission-matrix")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_role"] == "管理员"
+    permission_keys = {item["key"] for item in payload["permission_catalog"]}
+    assert {"crm:read", "reports:read", "permissions:read"} <= permission_keys
+
+    roles = {role["role"]: role for role in payload["roles"]}
+    assert roles["管理员"]["all_permissions"] is True
+    assert "permissions:read" in roles["销售经理"]["permissions"]
+    assert "catalog:manage" not in roles["销售"]["permissions"]
+
+    modules = {module["path"]: module for module in payload["modules"]}
+    assert modules["/permissions"]["permission"] == "permissions:read"
+    assert "销售" not in modules["/permissions"]["roles"]
+    assert "管理员" in modules["/permissions"]["roles"]
+
+
 def test_resource_collection_payloads() -> None:
     endpoints = {
         "/api/customers": "company",
@@ -207,6 +228,7 @@ def test_rbac_sales_role_permissions() -> None:
         )
         denied_audit = client.get("/api/business-audit-logs", headers=headers)
         denied_report = client.get("/api/reports/sales-performance", headers=headers)
+        denied_matrix = client.get("/api/admin/permission-matrix", headers=headers)
 
     assert login.status_code == 200
     assert me.json()["user"]["role"] == "销售"
@@ -216,6 +238,7 @@ def test_rbac_sales_role_permissions() -> None:
     assert denied_product.status_code == 403
     assert denied_audit.status_code == 403
     assert denied_report.status_code == 403
+    assert denied_matrix.status_code == 403
 
 
 def test_paginated_collection_queries() -> None:

@@ -47,6 +47,10 @@ from .schemas import (
     LeadRead,
     OrderItemRead,
     PaginatedResponse,
+    ModulePermissionRead,
+    PermissionCatalogItem,
+    PermissionMatrixResponse,
+    RolePermissionRead,
     ProductCreate,
     ProductRestockRequest,
     ProductRestockResponse,
@@ -94,15 +98,53 @@ KNOWN_PERMISSIONS = {
     "dashboard:read",
     "inventory:manage",
     "order:manage",
+    "permissions:read",
     "reports:read",
 }
 ROLE_PERMISSIONS = {
     "管理员": {ALL_PERMISSIONS},
     "销售": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read"},
-    "销售经理": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read", "reports:read", "audit:read"},
+    "销售经理": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read", "reports:read", "audit:read", "permissions:read"},
     "支持": {"crm:read", "case:write", "task:write", "dashboard:read"},
-    "审计员": {"crm:read", "reports:read", "audit:read", "dashboard:read"},
+    "审计员": {"crm:read", "reports:read", "audit:read", "dashboard:read", "permissions:read"},
 }
+ROLE_DESCRIPTIONS = {
+    "管理员": "系统管理员，拥有组织内所有模块和配置权限。",
+    "销售": "一线销售角色，可维护客户、线索、订单并使用 AI 副驾。",
+    "销售经理": "团队主管角色，可查看报表、审计和权限矩阵。",
+    "支持": "实施/售后角色，可查看 CRM 基础信息和处理服务协作。",
+    "审计员": "审计与管理角色，可查看报表、审计和权限矩阵。",
+}
+PERMISSION_CATALOG = {
+    "ai:use": ("AI 能力", "AI 副驾与智能录单", "调用 Copilot、跟进话术、订单草稿和智能录单接口。"),
+    "audit:read": ("审计", "审计读取", "查看认证审计、AI 审计和业务操作审计。"),
+    "catalog:manage": ("商品", "商品目录维护", "创建、编辑和删除商品目录与 SKU。"),
+    "crm:read": ("CRM", "CRM 数据读取", "查看客户、联系人、线索、工单、任务和目标。"),
+    "crm:write": ("CRM", "CRM 数据维护", "创建、编辑和删除客户、联系人、线索、工单、任务和目标。"),
+    "dashboard:read": ("BI", "仪表盘查看", "查看经营仪表盘和首页概览。"),
+    "inventory:manage": ("库存", "库存补货", "执行商品补货并写入库存流水。"),
+    "order:manage": ("订单", "订单管理", "创建、编辑、导出订单并查看订单库存审计。"),
+    "permissions:read": ("权限", "权限矩阵查看", "查看角色、权限和模块访问矩阵。"),
+    "reports:read": ("BI", "销售报表查看", "查看销售 BI 报表和聚合指标。"),
+}
+MODULE_PERMISSIONS = [
+    ("/dashboard", "仪表盘", "dashboard:read"),
+    ("/reports", "销售报表", "reports:read"),
+    ("/copilot", "AI 副驾", "ai:use"),
+    ("/ai-audit", "AI 审计", "audit:read"),
+    ("/business-audit", "操作审计", "audit:read"),
+    ("/permissions", "权限矩阵", "permissions:read"),
+    ("/capture", "智能录单", "ai:use"),
+    ("/orders", "订单", "order:manage"),
+    ("/products", "商品", "catalog:manage"),
+    ("/leads", "线索", "crm:read"),
+    ("/contacts", "联系人", "crm:read"),
+    ("/accounts", "客户", "crm:read"),
+    ("/opportunities", "商机", "crm:read"),
+    ("/goals", "销售目标", "crm:read"),
+    ("/cases", "工单", "crm:read"),
+    ("/tasks", "任务", "crm:read"),
+]
 REPORT_STAGE_LABELS = {
     "new": "新线索",
     "qualified": "资格确认",
@@ -227,6 +269,18 @@ def user_permissions(user: AuthUser) -> list[str]:
 
 def has_permission(user: AuthUser, permission: str) -> bool:
     permissions = set(ROLE_PERMISSIONS.get(user.role, {"crm:read"}))
+    return ALL_PERMISSIONS in permissions or permission in permissions
+
+
+def permissions_for_role(role: str) -> list[str]:
+    permissions = ROLE_PERMISSIONS.get(role, {"crm:read"})
+    if ALL_PERMISSIONS in permissions:
+        return sorted(KNOWN_PERMISSIONS)
+    return sorted(permissions)
+
+
+def role_has_permission(role: str, permission: str) -> bool:
+    permissions = ROLE_PERMISSIONS.get(role, {"crm:read"})
     return ALL_PERMISSIONS in permissions or permission in permissions
 
 
@@ -734,6 +788,47 @@ def logout(
     record_auth_audit(session, event="logout", account=user.email, status="success", detail="退出登录", user=user)
     session.commit()
     return AuthLogoutResponse(revoked=True)
+
+
+@app.get("/api/admin/permission-matrix", response_model=PermissionMatrixResponse)
+def get_permission_matrix(
+    current_user: Annotated[AuthUser, Depends(require_permission("permissions:read"))],
+) -> PermissionMatrixResponse:
+    permission_catalog = [
+        PermissionCatalogItem(
+            key=key,
+            category=category,
+            label=label,
+            description=description,
+        )
+        for key, (category, label, description) in sorted(PERMISSION_CATALOG.items())
+    ]
+    roles = [
+        RolePermissionRead(
+            role=role,
+            description=ROLE_DESCRIPTIONS.get(role, ""),
+            permissions=permissions_for_role(role),
+            granted_count=len(permissions_for_role(role)),
+            all_permissions=ALL_PERMISSIONS in permissions,
+        )
+        for role, permissions in ROLE_PERMISSIONS.items()
+    ]
+    modules = [
+        ModulePermissionRead(
+            path=path,
+            label=label,
+            permission=permission,
+            roles=[role for role in ROLE_PERMISSIONS if role_has_permission(role, permission)],
+        )
+        for path, label, permission in MODULE_PERMISSIONS
+    ]
+    return PermissionMatrixResponse(
+        generated_at=datetime.utcnow(),
+        current_role=current_user.role,
+        permission_catalog=permission_catalog,
+        roles=roles,
+        modules=modules,
+    )
 
 
 @app.get(
