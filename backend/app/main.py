@@ -12,12 +12,14 @@ from .config import settings
 from .database import create_db_and_tables, engine, get_session
 from .models import Contact, Customer, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
+    ContactCreate,
     ContactRead,
     CopilotFollowUpRequest,
     CopilotFollowUpResponse,
     CopilotOrderDraftRequest,
     CopilotOrderDraftResponse,
     CopilotSummaryResponse,
+    CustomerCreate,
     CustomerRead,
     DashboardMetric,
     DashboardResponse,
@@ -25,10 +27,14 @@ from .schemas import (
     OrderItemRead,
     ProductRead,
     RevenuePoint,
+    SalesGoalCreate,
     SalesGoalRead,
+    SalesLeadCreate,
     SalesOrderCreate,
     SalesOrderRead,
+    SupportCaseCreate,
     SupportCaseRead,
+    TaskItemCreate,
     TaskItemRead,
     VisionExtractResponse,
 )
@@ -105,6 +111,28 @@ def list_customers(session: SessionDep) -> list[Customer]:
     return session.exec(select(Customer).order_by(Customer.created_at.desc())).all()
 
 
+@app.post("/api/customers", response_model=CustomerRead, status_code=201)
+def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
+    contact_person = payload.contact_person or payload.name or payload.company
+    customer = Customer(
+        name=payload.name or contact_person,
+        company=payload.company,
+        industry=payload.industry,
+        city=payload.city,
+        contact_person=contact_person,
+        phone=payload.phone,
+        email=payload.email,
+        source=payload.source,
+        level=payload.level,
+        annual_revenue=payload.annual_revenue,
+        status=payload.status,
+    )
+    session.add(customer)
+    session.commit()
+    session.refresh(customer)
+    return customer
+
+
 @app.get("/api/products", response_model=list[ProductRead])
 def list_products(session: SessionDep) -> list[Product]:
     return session.exec(select(Product).order_by(Product.created_at.desc())).all()
@@ -115,9 +143,27 @@ def list_contacts(session: SessionDep) -> list[Contact]:
     return session.exec(select(Contact).order_by(Contact.created_at.desc())).all()
 
 
+@app.post("/api/contacts", response_model=ContactRead, status_code=201)
+def create_contact(payload: ContactCreate, session: SessionDep) -> Contact:
+    contact = Contact(**payload.model_dump())
+    session.add(contact)
+    session.commit()
+    session.refresh(contact)
+    return contact
+
+
 @app.get("/api/leads", response_model=list[LeadRead])
 def list_leads(session: SessionDep) -> list[SalesLead]:
     return session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+
+
+@app.post("/api/leads", response_model=LeadRead, status_code=201)
+def create_lead(payload: SalesLeadCreate, session: SessionDep) -> SalesLead:
+    lead = SalesLead(**payload.model_dump())
+    session.add(lead)
+    session.commit()
+    session.refresh(lead)
+    return lead
 
 
 @app.get("/api/cases", response_model=list[SupportCaseRead])
@@ -125,14 +171,51 @@ def list_cases(session: SessionDep) -> list[SupportCase]:
     return session.exec(select(SupportCase).order_by(SupportCase.due_date.asc())).all()
 
 
+@app.post("/api/cases", response_model=SupportCaseRead, status_code=201)
+def create_case(payload: SupportCaseCreate, session: SessionDep) -> SupportCase:
+    support_case = SupportCase(**payload.model_dump())
+    session.add(support_case)
+    session.commit()
+    session.refresh(support_case)
+    return support_case
+
+
 @app.get("/api/tasks", response_model=list[TaskItemRead])
 def list_tasks(session: SessionDep) -> list[TaskItem]:
     return session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
 
 
+@app.post("/api/tasks", response_model=TaskItemRead, status_code=201)
+def create_task(payload: TaskItemCreate, session: SessionDep) -> TaskItem:
+    task = TaskItem(**payload.model_dump())
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
+
 @app.get("/api/goals", response_model=list[SalesGoalRead])
 def list_goals(session: SessionDep) -> list[SalesGoal]:
     return session.exec(select(SalesGoal).order_by(SalesGoal.created_at.desc())).all()
+
+
+@app.post("/api/goals", response_model=SalesGoalRead, status_code=201)
+def create_goal(payload: SalesGoalCreate, session: SessionDep) -> SalesGoal:
+    progress = payload.progress
+    if progress is None:
+        progress = round(payload.current / payload.target * 100) if payload.target else 0
+    goal = SalesGoal(
+        name=payload.name,
+        period=payload.period,
+        current=payload.current,
+        target=payload.target,
+        progress=min(max(progress, 0), 100),
+        note=payload.note,
+    )
+    session.add(goal)
+    session.commit()
+    session.refresh(goal)
+    return goal
 
 
 @app.get("/api/orders", response_model=list[SalesOrderRead])

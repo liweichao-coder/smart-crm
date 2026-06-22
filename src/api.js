@@ -50,6 +50,13 @@ export function fetchCustomers() {
   return request('/api/customers')
 }
 
+export function createCustomer(payload) {
+  return request('/api/customers', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchProducts() {
   return request('/api/products')
 }
@@ -58,20 +65,55 @@ export function fetchContacts() {
   return request('/api/contacts')
 }
 
+export function createContact(payload) {
+  return request('/api/contacts', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchLeads() {
   return request('/api/leads')
+}
+
+export function createLead(payload) {
+  return request('/api/leads', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 export function fetchCases() {
   return request('/api/cases')
 }
 
+export function createCase(payload) {
+  return request('/api/cases', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchTasks() {
   return request('/api/tasks')
 }
 
+export function createTask(payload) {
+  return request('/api/tasks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchGoals() {
   return request('/api/goals')
+}
+
+export function createGoal(payload) {
+  return request('/api/goals', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 export function fetchOrders() {

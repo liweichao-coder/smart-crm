@@ -51,7 +51,13 @@ import {
   fetchCases,
   fetchContacts,
   fetchCopilotSummary,
+  createCase,
+  createContact,
+  createCustomer,
+  createGoal,
+  createLead,
   createOrder,
+  createTask,
   fetchCustomers,
   fetchDashboard,
   fetchGoals,
@@ -162,6 +168,27 @@ const orderStatusLabelMap = {
   fulfilled: '已履约',
 }
 
+const caseStatusValueMap = {
+  Open: 'open',
+  Pending: 'working',
+  Resolved: 'closed',
+}
+
+const taskStatusValueMap = {
+  今天: 'today',
+  本周: 'week',
+  逾期: 'overdue',
+  today: 'today',
+  week: 'week',
+  overdue: 'overdue',
+}
+
+const taskStatusLabelMap = {
+  today: '今天',
+  week: '本周',
+  overdue: '逾期',
+}
+
 function mapStageLabel(stage) {
   return stageLabelMap[stage] ?? stage
 }
@@ -260,6 +287,96 @@ function buildRecentActivities(dashboard) {
   }))
 
   return [...orderActivities, ...leadActivities].slice(0, 5)
+}
+
+function toDraftText(value, fallback = '') {
+  const text = String(value ?? '').trim()
+  return text || fallback
+}
+
+function toDraftNumber(value, fallback = 0) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function buildCustomerPayload(draft) {
+  const company = toDraftText(draft.name, '新客户')
+  const owner = toDraftText(draft.owner, '未分配')
+  return {
+    company,
+    name: owner,
+    industry: toDraftText(draft.industry, '待补充'),
+    contact_person: owner,
+    annual_revenue: toDraftNumber(draft.revenue),
+    status: toDraftText(draft.status, 'active'),
+    city: '深圳',
+    source: '前端创建',
+    level: 'B',
+    email: 'customer@demo.smart-crm.local',
+  }
+}
+
+function buildContactPayload(draft) {
+  return {
+    name: toDraftText(draft.name, '新联系人'),
+    company: toDraftText(draft.company, '未关联客户'),
+    role: toDraftText(draft.role, '待确认'),
+    email: toDraftText(draft.email, 'contact@demo.smart-crm.local'),
+    owner: userProfile.name,
+    status: toDraftText(draft.status, 'active'),
+  }
+}
+
+function buildLeadPayload(draft, mode = 'lead') {
+  const payload = {
+    title: toDraftText(draft.name, mode === 'opportunity' ? '新商机' : '新线索'),
+    customer_name: toDraftText(draft.company ?? draft.account, '未关联客户'),
+    owner: toDraftText(draft.owner, '未分配'),
+    region: '华南',
+    expected_amount: toDraftNumber(draft.amount),
+    stage: normalizeStage(draft.stage ?? 'new'),
+    next_action: toDraftText(draft.nextStep, mode === 'opportunity' ? '推进方案确认' : '安排首次跟进'),
+    ai_assisted: false,
+  }
+  if (draft.closeDate) {
+    payload.due_date = draft.closeDate
+  }
+  return payload
+}
+
+function buildCasePayload(draft) {
+  const statusLabel = toDraftText(draft.statusLabel, 'Open')
+  return {
+    title: toDraftText(draft.title, '新工单'),
+    account: toDraftText(draft.account, '未关联客户'),
+    owner: toDraftText(draft.owner, '未分配'),
+    priority: toDraftText(draft.priority, 'warm'),
+    status: caseStatusValueMap[statusLabel] ?? toDraftText(draft.status, 'open'),
+    status_label: statusLabel,
+  }
+}
+
+function buildTaskPayload(draft) {
+  const status = taskStatusValueMap[toDraftText(draft.statusLabel || draft.status, '本周')] ?? 'week'
+  return {
+    title: toDraftText(draft.title, '新任务'),
+    description: toDraftText(draft.description, '补充任务说明。'),
+    owner: toDraftText(draft.owner, userProfile.name),
+    due_date: toDraftText(draft.dueDate, '今天 18:00'),
+    priority: toDraftText(draft.priority, 'warm'),
+    status,
+    status_label: taskStatusLabelMap[status],
+  }
+}
+
+function buildGoalPayload(draft) {
+  return {
+    name: toDraftText(draft.name, '新销售目标'),
+    period: toDraftText(draft.period, '2026 Q3'),
+    current: toDraftNumber(draft.current),
+    target: toDraftNumber(draft.target, 1),
+    note: toDraftText(draft.note, '持续跟踪目标进度。'),
+  }
 }
 
 function mapCustomerRecord(customer) {
@@ -416,6 +533,7 @@ function AccountsPage() {
       records={records}
       loading={loading}
       error={error}
+      onCreateRecord={(draft) => createCustomer(buildCustomerPayload(draft)).then(mapCustomerRecord)}
       createLabel="新建客户"
       columns={[
         { key: 'name', label: '客户名称' },
@@ -444,6 +562,7 @@ function ContactsPage() {
       records={records}
       loading={loading}
       error={error}
+      onCreateRecord={(draft) => createContact(buildContactPayload(draft)).then(mapContactRecord)}
       createLabel="新建联系人"
       columns={[
         { key: 'name', label: '姓名' },
@@ -472,6 +591,7 @@ function LeadsPage() {
       records={records}
       loading={loading}
       error={error}
+      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'lead')).then(mapLeadRecord)}
       createLabel="新建线索"
       boardKey="stage"
       columns={[
@@ -496,6 +616,7 @@ function OpportunitiesPage() {
       records={records}
       loading={loading}
       error={error}
+      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'opportunity')).then(mapOpportunityRecord)}
       createLabel="新建商机"
       boardKey="stage"
       columns={[
@@ -520,6 +641,7 @@ function CasesPage() {
       records={records}
       loading={loading}
       error={error}
+      onCreateRecord={(draft) => createCase(buildCasePayload(draft)).then(mapCaseRecord)}
       createLabel="新建工单"
       boardKey="statusLabel"
       columns={[
@@ -1732,11 +1854,13 @@ function OrdersPage() {
   )
 }
 
-function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs, createLabel, loading = false, error = '' }) {
+function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs, createLabel, loading = false, error = '', onCreateRecord }) {
   const [rows, setRows] = useState(records)
   const [activeTab, setActiveTab] = useState(tabs[0].key)
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createError, setCreateError] = useState('')
   const [draft, setDraft] = useState(() => createDraftFromColumns(columns))
 
   useEffect(() => {
@@ -1759,14 +1883,25 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
 
   const handleOpenCreate = () => {
     setDraft(createDraftFromColumns(columns))
+    setCreateError('')
     setCreateOpen(true)
   }
 
-  const handleSubmitCreate = (event) => {
+  const handleSubmitCreate = async (event) => {
     event.preventDefault()
-    const record = buildClientRecord({ draft, columns, existingCount: rows.length })
-    setRows((currentRows) => [record, ...currentRows])
-    setCreateOpen(false)
+    setCreateSaving(true)
+    setCreateError('')
+    try {
+      const record = onCreateRecord
+        ? await onCreateRecord(draft)
+        : buildClientRecord({ draft, columns, existingCount: rows.length })
+      setRows((currentRows) => [record, ...currentRows])
+      setCreateOpen(false)
+    } catch (nextError) {
+      setCreateError(nextError.message || '新建记录失败')
+    } finally {
+      setCreateSaving(false)
+    }
   }
 
   return (
@@ -1781,7 +1916,7 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
         onTabChange={setActiveTab}
         onCreate={handleOpenCreate}
       />
-      <ResourceSyncState loading={loading} error={error} />
+      <ResourceSyncState loading={loading || createSaving} error={error || createError} />
       <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} />
       <div className="crm-panel">
         <div className="crm-table-wrap">
@@ -1814,16 +1949,19 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
         onDraftChange={setDraft}
         onClose={() => setCreateOpen(false)}
         onSubmit={handleSubmitCreate}
+        submitting={createSaving}
       />
     </div>
   )
 }
 
-function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, createLabel, boardKey, loading = false, error = '' }) {
+function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, createLabel, boardKey, loading = false, error = '', onCreateRecord }) {
   const [rows, setRows] = useState(records)
   const [view, setView] = useState('list')
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createError, setCreateError] = useState('')
   const boardValues = useMemo(() => [...new Set(rows.map((record) => record[boardKey]))], [boardKey, rows])
   const workflowField = useMemo(
     () => ({ key: boardKey, label: '阶段', value: boardValues[0] ?? 'New', options: boardValues.length ? boardValues : ['New'] }),
@@ -1852,21 +1990,32 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
 
   const handleOpenCreate = () => {
     setDraft(createDraftFromColumns(columns, workflowField))
+    setCreateError('')
     setCreateOpen(true)
   }
 
-  const handleSubmitCreate = (event) => {
+  const handleSubmitCreate = async (event) => {
     event.preventDefault()
-    const record = buildClientRecord({ draft, columns, existingCount: rows.length, workflowField })
-    setRows((currentRows) => [record, ...currentRows])
-    setCreateOpen(false)
-    setView('list')
+    setCreateSaving(true)
+    setCreateError('')
+    try {
+      const record = onCreateRecord
+        ? await onCreateRecord(draft)
+        : buildClientRecord({ draft, columns, existingCount: rows.length, workflowField })
+      setRows((currentRows) => [record, ...currentRows])
+      setCreateOpen(false)
+      setView('list')
+    } catch (nextError) {
+      setCreateError(nextError.message || '新建记录失败')
+    } finally {
+      setCreateSaving(false)
+    }
   }
 
   return (
     <div className="crm-page-stack">
       <ResourceHeader title={title} subtitle={subtitle} icon={Icon} createLabel={createLabel} onCreate={handleOpenCreate} />
-      <ResourceSyncState loading={loading} error={error} />
+      <ResourceSyncState loading={loading || createSaving} error={error || createError} />
       <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length}>
         <div className="crm-view-toggle">
           <button className={view === 'list' ? 'is-active' : ''} type="button" onClick={() => setView('list')}>
@@ -1939,13 +2088,30 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
         onDraftChange={setDraft}
         onClose={() => setCreateOpen(false)}
         onSubmit={handleSubmitCreate}
+        submitting={createSaving}
       />
     </div>
   )
 }
 
 function TasksPage() {
-  const { records: tasks, loading, error } = useRemoteRecords(fetchTasks, mapTaskRecord)
+  const { records: fetchedTasks, loading, error } = useRemoteRecords(fetchTasks, mapTaskRecord)
+  const taskCreateColumns = useMemo(
+    () => [
+      { key: 'title', label: '任务标题' },
+      { key: 'description', label: '任务说明' },
+      { key: 'owner', label: '负责人' },
+      { key: 'dueDate', label: '到期时间' },
+      { key: 'priority', label: '优先级' },
+      { key: 'statusLabel', label: '状态' },
+    ],
+    [],
+  )
+  const [tasks, setTasks] = useState(fetchedTasks)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [draft, setDraft] = useState(() => createDraftFromColumns(taskCreateColumns))
   const tabs = [
     { key: 'all', label: '全部' },
     { key: 'overdue', label: '逾期', predicate: (item) => item.status === 'overdue' },
@@ -1958,6 +2124,31 @@ function TasksPage() {
     ? tasks.filter(tabs.find((tab) => tab.key === activeTab).predicate)
     : tasks
 
+  useEffect(() => {
+    setTasks(fetchedTasks)
+  }, [fetchedTasks])
+
+  const handleOpenCreate = () => {
+    setDraft(createDraftFromColumns(taskCreateColumns))
+    setCreateError('')
+    setCreateOpen(true)
+  }
+
+  const handleSubmitCreate = async (event) => {
+    event.preventDefault()
+    setCreateSaving(true)
+    setCreateError('')
+    try {
+      const task = await createTask(buildTaskPayload(draft))
+      setTasks((currentTasks) => [mapTaskRecord(task), ...currentTasks])
+      setCreateOpen(false)
+    } catch (nextError) {
+      setCreateError(nextError.message || '新建任务失败')
+    } finally {
+      setCreateSaving(false)
+    }
+  }
+
   return (
     <div className="crm-page-stack">
       <ResourceHeader
@@ -1968,8 +2159,9 @@ function TasksPage() {
         tabs={tabs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        onCreate={handleOpenCreate}
       />
-      <ResourceSyncState loading={loading} error={error} />
+      <ResourceSyncState loading={loading || createSaving} error={error || createError} />
 
       <section className="crm-task-grid">
         {visibleTasks.map((task) => (
@@ -1988,17 +2180,67 @@ function TasksPage() {
         ))}
       </section>
       {!loading && !error && !visibleTasks.length ? <EmptyState icon={CheckSquare} title="暂无任务" subtitle="后端任务数据同步后会显示在这里。" /> : null}
+      <CreateRecordModal
+        open={createOpen}
+        title="新建任务"
+        columns={taskCreateColumns}
+        draft={draft}
+        onDraftChange={setDraft}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={handleSubmitCreate}
+        submitting={createSaving}
+      />
     </div>
   )
 }
 
 function GoalsPage() {
-  const { records: goals, loading, error } = useRemoteRecords(fetchGoals, mapGoalRecord)
+  const { records: fetchedGoals, loading, error } = useRemoteRecords(fetchGoals, mapGoalRecord)
+  const goalCreateColumns = useMemo(
+    () => [
+      { key: 'name', label: '目标名称' },
+      { key: 'period', label: '周期' },
+      { key: 'current', label: '当前值', format: 'currency' },
+      { key: 'target', label: '目标值', format: 'currency' },
+      { key: 'note', label: '说明' },
+    ],
+    [],
+  )
+  const [goals, setGoals] = useState(fetchedGoals)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createError, setCreateError] = useState('')
+  const [draft, setDraft] = useState(() => createDraftFromColumns(goalCreateColumns))
+
+  useEffect(() => {
+    setGoals(fetchedGoals)
+  }, [fetchedGoals])
+
+  const handleOpenCreate = () => {
+    setDraft(createDraftFromColumns(goalCreateColumns))
+    setCreateError('')
+    setCreateOpen(true)
+  }
+
+  const handleSubmitCreate = async (event) => {
+    event.preventDefault()
+    setCreateSaving(true)
+    setCreateError('')
+    try {
+      const goal = await createGoal(buildGoalPayload(draft))
+      setGoals((currentGoals) => [mapGoalRecord(goal), ...currentGoals])
+      setCreateOpen(false)
+    } catch (nextError) {
+      setCreateError(nextError.message || '新建目标失败')
+    } finally {
+      setCreateSaving(false)
+    }
+  }
 
   return (
     <div className="crm-page-stack">
-      <ResourceHeader title="销售目标" subtitle="季度目标、完成进度和预测结果一屏查看。" icon={Trophy} createLabel="新建目标" />
-      <ResourceSyncState loading={loading} error={error} />
+      <ResourceHeader title="销售目标" subtitle="季度目标、完成进度和预测结果一屏查看。" icon={Trophy} createLabel="新建目标" onCreate={handleOpenCreate} />
+      <ResourceSyncState loading={loading || createSaving} error={error || createError} />
 
       <section className="crm-goal-grid">
         {goals.map((goal) => (
@@ -2022,6 +2264,16 @@ function GoalsPage() {
         ))}
       </section>
       {!loading && !error && !goals.length ? <EmptyState icon={Trophy} title="暂无销售目标" subtitle="后端目标数据同步后会显示在这里。" /> : null}
+      <CreateRecordModal
+        open={createOpen}
+        title="新建目标"
+        columns={goalCreateColumns}
+        draft={draft}
+        onDraftChange={setDraft}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={handleSubmitCreate}
+        submitting={createSaving}
+      />
     </div>
   )
 }
@@ -2163,7 +2415,7 @@ function ResourceHeader({ title, subtitle, icon: Icon, createLabel, tabs = [], a
   )
 }
 
-function CreateRecordModal({ open, title, columns, workflowField, draft, onDraftChange, onClose, onSubmit }) {
+function CreateRecordModal({ open, title, columns, workflowField, draft, onDraftChange, onClose, onSubmit, submitting = false }) {
   if (!open) {
     return null
   }
@@ -2218,8 +2470,8 @@ function CreateRecordModal({ open, title, columns, workflowField, draft, onDraft
           <button className="crm-ghost-button" type="button" onClick={onClose}>
             取消
           </button>
-          <button className="crm-primary-button" type="submit">
-            保存
+          <button className="crm-primary-button" type="submit" disabled={submitting}>
+            {submitting ? '保存中' : '保存'}
           </button>
         </div>
       </form>

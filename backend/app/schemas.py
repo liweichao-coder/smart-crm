@@ -25,6 +25,20 @@ class CustomerRead(BaseModel):
     created_at: datetime
 
 
+class CustomerCreate(BaseModel):
+    name: str = ""
+    company: str
+    industry: str = "待补充"
+    city: str = "深圳"
+    contact_person: str = ""
+    phone: str = "13800000000"
+    email: str = "customer@example.com"
+    source: str = "课程演示"
+    level: str = "B"
+    annual_revenue: float = Field(default=0, ge=0)
+    status: str = "active"
+
+
 class ProductRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,6 +64,16 @@ class ContactRead(BaseModel):
     created_at: datetime
 
 
+class ContactCreate(BaseModel):
+    name: str
+    company: str
+    role: str = "待确认"
+    email: str = "contact@example.com"
+    phone: str = "13800000000"
+    owner: str = "未分配"
+    status: str = "active"
+
+
 class LeadRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,6 +90,18 @@ class LeadRead(BaseModel):
     created_at: datetime
 
 
+class SalesLeadCreate(BaseModel):
+    title: str
+    customer_name: str
+    owner: str
+    region: str = "华南"
+    expected_amount: float = Field(default=0, ge=0)
+    stage: LeadStage = LeadStage.new
+    next_action: str = "安排下一步跟进"
+    due_date: date = Field(default_factory=date.today)
+    ai_assisted: bool = False
+
+
 class SupportCaseRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -78,6 +114,16 @@ class SupportCaseRead(BaseModel):
     status_label: str
     due_date: date
     created_at: datetime
+
+
+class SupportCaseCreate(BaseModel):
+    title: str
+    account: str
+    owner: str
+    priority: str = "warm"
+    status: str = "open"
+    status_label: str = "Open"
+    due_date: date = Field(default_factory=date.today)
 
 
 class TaskItemRead(BaseModel):
@@ -94,6 +140,16 @@ class TaskItemRead(BaseModel):
     created_at: datetime
 
 
+class TaskItemCreate(BaseModel):
+    title: str
+    description: str = ""
+    owner: str
+    due_date: str = "今天 18:00"
+    priority: str = "warm"
+    status: str = "week"
+    status_label: str = "本周"
+
+
 class SalesGoalRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,6 +161,15 @@ class SalesGoalRead(BaseModel):
     progress: int
     note: str
     created_at: datetime
+
+
+class SalesGoalCreate(BaseModel):
+    name: str
+    period: str = "2026 Q2"
+    current: float = Field(default=0, ge=0)
+    target: float = Field(default=1, ge=0)
+    progress: int | None = Field(default=None, ge=0, le=100)
+    note: str = ""
 
 
 class OrderItemPayload(BaseModel):

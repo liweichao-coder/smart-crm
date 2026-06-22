@@ -68,6 +68,88 @@ def test_resource_collection_payloads() -> None:
         assert required_key in payload[0]
 
 
+def test_create_business_resources() -> None:
+    with TestClient(app) as client:
+        responses = {
+            "customer": client.post(
+                "/api/customers",
+                json={
+                    "company": "测试智能制造",
+                    "industry": "智能制造",
+                    "contact_person": "周测试",
+                    "annual_revenue": 320000,
+                },
+            ),
+            "contact": client.post(
+                "/api/contacts",
+                json={
+                    "name": "林联系人",
+                    "company": "测试智能制造",
+                    "role": "采购经理",
+                    "owner": "李伟超",
+                },
+            ),
+            "lead": client.post(
+                "/api/leads",
+                json={
+                    "title": "测试智能制造 CRM 升级",
+                    "customer_name": "测试智能制造",
+                    "owner": "李伟超",
+                    "expected_amount": 128000,
+                    "stage": "proposal",
+                    "next_action": "发送正式报价单",
+                    "due_date": "2026-06-30",
+                },
+            ),
+            "case": client.post(
+                "/api/cases",
+                json={
+                    "title": "测试工单",
+                    "account": "测试智能制造",
+                    "owner": "徐柠",
+                    "priority": "warm",
+                    "status": "open",
+                    "status_label": "Open",
+                    "due_date": "2026-06-25",
+                },
+            ),
+            "task": client.post(
+                "/api/tasks",
+                json={
+                    "title": "测试任务",
+                    "description": "验证任务真实写库。",
+                    "owner": "李伟超",
+                    "due_date": "今天 18:00",
+                    "priority": "hot",
+                    "status": "today",
+                    "status_label": "今天",
+                },
+            ),
+            "goal": client.post(
+                "/api/goals",
+                json={
+                    "name": "测试销售目标",
+                    "period": "2026 Q3",
+                    "current": 50000,
+                    "target": 100000,
+                    "note": "验证目标真实写库。",
+                },
+            ),
+        }
+
+        customer_list = client.get("/api/customers").json()
+        lead_list = client.get("/api/leads").json()
+
+    for response in responses.values():
+        assert response.status_code == 201
+
+    assert responses["customer"].json()["company"] == "测试智能制造"
+    assert responses["lead"].json()["stage"] == "proposal"
+    assert responses["goal"].json()["progress"] == 50
+    assert any(customer["company"] == "测试智能制造" for customer in customer_list)
+    assert any(lead["title"] == "测试智能制造 CRM 升级" for lead in lead_list)
+
+
 def test_create_order() -> None:
     with TestClient(app) as client:
         customers = client.get("/api/customers").json()

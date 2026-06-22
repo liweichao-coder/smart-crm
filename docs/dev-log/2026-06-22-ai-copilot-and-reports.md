@@ -22,6 +22,8 @@ The course exam requires a full software engineering process package, not only c
 - Connected AI Capture draft review to `/api/orders`, so accepted drafts create real orders and trigger backend inventory deduction.
 - Added a dedicated Orders page backed by `/api/orders` and `/api/products`, including order filters, selected order details, AI/manual source badges, and low-stock inventory cards.
 - Added `src/orderUtils.js` and tests for order summary, filtering, and inventory severity logic.
+- Added real create endpoints for customers, contacts, leads/opportunities, cases, tasks, and goals; frontend create modals now POST to FastAPI and insert the persisted response instead of using `local-*` records.
+- Added backend regression coverage for resource creation across six business modules.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -42,6 +44,7 @@ The course exam requires a full software engineering process package, not only c
 
 - `backend/.venv/Scripts/python.exe -m pytest`: 7 passed.
 - After AI capture upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 9 passed.
+- After resource create upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 10 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -59,8 +62,10 @@ The course exam requires a full software engineering process package, not only c
   - `/capture`: upload UI calls `/api/vision-extract` and displays extracted customer, confidence, source, and order items.
   - `/orders`: title `Orders | 深大 AI CRM`, 12 backend orders, 4 metrics, and 6 low-stock inventory cards render without console errors.
 - End-to-end AI Capture smoke succeeded: text upload returned `source=llm_text`, then `/api/orders` created order `#13`, total `37800`, with 2 items; demo DB was reset afterward.
+- Real resource create smoke succeeded: POST create for customer, contact, lead, case, task, and goal returned server IDs/statuses; frontend customer modal created a persisted customer and updated the table to 13 rows; demo DB was reset afterward to 12/12/15/8/8/4/12 baseline.
 
 ## Next Steps
 
 - Add order editing/export and inventory restock reminders.
+- Add update/delete endpoints and table pagination for larger demo datasets.
 - Capture screenshots and export Word/PPT final materials.
