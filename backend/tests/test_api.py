@@ -652,6 +652,16 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
             json={"question": "这个客户有什么风险？", "customer_id": other_customer_id},
             headers=headers,
         )
+        own_recommendation_feedback = client.patch(
+            f"/api/copilot/recommendations/{own_recommendation_id}/feedback",
+            json={"feedback_status": "helpful"},
+            headers=headers,
+        )
+        denied_recommendation_feedback = client.patch(
+            f"/api/copilot/recommendations/{other_recommendation_id}/feedback",
+            json={"feedback_status": "accepted"},
+            headers=headers,
+        )
         denied_recommendation_task = client.post(
             f"/api/copilot/recommendations/{other_recommendation_id}/task",
             headers=headers,
@@ -692,6 +702,10 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert all(item["owner"] == "李伟超" for item in recommendations.json())
     assert any(item["id"] == own_recommendation_id for item in recommendations.json())
     assert all(item["id"] != other_recommendation_id for item in recommendations.json())
+    assert own_recommendation_feedback.status_code == 200
+    assert own_recommendation_feedback.json()["feedback_status"] == "helpful"
+    assert own_recommendation_feedback.json()["feedback_rating"] == 4
+    assert own_recommendation_feedback.json()["feedback_by"] == "李伟超"
     assert created_customer.status_code == 201
     assert created_customer.json()["owner"] == "李伟超"
     assert created_contact_default_owner.status_code == 201
@@ -711,6 +725,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert denied_lead_update.status_code == 403
     assert denied_order_update.status_code == 403
     assert denied_task_update.status_code == 403
+    assert denied_recommendation_feedback.status_code == 403
     assert denied_recommendation_task.status_code == 403
     assert denied_product.status_code == 403
     assert denied_audit.status_code == 403
@@ -1618,6 +1633,11 @@ def test_ai_quality_report_uses_real_audit_and_recommendation_logs(monkeypatch) 
         recommendations = client.get("/api/copilot/recommendations").json()
         assert recommendations
         client.post(f"/api/copilot/recommendations/{recommendations[0]['id']}/task")
+        feedback_response = client.patch(
+            f"/api/copilot/recommendations/{recommendations[0]['id']}/feedback",
+            json={"feedback_status": "accepted", "feedback_note": "已按建议跟进，客户反馈积极"},
+        )
+        assert feedback_response.status_code == 200
         client.post(
             "/api/copilot/order-draft",
             json={
@@ -1636,11 +1656,14 @@ def test_ai_quality_report_uses_real_audit_and_recommendation_logs(monkeypatch) 
     assert response.status_code == 200
     payload = response.json()
     metric_labels = {metric["label"] for metric in payload["metrics"]}
-    assert {"AI 调用总量", "LLM 成功率", "兜底率", "平均耗时", "场景覆盖", "推荐转任务率"} <= metric_labels
+    assert {"AI 调用总量", "LLM 成功率", "兜底率", "平均耗时", "场景覆盖", "推荐转任务率", "人工好评率"} <= metric_labels
     assert {item["operation"] for item in payload["operation_breakdown"]} >= {"copilot_summary", "copilot_follow_up", "copilot_order_draft", "vision_extract"}
     assert payload["model_breakdown"]
     assert payload["recommendation_signal"]["total_recommendations"] >= 1
     assert payload["recommendation_signal"]["converted_task_count"] >= 1
+    assert payload["recommendation_signal"]["feedback_count"] >= 1
+    assert payload["recommendation_signal"]["positive_feedback_count"] >= 1
+    assert payload["recommendation_signal"]["average_feedback_rating"] >= 4
     assert payload["recent_fallbacks"]
     assert payload["applied_filters"]["operation"] == ""
 

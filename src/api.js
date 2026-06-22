@@ -87,6 +87,13 @@ export function convertCopilotRecommendationToTask(recommendationId) {
   })
 }
 
+export function submitCopilotRecommendationFeedback(recommendationId, payload) {
+  return request(`/api/copilot/recommendations/${recommendationId}/feedback`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function login(payload) {
   return request('/api/auth/login', {
     method: 'POST',

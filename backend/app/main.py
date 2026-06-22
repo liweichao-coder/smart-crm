@@ -48,6 +48,7 @@ from .schemas import (
     CopilotFollowUpResponse,
     CopilotOrderDraftRequest,
     CopilotOrderDraftResponse,
+    CopilotRecommendationFeedbackRequest,
     CopilotRecommendationRead,
     CopilotSummaryResponse,
     CustomerCreate,
@@ -222,6 +223,13 @@ AI_OPERATION_LABELS = {
     "copilot_order_draft": "订单草稿",
     "vision_extract": "智能录单",
     "customer_account_plan": "客户经营计划",
+}
+
+COPILOT_FEEDBACK_DEFAULT_RATINGS = {
+    "accepted": 5,
+    "helpful": 4,
+    "not_helpful": 2,
+    "dismissed": 1,
 }
 CATEGORY_TARGET_STOCK = {
     "硬件": 600,
@@ -636,6 +644,11 @@ def serialize_copilot_recommendation(recommendation: CopilotRecommendation) -> C
         message_draft=recommendation.message_draft,
         fallback_used=recommendation.fallback_used,
         model=recommendation.model,
+        feedback_status=recommendation.feedback_status,
+        feedback_rating=recommendation.feedback_rating,
+        feedback_note=recommendation.feedback_note,
+        feedback_by=recommendation.feedback_by,
+        feedback_at=recommendation.feedback_at,
         created_at=recommendation.created_at,
     )
 
@@ -2870,6 +2883,17 @@ def get_ai_quality_report(
     ])
     recommendation_count = len(recommendations)
     recommendation_fallback_count = len([recommendation for recommendation in recommendations if recommendation.fallback_used])
+    feedback_recommendations = [recommendation for recommendation in recommendations if recommendation.feedback_status]
+    positive_feedback_count = len([
+        recommendation
+        for recommendation in feedback_recommendations
+        if recommendation.feedback_status in {"accepted", "helpful"} or recommendation.feedback_rating >= 4
+    ])
+    negative_feedback_count = len([
+        recommendation
+        for recommendation in feedback_recommendations
+        if recommendation.feedback_status in {"not_helpful", "dismissed"} or recommendation.feedback_rating <= 2
+    ])
     recommendation_signal = AIQualityRecommendationSignal(
         total_recommendations=recommendation_count,
         average_rule_score=round(sum(recommendation.rule_score for recommendation in recommendations) / recommendation_count, 1) if recommendation_count else 0,
@@ -2878,6 +2902,11 @@ def get_ai_quality_report(
         fallback_rate=round(recommendation_fallback_count / recommendation_count, 2) if recommendation_count else 0,
         converted_task_count=converted_task_count,
         conversion_rate=round(converted_task_count / recommendation_count, 2) if recommendation_count else 0,
+        feedback_count=len(feedback_recommendations),
+        positive_feedback_count=positive_feedback_count,
+        negative_feedback_count=negative_feedback_count,
+        positive_feedback_rate=round(positive_feedback_count / len(feedback_recommendations), 2) if feedback_recommendations else 0,
+        average_feedback_rating=round(sum(recommendation.feedback_rating for recommendation in feedback_recommendations) / len(feedback_recommendations), 1) if feedback_recommendations else 0,
     )
 
     operation_names = sorted({log.operation for log in logs})
@@ -2922,6 +2951,7 @@ def get_ai_quality_report(
         DashboardMetric(label="平均耗时", value=f"{average_latency(logs)}ms", hint="端点级平均耗时"),
         DashboardMetric(label="场景覆盖", value=str(len(operation_names)), hint="已记录 AI 操作类型"),
         DashboardMetric(label="推荐转任务率", value=f"{round(recommendation_signal.conversion_rate * 100)}%", hint=f"{converted_task_count}/{recommendation_count} 条推荐"),
+        DashboardMetric(label="人工好评率", value=f"{round(recommendation_signal.positive_feedback_rate * 100)}%", hint=f"{positive_feedback_count}/{len(feedback_recommendations)} 条反馈"),
     ]
 
     applied_filters = {
@@ -3501,6 +3531,38 @@ def list_copilot_recommendations(
     if query_limit is not None and not has_all_data_scope(current_user):
         recommendations = recommendations[:safe_limit]
     return paginate_or_list(recommendations, page=page, per_page=per_page)
+
+
+@app.patch("/api/copilot/recommendations/{recommendation_id}/feedback", response_model=CopilotRecommendationRead)
+def update_copilot_recommendation_feedback(
+    recommendation_id: int,
+    payload: CopilotRecommendationFeedbackRequest,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+) -> CopilotRecommendationRead:
+    recommendation = session.get(CopilotRecommendation, recommendation_id)
+    if not recommendation:
+        raise HTTPException(status_code=404, detail="Copilot 推荐不存在")
+    require_owner_scope(current_user, recommendation.owner)
+
+    recommendation.feedback_status = payload.feedback_status
+    recommendation.feedback_rating = payload.feedback_rating or COPILOT_FEEDBACK_DEFAULT_RATINGS[payload.feedback_status]
+    recommendation.feedback_note = summarize_text(payload.feedback_note, limit=360)
+    recommendation.feedback_by = current_user.full_name or current_user.email
+    recommendation.feedback_at = datetime.utcnow()
+    session.add(recommendation)
+    add_business_audit(
+        session,
+        action="feedback",
+        entity_type="copilot_recommendation",
+        entity_id=recommendation.id,
+        operator=recommendation.feedback_by,
+        summary=f"Copilot 推荐反馈：{payload.feedback_status}",
+        detail=f"评分 {recommendation.feedback_rating}，客户 {recommendation.customer_name or '未记录'}",
+    )
+    session.commit()
+    session.refresh(recommendation)
+    return serialize_copilot_recommendation(recommendation)
 
 
 @app.post(

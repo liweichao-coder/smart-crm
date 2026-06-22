@@ -77,6 +77,24 @@ def run_lightweight_migrations() -> None:
                     )
                 )
 
+        recommendation_exists = connection.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='copilotrecommendation'")
+        ).first()
+        if recommendation_exists:
+            recommendation_columns = {
+                row[1] for row in connection.execute(text("PRAGMA table_info(copilotrecommendation)")).fetchall()
+            }
+            recommendation_column_defs = {
+                "feedback_status": "VARCHAR NOT NULL DEFAULT ''",
+                "feedback_rating": "INTEGER NOT NULL DEFAULT 0",
+                "feedback_note": "VARCHAR NOT NULL DEFAULT ''",
+                "feedback_by": "VARCHAR NOT NULL DEFAULT ''",
+                "feedback_at": "DATETIME",
+            }
+            for column_name, column_def in recommendation_column_defs.items():
+                if column_name not in recommendation_columns:
+                    connection.execute(text(f"ALTER TABLE copilotrecommendation ADD COLUMN {column_name} {column_def}"))
+
 
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)

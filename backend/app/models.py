@@ -263,6 +263,11 @@ class CopilotRecommendationBase(SQLModel):
     message_draft: str = ""
     fallback_used: bool = Field(default=True, index=True)
     model: str = ""
+    feedback_status: str = Field(default="", index=True)
+    feedback_rating: int = Field(default=0, index=True)
+    feedback_note: str = ""
+    feedback_by: str = ""
+    feedback_at: Optional[datetime] = None
 
 
 class CopilotRecommendation(CopilotRecommendationBase, table=True):

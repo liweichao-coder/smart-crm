@@ -951,6 +951,11 @@ class AIQualityRecommendationSignal(BaseModel):
     fallback_rate: float
     converted_task_count: int
     conversion_rate: float
+    feedback_count: int
+    positive_feedback_count: int
+    negative_feedback_count: int
+    positive_feedback_rate: float
+    average_feedback_rating: float
 
 
 class AIQualityReportResponse(BaseModel):
@@ -1138,7 +1143,18 @@ class CopilotRecommendationRead(BaseModel):
     message_draft: str
     fallback_used: bool
     model: str
+    feedback_status: str = ""
+    feedback_rating: int = 0
+    feedback_note: str = ""
+    feedback_by: str = ""
+    feedback_at: datetime | None = None
     created_at: datetime
+
+
+class CopilotRecommendationFeedbackRequest(BaseModel):
+    feedback_status: Literal["accepted", "helpful", "not_helpful", "dismissed"]
+    feedback_rating: int | None = Field(default=None, ge=1, le=5)
+    feedback_note: str = Field(default="", max_length=360)
 
 
 class CopilotOrderDraftRequest(BaseModel):

@@ -69,6 +69,7 @@ import {
   fetchNotifications,
   convertCopilotRecommendationToTask,
   convertCustomerActivityToTask,
+  submitCopilotRecommendationFeedback,
   createCase,
   createContact,
   createCustomerActivity,
@@ -273,6 +274,7 @@ const dashboardMetricMeta = {
   平均耗时: { icon: Flame, tone: 'qualified' },
   场景覆盖: { icon: Bot, tone: 'proposal' },
   推荐转任务率: { icon: CheckSquare, tone: 'won' },
+  人工好评率: { icon: Trophy, tone: 'won' },
 }
 
 const orderStatusLabelMap = {
@@ -330,6 +332,14 @@ const aiOperationLabelMap = {
   copilot_ask: '经营问答',
   copilot_order_draft: '订单草稿',
   vision_extract: '智能录单',
+  customer_account_plan: '客户经营计划',
+}
+
+const copilotFeedbackLabelMap = {
+  accepted: '已采纳',
+  helpful: '有帮助',
+  not_helpful: '不匹配',
+  dismissed: '已忽略',
 }
 
 const businessActionLabelMap = {
@@ -2882,6 +2892,7 @@ function CopilotPage() {
   const [historyError, setHistoryError] = useState('')
   const [generating, setGenerating] = useState(false)
   const [convertingId, setConvertingId] = useState(null)
+  const [feedbackSavingId, setFeedbackSavingId] = useState(null)
   const [createdTasks, setCreatedTasks] = useState({})
   const [scoreRulesOpen, setScoreRulesOpen] = useState(false)
   const [askQuestion, setAskQuestion] = useState('本周最需要优先跟进哪些客户？')
@@ -2967,6 +2978,22 @@ function CopilotPage() {
       setHistoryError(requestError.message || '推荐转任务失败')
     } finally {
       setConvertingId(null)
+    }
+  }
+
+  const handleRecommendationFeedback = async (record, feedbackStatus, feedbackRating) => {
+    setFeedbackSavingId(`${record.id}:${feedbackStatus}`)
+    setHistoryError('')
+    try {
+      const updatedRecord = await submitCopilotRecommendationFeedback(record.id, {
+        feedback_status: feedbackStatus,
+        feedback_rating: feedbackRating,
+      })
+      setHistoryRecords((records) => records.map((item) => (item.id === record.id ? updatedRecord : item)))
+    } catch (requestError) {
+      setHistoryError(requestError.message || '推荐反馈提交失败')
+    } finally {
+      setFeedbackSavingId(null)
     }
   }
 
@@ -3195,6 +3222,7 @@ function CopilotPage() {
                 <span>{record.customer_name || '未知客户'}</span>
                 <span>{record.stage || '未标记阶段'}</span>
                 <span>{record.fallback_used ? '规则兜底' : 'LLM 增强'}</span>
+                <span>{record.feedback_status ? `${copilotFeedbackLabelMap[record.feedback_status] ?? record.feedback_status} · ${record.feedback_rating || 0} 星` : '未评价'}</span>
               </div>
               <div className="crm-copilot-history-actions">
                 <button
@@ -3205,6 +3233,33 @@ function CopilotPage() {
                 >
                   <CheckSquare size={15} />
                   {convertingId === record.id ? '生成中' : createdTasks[record.id] ? `任务 #${createdTasks[record.id].id}` : '转为任务'}
+                </button>
+                <button
+                  className="crm-ghost-button"
+                  type="button"
+                  onClick={() => handleRecommendationFeedback(record, 'accepted', 5)}
+                  disabled={feedbackSavingId === `${record.id}:accepted`}
+                >
+                  <CheckSquare size={15} />
+                  {feedbackSavingId === `${record.id}:accepted` ? '保存中' : '已采纳'}
+                </button>
+                <button
+                  className="crm-ghost-button"
+                  type="button"
+                  onClick={() => handleRecommendationFeedback(record, 'helpful', 4)}
+                  disabled={feedbackSavingId === `${record.id}:helpful`}
+                >
+                  <Sparkles size={15} />
+                  有帮助
+                </button>
+                <button
+                  className="crm-ghost-button"
+                  type="button"
+                  onClick={() => handleRecommendationFeedback(record, 'not_helpful', 2)}
+                  disabled={feedbackSavingId === `${record.id}:not_helpful`}
+                >
+                  <Shield size={15} />
+                  不匹配
                 </button>
                 {createdTasks[record.id] ? (
                   <button className="crm-primary-button" type="button" onClick={() => navigate('/tasks')}>
@@ -3332,10 +3387,25 @@ function AiAuditPage() {
               <span>已转任务</span>
               <strong>{recommendationSignal?.converted_task_count ?? 0}</strong>
             </div>
-            <div className="crm-progress-track">
-              <div className="crm-progress-bar tone-won" style={{ width: `${Math.max(4, (recommendationSignal?.conversion_rate ?? 0) * 100)}%` }} />
+            <div>
+              <span>人工反馈</span>
+              <strong>{recommendationSignal?.feedback_count ?? 0}</strong>
             </div>
-            <small>推荐转任务率 {formatPercent(recommendationSignal?.conversion_rate ?? 0)}，推荐兜底率 {formatPercent(recommendationSignal?.fallback_rate ?? 0)}</small>
+            <div>
+              <span>平均人工评分</span>
+              <strong>{recommendationSignal?.average_feedback_rating ?? 0}</strong>
+            </div>
+            <div>
+              <span>人工好评率</span>
+              <strong>{formatPercent(recommendationSignal?.positive_feedback_rate ?? 0)}</strong>
+            </div>
+            <div className="crm-progress-track">
+              <div className="crm-progress-bar tone-won" style={{ width: `${Math.max(4, Math.max(recommendationSignal?.conversion_rate ?? 0, recommendationSignal?.positive_feedback_rate ?? 0) * 100)}%` }} />
+            </div>
+            <small>
+              推荐转任务率 {formatPercent(recommendationSignal?.conversion_rate ?? 0)}，人工好评率 {formatPercent(recommendationSignal?.positive_feedback_rate ?? 0)}，
+              推荐兜底率 {formatPercent(recommendationSignal?.fallback_rate ?? 0)}
+            </small>
           </div>
           <div className="crm-list compact">
             {modelBreakdown.map((item) => (

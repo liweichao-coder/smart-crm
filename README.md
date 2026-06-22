@@ -43,10 +43,10 @@
 - 客户、商品、联系人、客户互动、线索/商机、工单、任务、目标、订单、AI 审计和业务审计列表支持 `page`、`per_page`、`q` 以及常用业务字段筛选；未传分页参数时保持旧版数组响应，方便前端渐进迁移。
 - AI 录单已支持上传图片或文本，配置视觉模型时走 OpenAI-compatible 多模态抽取；无视觉模型时使用本地文本解析兜底。
 - 智能录单草稿可在前端复核后提交到 `/api/orders`，生成真实订单并触发库存扣减。
-- AI 副驾、智能录单和订单草稿接口会写入 `AIInteractionLog` 审计表，可在 AI 审计页查看模型、状态、耗时和摘要；AI 审计页同时接入 `/api/reports/ai-quality`，按真实日志展示 LLM 成功率、兜底率、场景覆盖、模型耗时和推荐转任务率。
+- AI 副驾、智能录单和订单草稿接口会写入 `AIInteractionLog` 审计表，可在 AI 审计页查看模型、状态、耗时和摘要；AI 审计页同时接入 `/api/reports/ai-quality`，按真实日志展示 LLM 成功率、兜底率、场景覆盖、模型耗时、推荐转任务率和人工好评率。
 - AI 副驾页新增 CRM Skill 经营问答，前端调用 `/api/copilot/ask`，后端按当前用户数据范围聚合客户、互动、商机、订单、任务、工单和 Copilot 推荐，再调用 OpenAI-compatible LLM 生成回答；响应同时返回证据片段和下一步动作，并写入 AI 审计。
 - Copilot 摘要和跟进话术会写入 `CopilotRecommendation` 推荐历史表，可在 AI 副驾页查看客户、商机、评分、下一步动作、话术草稿和 LLM/兜底状态；评分规则可在页面内展开查看。
-- Copilot 推荐历史可一键转为真实任务，系统会同步更新关联商机的下一步动作，并写入业务操作审计。
+- Copilot 推荐历史可一键转为真实任务，也可提交“已采纳 / 有帮助 / 不匹配”人工反馈；系统会同步更新关联商机的下一步动作，并把转任务与反馈都写入业务操作审计，形成推荐质量闭环。
 - 客户列表可打开 `/accounts/{customer_id}` 客户 360 工作台；后端 `/api/customers/{customer_id}/workspace` 会聚合该客户的联系人、互动记录、商机、订单、工单、Copilot 推荐和时间线，并调用 OpenAI-compatible LLM 生成客户经营计划。无 Key 或模型异常时返回确定性兜底建议，同时写入 AI 调用审计。工作台内的新增互动会调用 `/api/customers/{customer_id}/activities` 真实落库，互动记录可通过 `/api/customer-activities/{activity_id}/task` 转成真实跟进任务，并写入业务操作审计。
 - 客户、联系人、线索/商机、工单、任务、目标、商品、订单和补货等写库动作会写入 `BusinessAuditLog` 审计表，可在操作审计页查看操作人、对象、状态、摘要和细节；同页还会调用 `/api/system/consistency-checks` 展示订单金额、订单明细、库存流水、审批记录等跨表一致性巡检结果。
 - 订单中心已接入 `/api/orders`、`/api/order-approvals`、`/api/products` 和 `/api/inventory/*`，可查看订单筛选、订单明细、AI 标记、置信度、审批记录、审批风险等级、SLA 截止状态、低库存预警、建议补货量、库存流水和本订单库存审计，并支持订单生命周期编辑、订单审批提交/催办/转派/通过/驳回、订单商品明细编辑、订单金额重算和订单明细 CSV 导出。
