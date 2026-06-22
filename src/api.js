@@ -159,6 +159,12 @@ export function createCustomerActivity(customerId, payload) {
   })
 }
 
+export function convertCustomerActivityToTask(activityId) {
+  return request(`/api/customer-activities/${activityId}/task`, {
+    method: 'POST',
+  })
+}
+
 export function createCustomer(payload) {
   return request('/api/customers', {
     method: 'POST',

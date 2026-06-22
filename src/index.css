@@ -2150,6 +2150,22 @@ body {
   font-size: 13px;
 }
 
+.crm-workspace-item-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 190px;
+}
+
+.crm-workspace-item-side .crm-ghost-button,
+.crm-workspace-item-side .crm-primary-button {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .crm-primary-button:disabled {
   cursor: not-allowed;
   opacity: 0.62;
@@ -2382,6 +2398,7 @@ body {
   .crm-profile-info-item,
   .crm-report-filter-actions,
   .crm-report-breakdown-head,
+  .crm-workspace-item-side,
   .crm-report-breakdown-foot {
     align-items: flex-start;
     flex-direction: column;
@@ -2390,6 +2407,11 @@ body {
   .crm-topbar-actions,
   .crm-toolbar-right,
   .crm-toolbar-actions {
+    width: 100%;
+  }
+
+  .crm-workspace-item-side {
+    min-width: 0;
     width: 100%;
   }
 

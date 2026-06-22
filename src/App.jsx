@@ -62,6 +62,7 @@ import {
   fetchCurrentUser,
   fetchNotifications,
   convertCopilotRecommendationToTask,
+  convertCustomerActivityToTask,
   createCase,
   createContact,
   createCustomerActivity,
@@ -930,6 +931,8 @@ function CustomerWorkspacePage() {
   })
   const [activitySaving, setActivitySaving] = useState(false)
   const [activityError, setActivityError] = useState('')
+  const [activityTaskSavingId, setActivityTaskSavingId] = useState(null)
+  const [activityTasks, setActivityTasks] = useState({})
 
   useEffect(() => {
     let mounted = true
@@ -987,6 +990,22 @@ function CustomerWorkspacePage() {
       setActivityError(requestError.message || '新增互动失败')
     } finally {
       setActivitySaving(false)
+    }
+  }
+
+  const handleCreateActivityTask = async (activity) => {
+    setActivityTaskSavingId(activity.id)
+    setActivityError('')
+    try {
+      const task = await convertCustomerActivityToTask(activity.id)
+      setActivityTasks((currentTasks) => ({
+        ...currentTasks,
+        [activity.id]: task,
+      }))
+    } catch (requestError) {
+      setActivityError(requestError.message || '互动转任务失败')
+    } finally {
+      setActivityTaskSavingId(null)
     }
   }
 
@@ -1106,7 +1125,24 @@ function CustomerWorkspacePage() {
                     <strong>{activity.subject}</strong>
                     <span>{activity.activity_type} / {activity.outcome || activity.summary}</span>
                   </div>
-                  <StatusBadge value={activity.sentiment} tone={activity.sentiment === 'positive' ? 'success' : activity.sentiment === 'risk' || activity.sentiment === 'negative' ? 'danger' : 'neutral'} />
+                  <div className="crm-workspace-item-side">
+                    <StatusBadge value={activity.sentiment} tone={activity.sentiment === 'positive' ? 'success' : activity.sentiment === 'risk' || activity.sentiment === 'negative' ? 'danger' : 'neutral'} />
+                    <button
+                      className="crm-ghost-button"
+                      type="button"
+                      onClick={() => handleCreateActivityTask(activity)}
+                      disabled={activityTaskSavingId === activity.id}
+                    >
+                      <CheckSquare size={15} />
+                      {activityTaskSavingId === activity.id ? '生成中' : activityTasks[activity.id] ? `任务 #${activityTasks[activity.id].id}` : '转任务'}
+                    </button>
+                    {activityTasks[activity.id] ? (
+                      <button className="crm-primary-button" type="button" onClick={() => navigate('/tasks')}>
+                        <ArrowRight size={15} />
+                        查看任务
+                      </button>
+                    ) : null}
+                  </div>
                 </>
               )}
             />

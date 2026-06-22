@@ -65,6 +65,7 @@ The course exam requires a full software engineering process package, not only c
 - Added `python -m app.manage doctor` for teammate deployment checks. It verifies demo data counts, database setup, and LLM configuration state, returning non-zero when the local database is below the classroom-demo target.
 - Added a Customer 360 workspace with `GET /api/customers/{customer_id}/workspace`, account-level metrics, contacts/leads/orders/cases/recommendations, a chronological timeline, owner-scope enforcement, and an OpenAI-compatible LLM account plan with deterministic fallback.
 - Added real customer activity records with `CustomerActivity`, `/api/customer-activities`, `/api/customers/{customer_id}/activities`, seeded touchpoints, workspace activity creation, business audit logging, owner-scope checks, and account-plan context.
+- Added customer activity-to-task conversion with `POST /api/customer-activities/{activity_id}/task`; it creates a real follow-up task from the activity next action, avoids duplicate tasks with a `CustomerActivity#id` marker, respects owner data scope, and writes business audit logs.
 
 ## Report Changes
 
@@ -109,6 +110,7 @@ The course exam requires a full software engineering process package, not only c
 - After environment doctor upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 34 passed.
 - After Customer 360 workspace upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 36 passed.
 - After customer activity timeline upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 37 passed.
+- After customer activity-to-task upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 37 passed; the existing customer activity tests now also cover activity conversion, duplicate prevention, task audit logging, and sales owner-scope rejection.
 - `npm run lint`: passed.
 - `npm test`: 24 passed.
 - `npm run build`: passed.

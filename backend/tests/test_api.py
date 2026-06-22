@@ -744,12 +744,17 @@ def test_customer_activity_create_updates_workspace_and_audit(monkeypatch) -> No
                 "sentiment": "positive",
             },
         )
+        activity_payload = created.json()
         activities = client.get(f"/api/customer-activities?customer_id={customer['id']}&q=高层复盘")
         workspace = client.get(f"/api/customers/{customer['id']}/workspace")
+        task_response = client.post(f"/api/customer-activities/{activity_payload['id']}/task")
+        duplicate_task_response = client.post(f"/api/customer-activities/{activity_payload['id']}/task")
+        tasks = client.get("/api/tasks", params={"q": f"CustomerActivity#{activity_payload['id']}"})
         audit_logs = client.get("/api/business-audit-logs?entity_type=customer_activity")
+        task_audit_logs = client.get("/api/business-audit-logs", params={"entity_type": "task"})
 
     assert created.status_code == 201
-    activity = created.json()
+    activity = activity_payload
     assert activity["customer_id"] == customer["id"]
     assert activity["customer_name"] == customer["company"]
     assert activity["subject"] == "高层复盘会议"
@@ -765,6 +770,18 @@ def test_customer_activity_create_updates_workspace_and_audit(monkeypatch) -> No
 
     assert audit_logs.status_code == 200
     assert any(log["entity_id"] == activity["id"] and log["action"] == "create" for log in audit_logs.json())
+
+    assert task_response.status_code == 201
+    task = task_response.json()
+    assert task["title"].startswith(f"跟进 {customer['company']}")
+    assert f"CustomerActivity#{activity['id']}" in task["description"]
+    assert "发送售后场景报价" in task["description"]
+    assert task["priority"] == "warm"
+    assert duplicate_task_response.status_code == 201
+    assert duplicate_task_response.json()["id"] == task["id"]
+    assert tasks.status_code == 200
+    assert len(tasks.json()) == 1
+    assert any(log["action"] == "convert" and log["entity_id"] == task["id"] for log in task_audit_logs.json())
 
 
 def test_customer_workspace_respects_sales_scope(monkeypatch) -> None:
@@ -786,7 +803,10 @@ def test_customer_workspace_respects_sales_scope(monkeypatch) -> None:
             user.role = "销售"
             other_customer = session.exec(select(Customer).where(Customer.owner != "李伟超")).first()
             assert other_customer is not None
+            other_activity = session.exec(select(CustomerActivity).where(CustomerActivity.owner != "李伟超")).first()
+            assert other_activity is not None
             other_customer_id = other_customer.id
+            other_activity_id = other_activity.id
             session.add(user)
             session.commit()
 
@@ -800,18 +820,23 @@ def test_customer_workspace_respects_sales_scope(monkeypatch) -> None:
             json={"subject": "销售本人客户跟进", "summary": "确认下一次演示时间。"},
             headers=headers,
         )
+        own_task = client.post(f"/api/customer-activities/{own_activity.json()['id']}/task", headers=headers)
         denied_activity = client.post(
             f"/api/customers/{other_customer_id}/activities",
             json={"subject": "越权客户跟进", "summary": "不应允许写入。"},
             headers=headers,
         )
+        denied_task = client.post(f"/api/customer-activities/{other_activity_id}/task", headers=headers)
 
     assert own_workspace.status_code == 200
     assert own_workspace.json()["customer"]["owner"] == "李伟超"
     assert denied_workspace.status_code == 403
     assert own_activity.status_code == 201
     assert own_activity.json()["owner"] == "李伟超"
+    assert own_task.status_code == 201
+    assert own_task.json()["owner"] == "李伟超"
     assert denied_activity.status_code == 403
+    assert denied_task.status_code == 403
 
 
 def test_create_order() -> None:

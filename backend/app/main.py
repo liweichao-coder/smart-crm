@@ -667,6 +667,52 @@ def find_task_for_copilot_recommendation(session: Session, recommendation_id: in
     return next((task for task in tasks if marker in task.description), None)
 
 
+def build_customer_activity_task(activity: CustomerActivity) -> TaskItem:
+    subject = activity.next_action or activity.subject or "确认客户下一步动作"
+    title = summarize_text(f"跟进 {activity.customer_name}：{subject}", limit=120)
+    description_parts = [
+        f"来源：CustomerActivity#{activity.id}",
+        f"客户：{activity.customer_name}",
+        f"互动：{activity.subject}",
+        f"互动摘要：{activity.summary}",
+        f"结果：{activity.outcome or '待补充'}",
+        f"建议动作：{activity.next_action or '待销售确认下一步动作'}",
+    ]
+
+    sentiment = (activity.sentiment or "").lower()
+    if sentiment in {"risk", "negative"}:
+        priority = "hot"
+        status = "today"
+        status_label = "今天"
+        due_date = "今天 18:00"
+    elif sentiment == "positive":
+        priority = "warm"
+        status = "week"
+        status_label = "本周"
+        due_date = "明天 18:00"
+    else:
+        priority = "cold"
+        status = "week"
+        status_label = "本周"
+        due_date = "本周五 18:00"
+
+    return TaskItem(
+        title=title,
+        description=summarize_text("\n".join(description_parts), limit=900),
+        owner=activity.owner,
+        due_date=due_date,
+        priority=priority,
+        status=status,
+        status_label=status_label,
+    )
+
+
+def find_task_for_customer_activity(session: Session, activity_id: int) -> TaskItem | None:
+    marker = f"CustomerActivity#{activity_id}"
+    tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    return next((task for task in tasks if marker in task.description), None)
+
+
 def make_notification(
     *,
     notification_id: str,
@@ -1633,6 +1679,39 @@ def update_customer_activity(
     session.commit()
     session.refresh(activity)
     return activity
+
+
+@app.post("/api/customer-activities/{activity_id}/task", response_model=TaskItemRead, status_code=201)
+def create_task_from_customer_activity(
+    activity_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> TaskItem:
+    activity = session.get(CustomerActivity, activity_id)
+    if not activity:
+        raise HTTPException(status_code=404, detail="客户互动不存在")
+    require_owner_scope(current_user, activity.owner)
+
+    existing_task = find_task_for_customer_activity(session, activity_id)
+    if existing_task:
+        require_owner_scope(current_user, existing_task.owner)
+        return existing_task
+
+    task = build_customer_activity_task(activity)
+    session.add(task)
+    session.flush()
+    add_business_audit(
+        session,
+        action="convert",
+        entity_type="task",
+        entity_id=task.id,
+        operator=task.owner,
+        summary=f"客户互动转任务 {task.title}",
+        detail=f"来源 CustomerActivity #{activity_id}，客户 {activity.customer_name}",
+    )
+    session.commit()
+    session.refresh(task)
+    return task
 
 
 @app.get("/api/customers/{customer_id}/workspace", response_model=CustomerWorkspaceResponse)
