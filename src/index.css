@@ -825,9 +825,38 @@ p {
   margin-bottom: 4px;
 }
 
+.crm-stock-card-head,
+.crm-stock-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.crm-stock-card-head {
+  justify-content: space-between;
+}
+
+.crm-stock-action {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.crm-stock-action .crm-primary-button {
+  width: 100%;
+}
+
 .crm-stock-card span {
   color: var(--text-tertiary);
   font-size: 13px;
+}
+
+.crm-stock-card small {
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}
+
+.crm-dashboard-grid .crm-stock-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .crm-board-grid {

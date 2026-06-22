@@ -242,6 +242,89 @@ def test_create_order() -> None:
     assert payload["items"][0]["quantity"] == 1
 
 
+def test_create_order_rejects_insufficient_stock() -> None:
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        low_stock_product = client.get("/api/inventory/restock-alerts").json()[0]
+        response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": customers[0]["id"],
+                "owner": "李伟超",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "confirmed",
+                "order_date": "2026-06-22",
+                "due_date": "2026-06-30",
+                "notes": "验证库存不足保护",
+                "created_by_ai": False,
+                "items": [
+                    {
+                        "product_id": low_stock_product["product_id"],
+                        "quantity": low_stock_product["current_stock"] + 1,
+                        "unit_price": low_stock_product["unit_price"],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 400
+    assert "库存不足" in response.json()["detail"]
+
+
+def test_inventory_restock_alerts_and_movements() -> None:
+    with TestClient(app) as client:
+        alerts_response = client.get("/api/inventory/restock-alerts")
+        initial_movements = client.get("/api/inventory/movements").json()
+        alert = alerts_response.json()[0]
+
+        restock_response = client.post(
+            f"/api/products/{alert['product_id']}/restock",
+            json={"quantity": 25, "reason": "测试低库存补货", "operator": "李伟超"},
+        )
+
+        customers = client.get("/api/customers").json()
+        restocked_product = restock_response.json()["product"]
+        order_response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": customers[0]["id"],
+                "owner": "李伟超",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "confirmed",
+                "order_date": "2026-06-22",
+                "due_date": "2026-06-30",
+                "notes": "验证库存流水",
+                "created_by_ai": False,
+                "items": [
+                    {
+                        "product_id": restocked_product["id"],
+                        "quantity": 1,
+                        "unit_price": restocked_product["unit_price"],
+                    }
+                ],
+            },
+        )
+        movements = client.get("/api/inventory/movements").json()
+
+    assert alerts_response.status_code == 200
+    assert alert["priority"] in {"critical", "warning"}
+    assert alert["recommended_restock"] > 0
+    assert any(movement["source"] == "seed_order_deduction" for movement in initial_movements)
+
+    assert restock_response.status_code == 200
+    restock_payload = restock_response.json()
+    assert restock_payload["product"]["stock"] == alert["current_stock"] + 25
+    assert restock_payload["movement"]["source"] == "manual_restock"
+    assert restock_payload["movement"]["before_stock"] == alert["current_stock"]
+    assert restock_payload["movement"]["after_stock"] == alert["current_stock"] + 25
+
+    assert order_response.status_code == 201
+    sources = {movement["source"] for movement in movements}
+    assert {"manual_restock", "order_deduction", "seed_order_deduction"} <= sources
+
+
 def test_vision_extract_text_file_fallback(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     order_text = "客户：云川医疗 联系人：陈敏\n智能巡检终端 x2\n客户数据接入服务 x1"

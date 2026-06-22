@@ -64,6 +64,49 @@ class ProductRead(BaseModel):
     stock: int
 
 
+class InventoryRestockAlertRead(BaseModel):
+    product_id: int
+    name: str
+    sku: str
+    category: str
+    unit_price: float
+    current_stock: int
+    priority: str
+    danger_threshold: int
+    warning_threshold: int
+    recent_order_quantity: int
+    recommended_restock: int
+    reason: str
+
+
+class ProductRestockRequest(BaseModel):
+    quantity: int = Field(ge=1, le=100000)
+    reason: str = "低库存补货"
+    operator: str = "李伟超"
+
+
+class InventoryMovementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    product_name: str
+    sku: str
+    change_quantity: int
+    before_stock: int
+    after_stock: int
+    reason: str
+    operator: str
+    source: str
+    created_at: datetime
+
+
+class ProductRestockResponse(BaseModel):
+    product: ProductRead
+    movement: InventoryMovementRead
+    alert: InventoryRestockAlertRead | None = None
+
+
 class ContactRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -5,7 +5,7 @@ import argparse
 from sqlmodel import Session, SQLModel
 
 from .database import create_db_and_tables, engine
-from .models import Customer, OrderItem, Product, SalesLead, SalesOrder  # noqa: F401
+from .models import Customer, InventoryMovement, OrderItem, Product, SalesLead, SalesOrder  # noqa: F401
 from .seed import seed_data
 
 

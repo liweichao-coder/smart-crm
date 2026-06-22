@@ -54,6 +54,21 @@ class Product(ProductBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class InventoryMovementBase(SQLModel):
+    product_id: int = Field(foreign_key="product.id", index=True)
+    change_quantity: int
+    before_stock: int
+    after_stock: int
+    reason: str
+    operator: str
+    source: str = Field(default="manual_restock", index=True)
+
+
+class InventoryMovement(InventoryMovementBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class ContactBase(SQLModel):
     name: str = Field(index=True)
     company: str = Field(index=True)

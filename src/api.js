@@ -90,6 +90,21 @@ export function fetchProducts() {
   return request('/api/products')
 }
 
+export function fetchRestockAlerts() {
+  return request('/api/inventory/restock-alerts')
+}
+
+export function fetchInventoryMovements() {
+  return request('/api/inventory/movements')
+}
+
+export function restockProduct(productId, payload) {
+  return request(`/api/products/${productId}/restock`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchContacts() {
   return request('/api/contacts')
 }

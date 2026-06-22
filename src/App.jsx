@@ -70,12 +70,15 @@ import {
   fetchCustomers,
   fetchDashboard,
   fetchGoals,
+  fetchInventoryMovements,
   fetchLeads,
   fetchOrders,
   fetchProducts,
+  fetchRestockAlerts,
   fetchTasks,
   extractOrderFromFile,
   generateFollowUp,
+  restockProduct,
   updateCase,
   updateContact,
   updateCustomer,
@@ -1837,18 +1840,23 @@ function OrdersPage() {
   const navigate = useNavigate()
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState([])
+  const [restockAlerts, setRestockAlerts] = useState([])
+  const [inventoryMovements, setInventoryMovements] = useState([])
   const [activeTab, setActiveTab] = useState('all')
   const [selectedOrderId, setSelectedOrderId] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [restockSavingId, setRestockSavingId] = useState(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let mounted = true
-    Promise.all([fetchOrders(), fetchProducts()])
-      .then(([nextOrders, nextProducts]) => {
+    Promise.all([fetchOrders(), fetchProducts(), fetchRestockAlerts(), fetchInventoryMovements()])
+      .then(([nextOrders, nextProducts, nextRestockAlerts, nextInventoryMovements]) => {
         if (mounted) {
           setOrders(nextOrders)
           setProducts(nextProducts)
+          setRestockAlerts(nextRestockAlerts)
+          setInventoryMovements(nextInventoryMovements)
           setSelectedOrderId(nextOrders[0]?.id ?? null)
           setError('')
         }
@@ -1869,12 +1877,43 @@ function OrdersPage() {
     }
   }, [])
 
+  const refreshInventoryState = async () => {
+    const [nextProducts, nextRestockAlerts, nextInventoryMovements] = await Promise.all([
+      fetchProducts(),
+      fetchRestockAlerts(),
+      fetchInventoryMovements(),
+    ])
+    setProducts(nextProducts)
+    setRestockAlerts(nextRestockAlerts)
+    setInventoryMovements(nextInventoryMovements)
+  }
+
+  const handleRestockProduct = async (product, alert) => {
+    const quantity = alert?.recommended_restock ?? Math.max(120, 300 - Number(product.stock ?? 0))
+    setRestockSavingId(product.id)
+    setError('')
+    try {
+      await restockProduct(product.id, {
+        quantity,
+        reason: '订单中心低库存建议补货',
+        operator: userProfile.name,
+      })
+      await refreshInventoryState()
+    } catch (nextError) {
+      setError(nextError.message || '补货失败')
+    } finally {
+      setRestockSavingId(null)
+    }
+  }
+
   const summary = useMemo(() => summarizeOrders(orders), [orders])
   const visibleOrders = useMemo(() => filterOrders(orders, activeTab), [activeTab, orders])
   const selectedOrder = useMemo(() => {
     return visibleOrders.find((order) => order.id === selectedOrderId) ?? visibleOrders[0] ?? orders[0] ?? null
   }, [orders, selectedOrderId, visibleOrders])
   const lowStockProducts = useMemo(() => pickLowStockProducts(products), [products])
+  const restockAlertMap = useMemo(() => new Map(restockAlerts.map((alert) => [alert.product_id, alert])), [restockAlerts])
+  const criticalAlertCount = useMemo(() => restockAlerts.filter((alert) => alert.priority === 'critical').length, [restockAlerts])
   const maxStock = useMemo(() => Math.max(1, ...products.map((product) => Number(product.stock ?? 0))), [products])
 
   return (
@@ -1889,7 +1928,7 @@ function OrdersPage() {
         onTabChange={setActiveTab}
         onCreate={() => navigate('/capture')}
       />
-      <ResourceSyncState loading={loading} error={error} />
+      <ResourceSyncState loading={loading || Boolean(restockSavingId)} error={error} />
 
       <section className="crm-metric-grid">
         <article className="crm-panel crm-metric-card">
@@ -1927,9 +1966,9 @@ function OrdersPage() {
             <Shield size={18} />
           </div>
           <div>
-            <span>低库存关注</span>
-            <strong>{lowStockProducts.filter((product) => getStockTone(product) !== 'success').length}</strong>
-            <small>按库存余量自动排序</small>
+            <span>补货建议</span>
+            <strong>{restockAlerts.length}</strong>
+            <small>{criticalAlertCount} 个危险库存 / 支持一键补货</small>
           </div>
         </article>
       </section>
@@ -2011,24 +2050,59 @@ function OrdersPage() {
       </section>
 
       <section className="crm-panel">
-        <PanelHeader title="库存扣减追踪" />
-        <div className="crm-stock-grid">
-          {lowStockProducts.map((product) => {
-            const tone = getStockTone(product)
-            const stockWidth = Math.max(8, Math.round((Number(product.stock ?? 0) / maxStock) * 100))
-            return (
-              <article key={product.id} className="crm-stock-card">
+        <PanelHeader title="库存补货建议" />
+        <div className="crm-dashboard-grid">
+          <div className="crm-stock-grid">
+            {lowStockProducts.map((product) => {
+              const alert = restockAlertMap.get(product.id)
+              const tone = alert?.priority === 'critical' ? 'danger' : getStockTone(product)
+              const stockWidth = Math.max(8, Math.round((Number(product.stock ?? 0) / maxStock) * 100))
+              return (
+                <article key={product.id} className="crm-stock-card">
+                  <div className="crm-stock-card-head">
+                    <div>
+                      <strong>{product.name}</strong>
+                      <span>{product.sku} · {product.category} · {formatCurrency(product.unit_price)}</span>
+                    </div>
+                    <StatusBadge value={`${product.stock} 件`} tone={tone} />
+                  </div>
+                  <div className="crm-progress-track">
+                    <div className={`crm-progress-bar tone-${tone}`} style={{ width: `${stockWidth}%` }} />
+                  </div>
+                  {alert ? (
+                    <div className="crm-stock-action">
+                      <span>{alert.reason}</span>
+                      <button
+                        className="crm-primary-button"
+                        type="button"
+                        onClick={() => handleRestockProduct(product, alert)}
+                        disabled={restockSavingId === product.id}
+                      >
+                        {restockSavingId === product.id ? '补货中' : `补货 ${alert.recommended_restock} 件`}
+                      </button>
+                    </div>
+                  ) : (
+                    <small>库存高于预警线，继续观察订单消耗。</small>
+                  )}
+                </article>
+              )
+            })}
+          </div>
+
+          <div className="crm-progress-list">
+            {inventoryMovements.slice(0, 6).map((movement) => (
+              <div key={movement.id} className="crm-list-item">
                 <div>
-                  <strong>{product.name}</strong>
-                  <span>{product.sku} · {product.category} · {formatCurrency(product.unit_price)}</span>
+                  <strong>{movement.product_name}</strong>
+                  <span>{movement.source === 'manual_restock' ? '人工补货' : '订单扣减'} · {movement.reason}</span>
                 </div>
-                <StatusBadge value={`${product.stock} 件`} tone={tone} />
-                <div className="crm-progress-track">
-                  <div className={`crm-progress-bar tone-${tone}`} style={{ width: `${stockWidth}%` }} />
+                <div className="crm-list-value">
+                  {movement.change_quantity > 0 ? '+' : ''}{movement.change_quantity}
                 </div>
-              </article>
-            )
-          })}
+              </div>
+            ))}
+            {!inventoryMovements.length ? <EmptyState icon={Shield} title="暂无库存流水" subtitle="创建订单或补货后会显示库存变化记录。" /> : null}
+          </div>
         </div>
       </section>
     </div>

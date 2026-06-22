@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from sqlmodel import Session, select
 
-from .models import Contact, Customer, LeadStage, OrderItem, OrderStatus, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import Contact, Customer, InventoryMovement, LeadStage, OrderItem, OrderStatus, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 
 
 def seed_data(session: Session) -> None:
@@ -174,6 +174,7 @@ def seed_data(session: Session) -> None:
     for order, product, quantity in pending_items:
         line_total = product.unit_price * quantity
         order.total_amount += line_total
+        before_stock = product.stock
         product.stock = max(product.stock - quantity, 0)
         session.add(
             OrderItem(
@@ -182,6 +183,17 @@ def seed_data(session: Session) -> None:
                 quantity=quantity,
                 unit_price=product.unit_price,
                 line_total=line_total,
+            )
+        )
+        session.add(
+            InventoryMovement(
+                product_id=product.id,
+                change_quantity=-quantity,
+                before_stock=before_stock,
+                after_stock=product.stock,
+                reason=f"演示订单 #{order.id} 库存扣减",
+                operator=order.owner,
+                source="seed_order_deduction",
             )
         )
         session.add(product)

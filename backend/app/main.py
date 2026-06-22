@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, Contact, Customer, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, Contact, Customer, InventoryMovement, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
     ContactCreate,
@@ -27,8 +27,12 @@ from .schemas import (
     CustomerUpdate,
     DashboardMetric,
     DashboardResponse,
+    InventoryMovementRead,
+    InventoryRestockAlertRead,
     LeadRead,
     OrderItemRead,
+    ProductRestockRequest,
+    ProductRestockResponse,
     ProductRead,
     RevenuePoint,
     SalesGoalCreate,
@@ -53,6 +57,13 @@ from .services import CopilotService, VisionExtractionService
 vision_service = VisionExtractionService()
 copilot_service = CopilotService()
 SessionDep = Annotated[Session, Depends(get_session)]
+RESTOCK_DANGER_THRESHOLD = 80
+RESTOCK_WARNING_THRESHOLD = 300
+CATEGORY_TARGET_STOCK = {
+    "硬件": 600,
+    "软件": 1200,
+    "服务": 420,
+}
 
 
 def summarize_text(value: str, limit: int = 220) -> str:
@@ -71,6 +82,61 @@ def patch_values(payload) -> dict:
 
 def delete_response(entity: str, item_id: int) -> dict[str, bool | int | str]:
     return {"deleted": True, "entity": entity, "id": item_id}
+
+
+def product_recent_order_quantity(product_id: int, session: Session) -> int:
+    order_items = session.exec(select(OrderItem).where(OrderItem.product_id == product_id)).all()
+    return sum(item.quantity for item in order_items)
+
+
+def build_restock_alert(product: Product, session: Session) -> InventoryRestockAlertRead | None:
+    recent_quantity = product_recent_order_quantity(product.id, session)
+    if product.stock > RESTOCK_WARNING_THRESHOLD:
+        return None
+
+    priority = "critical" if product.stock <= RESTOCK_DANGER_THRESHOLD else "warning"
+    target_stock = max(CATEGORY_TARGET_STOCK.get(product.category, 600), recent_quantity * 12, RESTOCK_WARNING_THRESHOLD + 200)
+    recommended_restock = max(target_stock - product.stock, 0)
+    threshold = RESTOCK_DANGER_THRESHOLD if priority == "critical" else RESTOCK_WARNING_THRESHOLD
+    reason = f"当前库存 {product.stock} 件，低于{'危险' if priority == 'critical' else '预警'}线 {threshold} 件；历史订单累计消耗 {recent_quantity} 件。"
+    return InventoryRestockAlertRead(
+        product_id=product.id,
+        name=product.name,
+        sku=product.sku,
+        category=product.category,
+        unit_price=product.unit_price,
+        current_stock=product.stock,
+        priority=priority,
+        danger_threshold=RESTOCK_DANGER_THRESHOLD,
+        warning_threshold=RESTOCK_WARNING_THRESHOLD,
+        recent_order_quantity=recent_quantity,
+        recommended_restock=recommended_restock,
+        reason=reason,
+    )
+
+
+def list_restock_alerts(session: Session) -> list[InventoryRestockAlertRead]:
+    products = session.exec(select(Product)).all()
+    alerts = [alert for product in products if (alert := build_restock_alert(product, session))]
+    priority_rank = {"critical": 0, "warning": 1}
+    return sorted(alerts, key=lambda alert: (priority_rank.get(alert.priority, 9), alert.current_stock, -alert.recent_order_quantity))
+
+
+def serialize_inventory_movement(movement: InventoryMovement, session: Session) -> InventoryMovementRead:
+    product = session.get(Product, movement.product_id)
+    return InventoryMovementRead(
+        id=movement.id,
+        product_id=movement.product_id,
+        product_name=product.name if product else "未知商品",
+        sku=product.sku if product else "-",
+        change_quantity=movement.change_quantity,
+        before_stock=movement.before_stock,
+        after_stock=movement.after_stock,
+        reason=movement.reason,
+        operator=movement.operator,
+        source=movement.source,
+        created_at=movement.created_at,
+    )
 
 
 def save_ai_interaction(
@@ -220,6 +286,47 @@ def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | i
 @app.get("/api/products", response_model=list[ProductRead])
 def list_products(session: SessionDep) -> list[Product]:
     return session.exec(select(Product).order_by(Product.created_at.desc())).all()
+
+
+@app.get("/api/inventory/restock-alerts", response_model=list[InventoryRestockAlertRead])
+def get_restock_alerts(session: SessionDep) -> list[InventoryRestockAlertRead]:
+    return list_restock_alerts(session)
+
+
+@app.get("/api/inventory/movements", response_model=list[InventoryMovementRead])
+def get_inventory_movements(session: SessionDep, limit: int = 30) -> list[InventoryMovementRead]:
+    safe_limit = min(max(limit, 1), 100)
+    movements = session.exec(select(InventoryMovement).order_by(InventoryMovement.created_at.desc()).limit(safe_limit)).all()
+    return [serialize_inventory_movement(movement, session) for movement in movements]
+
+
+@app.post("/api/products/{product_id}/restock", response_model=ProductRestockResponse)
+def restock_product(product_id: int, payload: ProductRestockRequest, session: SessionDep) -> ProductRestockResponse:
+    product = session.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="商品不存在")
+
+    before_stock = product.stock
+    product.stock += payload.quantity
+    movement = InventoryMovement(
+        product_id=product.id,
+        change_quantity=payload.quantity,
+        before_stock=before_stock,
+        after_stock=product.stock,
+        reason=payload.reason,
+        operator=payload.operator,
+        source="manual_restock",
+    )
+    session.add(product)
+    session.add(movement)
+    session.commit()
+    session.refresh(product)
+    session.refresh(movement)
+    return ProductRestockResponse(
+        product=product,
+        movement=serialize_inventory_movement(movement, session),
+        alert=build_restock_alert(product, session),
+    )
 
 
 @app.get("/api/contacts", response_model=list[ContactRead])
@@ -438,6 +545,10 @@ def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRe
     product_map = {product.id: product for product in products}
     if len(product_map) != len(product_ids):
         raise HTTPException(status_code=400, detail="存在无效商品")
+    for item in payload.items:
+        product = product_map[item.product_id]
+        if item.quantity > product.stock:
+            raise HTTPException(status_code=400, detail=f"{product.name} 库存不足，当前仅剩 {product.stock} 件")
 
     order = SalesOrder(
         customer_id=payload.customer_id,
@@ -459,7 +570,9 @@ def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRe
         product = product_map[item.product_id]
         line_total = item.quantity * item.unit_price
         total_amount += line_total
+        before_stock = product.stock
         product.stock = max(product.stock - item.quantity, 0)
+        session.add(product)
         session.add(
             OrderItem(
                 order_id=order.id,
@@ -467,6 +580,17 @@ def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRe
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 line_total=line_total,
+            )
+        )
+        session.add(
+            InventoryMovement(
+                product_id=product.id,
+                change_quantity=-item.quantity,
+                before_stock=before_stock,
+                after_stock=product.stock,
+                reason=f"订单 #{order.id} 创建扣减库存",
+                operator=payload.owner,
+                source="order_deduction",
             )
         )
 
