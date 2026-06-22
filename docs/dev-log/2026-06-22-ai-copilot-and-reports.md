@@ -57,6 +57,7 @@ The course exam requires a full software engineering process package, not only c
 - Added owner data-scope enforcement for sales users across contacts, leads/opportunities, cases, tasks, orders, dashboard metrics, notifications, and Copilot recommendation flows. `/api/auth/me` and `/api/admin/permission-matrix` now expose `data_scope` so the frontend can explain all-data vs own-data access.
 - Added a real order approval workflow with `OrderApprovalRequest`, `/api/order-approvals`, `/api/orders/{id}/approval-requests`, `/api/order-approvals/{id}/decision`, seeded pending/approved approval records, order-center approval actions, `approval:manage` permission, notification-center approval reminders, and business audit logs.
 - Added real customer owner data scope with a persisted `Customer.owner` field, SQLite lightweight migration/backfill, customer list/create/update/delete owner checks, dashboard customer filtering, and customer ownership checks before order creation or Copilot order drafts.
+- Added current-user owner defaults for create/update flows. The backend now normalizes empty, unassigned, pending, or placeholder owners to the authenticated user, while the frontend opens customer/lead/opportunity/case/task/order forms with the active user as the owner fallback.
 - Replaced the remaining static organization mock source in the frontend: organization selection, sidebar workspace name, and the create-organization action now use the authenticated backend session/register flow.
 - Added real CSV export for generic resource pages; the header filter action now focuses the search box, and the export action downloads the currently visible customer/contact/lead/opportunity/case/task/goal rows with escaped CSV values.
 - Reworked panel-header actions so dashboard cards link to real modules, Copilot score rules expand inline, and informational labels render as non-clickable status text instead of inert buttons.
@@ -101,8 +102,9 @@ The course exam requires a full software engineering process package, not only c
 - After owner data-scope upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 30 passed.
 - After order approval workflow upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 31 passed.
 - After customer owner-scope upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 32 passed.
+- After current-user owner default upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 32 passed.
 - `npm run lint`: passed.
-- `npm test`: 21 passed.
+- `npm test`: 24 passed.
 - `npm run build`: passed.
 - Demo database reset succeeded with 12 customers, 10 products, 12 contacts, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, and 22 order items.
 - DeepSeek OpenAI-compatible smoke succeeded: summary and follow-up returned `fallback_used=false`.
@@ -138,6 +140,7 @@ The course exam requires a full software engineering process package, not only c
 - Owner data-scope regression succeeded: a sales role sees only `李伟超` owner records for leads, tasks, orders, and Copilot recommendations; cross-owner lead/order/task updates and Copilot task conversion return 403.
 - Order approval workflow regression succeeded: a draft order can be submitted for approval, duplicate pending approvals are rejected, sales users cannot approve, approval managers can approve, the order status advances to `confirmed`, and `order_approval` business audit logs are written.
 - Customer owner-scope regression succeeded: a sales role sees only `李伟超` customers, new customers default to the current salesperson, cross-owner customer create/update returns 403, and orders cannot be created against another salesperson's customer.
+- Current-user owner default regression succeeded: a sales role can create contact, lead, case, task, and order payloads with empty or placeholder owners, and the API persists `李伟超`; frontend unit tests cover owner placeholder normalization.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps

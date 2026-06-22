@@ -109,6 +109,7 @@ import {
 } from './api.js'
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
+import { toDraftOwner } from './ownerUtils.js'
 import { buildClientRecord, buildCsvContent, createCsvFilename, createDraftFromColumns } from './resourceUtils.js'
 import { getSessionOrganizations, resolveSelectedOrg } from './sessionUtils.js'
 
@@ -403,9 +404,9 @@ function toDraftNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback
 }
 
-function buildCustomerPayload(draft) {
+function buildCustomerPayload(draft, ownerFallback = userProfile.name) {
   const company = toDraftText(draft.name, '新客户')
-  const owner = toDraftText(draft.owner, '未分配')
+  const owner = toDraftOwner(draft.owner, ownerFallback)
   return {
     company,
     name: toDraftText(draft.contactPerson, owner),
@@ -421,22 +422,22 @@ function buildCustomerPayload(draft) {
   }
 }
 
-function buildContactPayload(draft) {
+function buildContactPayload(draft, ownerFallback = userProfile.name) {
   return {
     name: toDraftText(draft.name, '新联系人'),
     company: toDraftText(draft.company, '未关联客户'),
     role: toDraftText(draft.role, '待确认'),
     email: toDraftText(draft.email, 'contact@demo.smart-crm.local'),
-    owner: userProfile.name,
+    owner: toDraftOwner(draft.owner, ownerFallback),
     status: toDraftText(draft.status, 'active'),
   }
 }
 
-function buildLeadPayload(draft, mode = 'lead') {
+function buildLeadPayload(draft, mode = 'lead', ownerFallback = userProfile.name) {
   const payload = {
     title: toDraftText(draft.name, mode === 'opportunity' ? '新商机' : '新线索'),
     customer_name: toDraftText(draft.company ?? draft.account, '未关联客户'),
-    owner: toDraftText(draft.owner, '未分配'),
+    owner: toDraftOwner(draft.owner, ownerFallback),
     region: '华南',
     expected_amount: toDraftNumber(draft.amount),
     stage: normalizeStage(draft.stage ?? 'new'),
@@ -449,24 +450,24 @@ function buildLeadPayload(draft, mode = 'lead') {
   return payload
 }
 
-function buildCasePayload(draft) {
+function buildCasePayload(draft, ownerFallback = userProfile.name) {
   const statusLabel = toDraftText(draft.statusLabel, 'Open')
   return {
     title: toDraftText(draft.title, '新工单'),
     account: toDraftText(draft.account, '未关联客户'),
-    owner: toDraftText(draft.owner, '未分配'),
+    owner: toDraftOwner(draft.owner, ownerFallback),
     priority: toDraftText(draft.priority, 'warm'),
     status: caseStatusValueMap[statusLabel] ?? toDraftText(draft.status, 'open'),
     status_label: statusLabel,
   }
 }
 
-function buildTaskPayload(draft) {
+function buildTaskPayload(draft, ownerFallback = userProfile.name) {
   const status = taskStatusValueMap[toDraftText(draft.statusLabel || draft.status, '本周')] ?? 'week'
   return {
     title: toDraftText(draft.title, '新任务'),
     description: toDraftText(draft.description, '补充任务说明。'),
-    owner: toDraftText(draft.owner, userProfile.name),
+    owner: toDraftOwner(draft.owner, ownerFallback),
     due_date: toDraftText(draft.dueDate, '今天 18:00'),
     priority: toDraftText(draft.priority, 'warm'),
     status,
@@ -510,9 +511,9 @@ function buildProductPayload(draft) {
   }
 }
 
-function buildOrderDraft(order) {
+function buildOrderDraft(order, ownerFallback = userProfile.name) {
   return {
-    owner: order?.owner ?? userProfile.name,
+    owner: order?.owner ?? ownerFallback,
     region: order?.region ?? '华南',
     status: order?.status ?? 'draft',
     dueDate: order?.due_date ?? new Date().toISOString().slice(0, 10),
@@ -526,9 +527,9 @@ function buildOrderDraft(order) {
   }
 }
 
-function buildOrderUpdatePayload(draft) {
+function buildOrderUpdatePayload(draft, ownerFallback = userProfile.name) {
   return {
-    owner: toDraftText(draft.owner, userProfile.name),
+    owner: toDraftOwner(draft.owner, ownerFallback),
     region: toDraftText(draft.region, '华南'),
     status: toDraftText(draft.status, 'draft'),
     due_date: toDraftText(draft.dueDate, new Date().toISOString().slice(0, 10)),
@@ -594,6 +595,7 @@ function mapContactRecord(contact) {
     company: contact.company,
     role: contact.role,
     email: contact.email,
+    owner: contact.owner,
     status: contact.status,
   }
 }
@@ -862,6 +864,8 @@ function ProductsPage() {
 }
 
 function AccountsPage() {
+  const { userProfile: activeProfile } = useOutletContext()
+  const ownerDraftDefaults = useMemo(() => ({ owner: activeProfile.name }), [activeProfile.name])
   const { records, loading, error } = useRemoteRecords(fetchCustomers, mapCustomerRecord)
 
   return (
@@ -872,8 +876,9 @@ function AccountsPage() {
       records={records}
       loading={loading}
       error={error}
-      onCreateRecord={(draft) => createCustomer(buildCustomerPayload(draft)).then(mapCustomerRecord)}
-      onUpdateRecord={(id, draft) => updateCustomer(id, buildCustomerPayload(draft)).then(mapCustomerRecord)}
+      defaultDraftValues={ownerDraftDefaults}
+      onCreateRecord={(draft) => createCustomer(buildCustomerPayload(draft, activeProfile.name)).then(mapCustomerRecord)}
+      onUpdateRecord={(id, draft) => updateCustomer(id, buildCustomerPayload(draft, activeProfile.name)).then(mapCustomerRecord)}
       onDeleteRecord={deleteCustomer}
       createLabel="新建客户"
       columns={[
@@ -893,6 +898,8 @@ function AccountsPage() {
 }
 
 function ContactsPage() {
+  const { userProfile: activeProfile } = useOutletContext()
+  const ownerDraftDefaults = useMemo(() => ({ owner: activeProfile.name }), [activeProfile.name])
   const { records, loading, error } = useRemoteRecords(fetchContacts, mapContactRecord)
 
   return (
@@ -903,8 +910,9 @@ function ContactsPage() {
       records={records}
       loading={loading}
       error={error}
-      onCreateRecord={(draft) => createContact(buildContactPayload(draft)).then(mapContactRecord)}
-      onUpdateRecord={(id, draft) => updateContact(id, buildContactPayload(draft)).then(mapContactRecord)}
+      defaultDraftValues={ownerDraftDefaults}
+      onCreateRecord={(draft) => createContact(buildContactPayload(draft, activeProfile.name)).then(mapContactRecord)}
+      onUpdateRecord={(id, draft) => updateContact(id, buildContactPayload(draft, activeProfile.name)).then(mapContactRecord)}
       onDeleteRecord={deleteContact}
       createLabel="新建联系人"
       columns={[
@@ -912,6 +920,7 @@ function ContactsPage() {
         { key: 'company', label: '所属客户' },
         { key: 'role', label: '职位' },
         { key: 'email', label: '邮箱' },
+        { key: 'owner', label: '负责人' },
         { key: 'status', label: '状态', type: 'badge' },
       ]}
       tabs={[
@@ -924,6 +933,8 @@ function ContactsPage() {
 }
 
 function LeadsPage() {
+  const { userProfile: activeProfile } = useOutletContext()
+  const ownerDraftDefaults = useMemo(() => ({ owner: activeProfile.name }), [activeProfile.name])
   const { records, loading, error } = useRemoteRecords(fetchLeads, mapLeadRecord)
 
   return (
@@ -934,8 +945,9 @@ function LeadsPage() {
       records={records}
       loading={loading}
       error={error}
-      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'lead')).then(mapLeadRecord)}
-      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, 'lead')).then(mapLeadRecord)}
+      defaultDraftValues={ownerDraftDefaults}
+      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'lead', activeProfile.name)).then(mapLeadRecord)}
+      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, 'lead', activeProfile.name)).then(mapLeadRecord)}
       onDeleteRecord={deleteLead}
       createLabel="新建线索"
       boardKey="stage"
@@ -951,6 +963,8 @@ function LeadsPage() {
 }
 
 function OpportunitiesPage() {
+  const { userProfile: activeProfile } = useOutletContext()
+  const ownerDraftDefaults = useMemo(() => ({ owner: activeProfile.name }), [activeProfile.name])
   const { records, loading, error } = useRemoteRecords(fetchLeads, mapOpportunityRecord)
 
   return (
@@ -961,8 +975,9 @@ function OpportunitiesPage() {
       records={records}
       loading={loading}
       error={error}
-      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'opportunity')).then(mapOpportunityRecord)}
-      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, 'opportunity')).then(mapOpportunityRecord)}
+      defaultDraftValues={ownerDraftDefaults}
+      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'opportunity', activeProfile.name)).then(mapOpportunityRecord)}
+      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, 'opportunity', activeProfile.name)).then(mapOpportunityRecord)}
       onDeleteRecord={deleteLead}
       createLabel="新建商机"
       boardKey="stage"
@@ -978,6 +993,8 @@ function OpportunitiesPage() {
 }
 
 function CasesPage() {
+  const { userProfile: activeProfile } = useOutletContext()
+  const ownerDraftDefaults = useMemo(() => ({ owner: activeProfile.name }), [activeProfile.name])
   const { records, loading, error } = useRemoteRecords(fetchCases, mapCaseRecord)
 
   return (
@@ -988,8 +1005,9 @@ function CasesPage() {
       records={records}
       loading={loading}
       error={error}
-      onCreateRecord={(draft) => createCase(buildCasePayload(draft)).then(mapCaseRecord)}
-      onUpdateRecord={(id, draft) => updateCase(id, buildCasePayload(draft)).then(mapCaseRecord)}
+      defaultDraftValues={ownerDraftDefaults}
+      onCreateRecord={(draft) => createCase(buildCasePayload(draft, activeProfile.name)).then(mapCaseRecord)}
+      onUpdateRecord={(id, draft) => updateCase(id, buildCasePayload(draft, activeProfile.name)).then(mapCaseRecord)}
       onDeleteRecord={deleteCase}
       createLabel="新建工单"
       boardKey="statusLabel"
@@ -2752,6 +2770,7 @@ function PermissionMatrixPage() {
 }
 
 function CapturePage() {
+  const { userProfile: activeProfile } = useOutletContext()
   const [file, setFile] = useState(null)
   const [result, setResult] = useState(null)
   const [catalog, setCatalog] = useState({ customers: [], products: [] })
@@ -2818,7 +2837,7 @@ function CapturePage() {
         captureResult: result,
         customers: catalog.customers,
         products: catalog.products,
-        owner: userProfile.name,
+        owner: activeProfile.name,
         region: '华南',
       })
       const order = await createOrder(payload)
@@ -2959,7 +2978,7 @@ function OrdersPage() {
   const [orderSaving, setOrderSaving] = useState(false)
   const [approvalSavingId, setApprovalSavingId] = useState(null)
   const [approvalDecisionId, setApprovalDecisionId] = useState(null)
-  const [orderDraft, setOrderDraft] = useState(() => buildOrderDraft(null))
+  const [orderDraft, setOrderDraft] = useState(() => buildOrderDraft(null, activeProfile.name))
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -3064,7 +3083,7 @@ function OrdersPage() {
     if (!selectedOrder) {
       return
     }
-    const nextDraft = buildOrderDraft(selectedOrder)
+    const nextDraft = buildOrderDraft(selectedOrder, activeProfile.name)
     if (!nextDraft.items.length && products[0]) {
       nextDraft.items = [buildOrderLineDraft(products[0])]
     }
@@ -3081,7 +3100,7 @@ function OrdersPage() {
     setOrderSaving(true)
     setError('')
     try {
-      const updatedOrder = await updateOrder(selectedOrder.id, buildOrderUpdatePayload(orderDraft))
+      const updatedOrder = await updateOrder(selectedOrder.id, buildOrderUpdatePayload(orderDraft, activeProfile.name))
       setOrders((currentOrders) => currentOrders.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)))
       setSelectedOrderId(updatedOrder.id)
       await refreshInventoryState()
@@ -3555,6 +3574,7 @@ function TableResourcePage({
   createLabel,
   loading = false,
   error = '',
+  defaultDraftValues = {},
   onCreateRecord,
   onUpdateRecord,
   onDeleteRecord,
@@ -3567,7 +3587,11 @@ function TableResourcePage({
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
-  const [draft, setDraft] = useState(() => createDraftFromColumns(columns))
+  const createInitialDraft = () => ({
+    ...createDraftFromColumns(columns),
+    ...defaultDraftValues,
+  })
+  const [draft, setDraft] = useState(createInitialDraft)
   const searchInputRef = useRef(null)
   const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
 
@@ -3591,7 +3615,7 @@ function TableResourcePage({
 
   const handleOpenCreate = () => {
     setEditingRecord(null)
-    setDraft(createDraftFromColumns(columns))
+    setDraft(createInitialDraft())
     setCreateError('')
     setCreateOpen(true)
   }
@@ -3740,6 +3764,7 @@ function BoardResourcePage({
   boardKey,
   loading = false,
   error = '',
+  defaultDraftValues = {},
   onCreateRecord,
   onUpdateRecord,
   onDeleteRecord,
@@ -3759,7 +3784,11 @@ function BoardResourcePage({
     () => ({ key: boardKey, label: '阶段', value: boardValues[0] ?? 'New', options: boardValues.length ? boardValues : ['New'] }),
     [boardKey, boardValues],
   )
-  const [draft, setDraft] = useState(() => createDraftFromColumns(columns, workflowField))
+  const createInitialDraft = () => ({
+    ...createDraftFromColumns(columns, workflowField),
+    ...defaultDraftValues,
+  })
+  const [draft, setDraft] = useState(createInitialDraft)
 
   useEffect(() => {
     setRows(records)
@@ -3782,7 +3811,7 @@ function BoardResourcePage({
 
   const handleOpenCreate = () => {
     setEditingRecord(null)
-    setDraft(createDraftFromColumns(columns, workflowField))
+    setDraft(createInitialDraft())
     setCreateError('')
     setCreateOpen(true)
   }
@@ -3980,6 +4009,7 @@ function BoardResourcePage({
 }
 
 function TasksPage() {
+  const { userProfile: activeProfile } = useOutletContext()
   const { records: fetchedTasks, loading, error } = useRemoteRecords(fetchTasks, mapTaskRecord)
   const taskCreateColumns = useMemo(
     () => [
@@ -3992,13 +4022,17 @@ function TasksPage() {
     ],
     [],
   )
+  const createTaskDraft = () => ({
+    ...createDraftFromColumns(taskCreateColumns),
+    owner: activeProfile.name,
+  })
   const [tasks, setTasks] = useState(fetchedTasks)
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingTask, setEditingTask] = useState(null)
   const [createError, setCreateError] = useState('')
-  const [draft, setDraft] = useState(() => createDraftFromColumns(taskCreateColumns))
+  const [draft, setDraft] = useState(createTaskDraft)
   const tabs = [
     { key: 'all', label: '全部' },
     { key: 'overdue', label: '逾期', predicate: (item) => item.status === 'overdue' },
@@ -4017,7 +4051,7 @@ function TasksPage() {
 
   const handleOpenCreate = () => {
     setEditingTask(null)
-    setDraft(createDraftFromColumns(taskCreateColumns))
+    setDraft(createTaskDraft())
     setCreateError('')
     setCreateOpen(true)
   }
@@ -4035,11 +4069,11 @@ function TasksPage() {
     setCreateError('')
     try {
       if (editingTask) {
-        const task = await updateTask(editingTask.id, buildTaskPayload(draft))
+        const task = await updateTask(editingTask.id, buildTaskPayload(draft, activeProfile.name))
         const mappedTask = mapTaskRecord(task)
         setTasks((currentTasks) => currentTasks.map((item) => (item.id === editingTask.id ? mappedTask : item)))
       } else {
-        const task = await createTask(buildTaskPayload(draft))
+        const task = await createTask(buildTaskPayload(draft, activeProfile.name))
         setTasks((currentTasks) => [mapTaskRecord(task), ...currentTasks])
       }
       setCreateOpen(false)

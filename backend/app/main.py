@@ -321,6 +321,13 @@ def require_payload_owner_scope(user: AuthUser, owner: str) -> None:
         raise HTTPException(status_code=403, detail="只能创建或指派给自己的业务数据")
 
 
+def normalize_payload_owner(owner: str | None, user: AuthUser) -> str:
+    owner_text = (owner or "").strip()
+    if owner_text in {"", "未分配", "待分配", "新负责人"}:
+        return user.full_name
+    return owner_text
+
+
 def serialize_auth_organization(user: AuthUser, organization: Organization) -> AuthOrganizationRead:
     return AuthOrganizationRead(
         id=organization.id,
@@ -1292,7 +1299,7 @@ def create_customer(
     session: SessionDep,
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> Customer:
-    owner = payload.owner or current_user.full_name
+    owner = normalize_payload_owner(payload.owner, current_user)
     require_payload_owner_scope(current_user, owner)
     contact_person = payload.contact_person or payload.name or payload.company
     customer = Customer(
@@ -1338,6 +1345,7 @@ def update_customer(
     require_owner_scope(current_user, customer.owner)
     updates = patch_values(payload)
     if "owner" in updates:
+        updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(customer, updates)
     if not customer.contact_person:
@@ -1565,8 +1573,9 @@ def create_contact(
     session: SessionDep,
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> Contact:
-    require_payload_owner_scope(current_user, payload.owner)
-    contact = Contact(**payload.model_dump())
+    owner = normalize_payload_owner(payload.owner, current_user)
+    require_payload_owner_scope(current_user, owner)
+    contact = Contact(**{**payload.model_dump(), "owner": owner})
     session.add(contact)
     session.flush()
     add_business_audit(
@@ -1596,6 +1605,7 @@ def update_contact(
     require_owner_scope(current_user, contact.owner)
     updates = patch_values(payload)
     if "owner" in updates:
+        updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(contact, updates)
     session.add(contact)
@@ -1669,8 +1679,9 @@ def create_lead(
     session: SessionDep,
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> SalesLead:
-    require_payload_owner_scope(current_user, payload.owner)
-    lead = SalesLead(**payload.model_dump())
+    owner = normalize_payload_owner(payload.owner, current_user)
+    require_payload_owner_scope(current_user, owner)
+    lead = SalesLead(**{**payload.model_dump(), "owner": owner})
     session.add(lead)
     session.flush()
     add_business_audit(
@@ -1700,6 +1711,7 @@ def update_lead(
     require_owner_scope(current_user, lead.owner)
     updates = patch_values(payload)
     if "owner" in updates:
+        updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(lead, updates)
     session.add(lead)
@@ -1771,8 +1783,9 @@ def create_case(
     session: SessionDep,
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> SupportCase:
-    require_payload_owner_scope(current_user, payload.owner)
-    support_case = SupportCase(**payload.model_dump())
+    owner = normalize_payload_owner(payload.owner, current_user)
+    require_payload_owner_scope(current_user, owner)
+    support_case = SupportCase(**{**payload.model_dump(), "owner": owner})
     session.add(support_case)
     session.flush()
     add_business_audit(
@@ -1802,6 +1815,7 @@ def update_case(
     require_owner_scope(current_user, support_case.owner)
     updates = patch_values(payload)
     if "owner" in updates:
+        updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(support_case, updates)
     session.add(support_case)
@@ -1873,8 +1887,9 @@ def create_task(
     session: SessionDep,
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> TaskItem:
-    require_payload_owner_scope(current_user, payload.owner)
-    task = TaskItem(**payload.model_dump())
+    owner = normalize_payload_owner(payload.owner, current_user)
+    require_payload_owner_scope(current_user, owner)
+    task = TaskItem(**{**payload.model_dump(), "owner": owner})
     session.add(task)
     session.flush()
     add_business_audit(
@@ -1904,6 +1919,7 @@ def update_task(
     require_owner_scope(current_user, task.owner)
     updates = patch_values(payload)
     if "owner" in updates:
+        updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(task, updates)
     session.add(task)
@@ -2280,6 +2296,7 @@ def update_order(
     before_total = order.total_amount
     updates = payload.model_dump(exclude_unset=True, exclude_none=True, exclude={"items"})
     if "owner" in updates:
+        updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(order, updates)
     if payload.items is not None:
@@ -2308,7 +2325,8 @@ def create_order(
     session: SessionDep,
     current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
 ) -> SalesOrderRead:
-    require_payload_owner_scope(current_user, payload.owner)
+    owner = normalize_payload_owner(payload.owner, current_user)
+    require_payload_owner_scope(current_user, owner)
     customer = session.get(Customer, payload.customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
@@ -2326,7 +2344,7 @@ def create_order(
 
     order = SalesOrder(
         customer_id=payload.customer_id,
-        owner=payload.owner,
+        owner=owner,
         region=payload.region,
         currency=payload.currency,
         status=payload.status,
@@ -2363,7 +2381,7 @@ def create_order(
                 before_stock=before_stock,
                 after_stock=product.stock,
                 reason=f"订单 #{order.id} 创建扣减库存",
-                operator=payload.owner,
+                operator=owner,
                 source="order_deduction",
             )
         )
@@ -2375,7 +2393,7 @@ def create_order(
         action="create",
         entity_type="order",
         entity_id=order.id,
-        operator=payload.owner,
+        operator=owner,
         summary=f"创建订单 #{order.id}",
         detail=f"客户 {customer.company}，明细 {len(payload.items)} 条，总额 {order.total_amount:.0f}",
     )

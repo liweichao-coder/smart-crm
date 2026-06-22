@@ -356,6 +356,52 @@ def test_rbac_sales_role_permissions() -> None:
         denied_order_update = client.patch(f"/api/orders/{other_order_id}", json={"status": "fulfilled"}, headers=headers)
         denied_task_update = client.patch(f"/api/tasks/{other_task_id}", json={"status": "today"}, headers=headers)
         products = client.get("/api/products", headers=headers).json()
+        created_contact_default_owner = client.post(
+            "/api/contacts",
+            json={"name": "默认负责人联系人", "company": "销售权限客户", "owner": "未分配"},
+            headers=headers,
+        )
+        created_lead_default_owner = client.post(
+            "/api/leads",
+            json={
+                "title": "默认负责人线索",
+                "customer_name": "销售权限客户",
+                "owner": "未分配",
+                "due_date": "2026-06-30",
+            },
+            headers=headers,
+        )
+        created_case_default_owner = client.post(
+            "/api/cases",
+            json={
+                "title": "默认负责人工单",
+                "account": "销售权限客户",
+                "owner": "待分配",
+                "due_date": "2026-06-30",
+            },
+            headers=headers,
+        )
+        created_task_default_owner = client.post(
+            "/api/tasks",
+            json={"title": "默认负责人任务", "owner": "新负责人", "due_date": "明天 18:00"},
+            headers=headers,
+        )
+        created_order_default_owner = client.post(
+            "/api/orders",
+            json={
+                "customer_id": created_customer.json()["id"],
+                "owner": "未分配",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "draft",
+                "order_date": "2026-06-23",
+                "due_date": "2026-07-03",
+                "notes": "默认负责人订单",
+                "created_by_ai": False,
+                "items": [{"product_id": products[0]["id"], "quantity": 1, "unit_price": products[0]["unit_price"]}],
+            },
+            headers=headers,
+        )
         denied_order_for_other_customer = client.post(
             "/api/orders",
             json={
@@ -409,6 +455,16 @@ def test_rbac_sales_role_permissions() -> None:
     assert all(item["id"] != other_recommendation_id for item in recommendations.json())
     assert created_customer.status_code == 201
     assert created_customer.json()["owner"] == "李伟超"
+    assert created_contact_default_owner.status_code == 201
+    assert created_contact_default_owner.json()["owner"] == "李伟超"
+    assert created_lead_default_owner.status_code == 201
+    assert created_lead_default_owner.json()["owner"] == "李伟超"
+    assert created_case_default_owner.status_code == 201
+    assert created_case_default_owner.json()["owner"] == "李伟超"
+    assert created_task_default_owner.status_code == 201
+    assert created_task_default_owner.json()["owner"] == "李伟超"
+    assert created_order_default_owner.status_code == 201
+    assert created_order_default_owner.json()["owner"] == "李伟超"
     assert denied_customer_create.status_code == 403
     assert denied_customer_update.status_code == 403
     assert denied_order_for_other_customer.status_code == 403
