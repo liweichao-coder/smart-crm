@@ -12,6 +12,7 @@ import {
   ChevronsUpDown,
   Eye,
   Filter,
+  FileText,
   Flame,
   LayoutDashboard,
   LayoutGrid,
@@ -27,6 +28,7 @@ import {
   Target,
   TrendingUp,
   Trophy,
+  UploadCloud,
   Users,
   X,
   Building,
@@ -54,6 +56,7 @@ import {
   fetchGoals,
   fetchLeads,
   fetchTasks,
+  extractOrderFromFile,
   generateFollowUp,
 } from './api.js'
 import { buildClientRecord, createDraftFromColumns } from './resourceUtils.js'
@@ -63,6 +66,7 @@ const STORAGE_KEY = 'huahenuancrm:selected-org'
 const navItems = [
   { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM' },
   { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM' },
+  { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM' },
   { path: '/leads', label: '线索', icon: Target, title: 'Leads | 深大 AI CRM' },
   { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 深大 AI CRM' },
   { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 深大 AI CRM' },
@@ -370,6 +374,7 @@ function App() {
       <Route element={<AppShell />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
+        <Route path="/capture" element={<CapturePage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/accounts" element={<AccountsPage />} />
         <Route path="/contacts" element={<ContactsPage />} />
@@ -1315,6 +1320,134 @@ function CopilotPage() {
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+function CapturePage() {
+  const [file, setFile] = useState(null)
+  const [result, setResult] = useState(null)
+  const [extracting, setExtracting] = useState(false)
+  const [error, setError] = useState('')
+
+  const totalAmount = useMemo(() => {
+    if (!result?.items?.length) {
+      return 0
+    }
+    return result.items.reduce((total, item) => total + Number(item.quantity) * Number(item.unit_price), 0)
+  }, [result])
+
+  const handleSubmit = (event) => {
+    event.preventDefault()
+    if (!file) {
+      setError('请选择订单图片或文本文件')
+      return
+    }
+
+    setExtracting(true)
+    setError('')
+    extractOrderFromFile(file)
+      .then((payload) => {
+        setResult(payload)
+      })
+      .catch((nextError) => {
+        setError(nextError.message || '智能录单失败')
+      })
+      .finally(() => {
+        setExtracting(false)
+      })
+  }
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel crm-copilot-hero">
+        <div>
+          <span className="crm-overline">AI Capture</span>
+          <h2>智能录单</h2>
+          <p>上传订单图片、报价单截图或文本文件，生成可复核的订单草稿。</p>
+        </div>
+        <div className="crm-score-pill">
+          <UploadCloud size={18} />
+          <span>{result?.fallback_used ? '兜底解析' : result ? '模型抽取' : '等待上传'}</span>
+        </div>
+      </section>
+
+      <ResourceSyncState loading={extracting} error={error} />
+
+      <section className="crm-dashboard-grid">
+        <form className="crm-panel" onSubmit={handleSubmit}>
+          <PanelHeader title="上传材料" />
+          <label className="crm-field">
+            <span>订单文件</span>
+            <input
+              type="file"
+              accept="image/*,.txt,.csv,.md,.json"
+              onChange={(event) => {
+                setFile(event.target.files?.[0] ?? null)
+              }}
+            />
+          </label>
+          <button className="crm-primary-button" type="submit" disabled={extracting}>
+            <UploadCloud size={16} />
+            {extracting ? '生成中' : '生成草稿'}
+          </button>
+        </form>
+
+        <div className="crm-panel">
+          <PanelHeader title="抽取结果" />
+          {result ? (
+            <div className="crm-progress-list">
+              <div className="crm-list-item">
+                <div>
+                  <strong>{result.company}</strong>
+                  <span>{result.customer_name}</span>
+                </div>
+                <StatusBadge value={formatPercent(result.confidence)} tone={result.confidence >= 0.8 ? 'success' : 'warning'} />
+              </div>
+              <div className="crm-list-item">
+                <div>
+                  <strong>{result.source}</strong>
+                  <span>{result.fallback_used ? '已使用兜底解析' : '模型抽取成功'}</span>
+                </div>
+                <div className="crm-list-value">{formatCurrency(totalAmount)}</div>
+              </div>
+              <p>{result.summary}</p>
+            </div>
+          ) : (
+            <EmptyState icon={UploadCloud} title="暂无草稿" subtitle="上传材料后会显示结构化订单草稿。" />
+          )}
+        </div>
+      </section>
+
+      {result?.items?.length ? (
+        <section className="crm-panel">
+          <PanelHeader title="订单条目" />
+          <div className="crm-table-wrap">
+            <table className="crm-table">
+              <thead>
+                <tr>
+                  <th>商品</th>
+                  <th>数量</th>
+                  <th>单价</th>
+                  <th>小计</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.items.map((item) => (
+                  <tr key={`${item.product_name}-${item.quantity}-${item.unit_price}`}>
+                    <td>{item.product_name}</td>
+                    <td>{item.quantity}</td>
+                    <td>{formatCurrency(item.unit_price)}</td>
+                    <td>{formatCurrency(item.quantity * item.unit_price)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>{result.suggested_notes}</p>
+          {result.raw_text_excerpt ? <small>{result.raw_text_excerpt}</small> : null}
+        </section>
+      ) : null}
     </div>
   )
 }

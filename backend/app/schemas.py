@@ -191,6 +191,9 @@ class VisionExtractResponse(BaseModel):
     summary: str
     items: list[VisionExtractItem]
     suggested_notes: str
+    fallback_used: bool = False
+    source: str = "llm_vision"
+    raw_text_excerpt: str = ""
 
 
 class CopilotOpportunityInsight(BaseModel):

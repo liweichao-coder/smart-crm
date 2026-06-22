@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
+    llm_vision_model: str = ""
     llm_timeout_seconds: float = 12.0
 
     model_config = SettingsConfigDict(

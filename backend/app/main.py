@@ -192,8 +192,10 @@ def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRe
 
 
 @app.post("/api/vision-extract", response_model=VisionExtractResponse)
-async def vision_extract(file: Annotated[UploadFile, File(...)]) -> VisionExtractResponse:
-    return await vision_service.extract(file)
+async def vision_extract(file: Annotated[UploadFile, File(...)], session: SessionDep) -> VisionExtractResponse:
+    customers = session.exec(select(Customer)).all()
+    products = session.exec(select(Product)).all()
+    return await vision_service.extract(file, customers=customers, products=products)
 
 
 @app.get("/api/copilot/summary", response_model=CopilotSummaryResponse)

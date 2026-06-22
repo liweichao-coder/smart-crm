@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
+import json
+import re
 from datetime import date
+from typing import Any
 
 from fastapi import UploadFile
 import httpx
@@ -20,49 +24,319 @@ from .schemas import (
 
 
 class VisionExtractionService:
-    """Local demo extractor with deterministic sample output."""
+    """Extract order draft fields from uploaded text or image files."""
 
-    async def extract(self, file: UploadFile) -> VisionExtractResponse:
-        raw_name = (file.filename or "sample").lower()
-        name_hint = "陈敏" if "income" in raw_name else "李强"
-        company_hint = "云川医疗" if "income" in raw_name else "星海装备"
+    def __init__(self) -> None:
+        self.llm = OpenAICompatibleClient()
 
-        sample_items = [
-            VisionExtractItem(product_name="智能巡检终端", quantity=2, unit_price=16800),
-            VisionExtractItem(product_name="客户数据接入服务", quantity=1, unit_price=4200),
-        ]
-        if "deal" in raw_name:
-            sample_items = [
-                VisionExtractItem(product_name="移动录单套件", quantity=1, unit_price=9800),
-                VisionExtractItem(product_name="销售分析大屏授权", quantity=3, unit_price=6800),
+    async def extract(
+        self,
+        file: UploadFile,
+        customers: list[Customer],
+        products: list[Product],
+    ) -> VisionExtractResponse:
+        raw_bytes = await file.read()
+        content_type = file.content_type or "application/octet-stream"
+        filename = file.filename or "uploaded-order"
+        text = self.decode_text(raw_bytes, content_type, filename)
+
+        model_response = ""
+        fallback_used = True
+        if settings.llm_api_key:
+            model_response, fallback_used = await self.llm.complete_messages(
+                messages=self.build_messages(
+                    raw_bytes=raw_bytes,
+                    content_type=content_type,
+                    filename=filename,
+                    text=text,
+                    customers=customers,
+                    products=products,
+                ),
+                model=settings.llm_vision_model or settings.llm_model,
+                max_tokens=900,
+            )
+
+        if model_response:
+            parsed_payload = self.parse_json_payload(model_response)
+            if parsed_payload:
+                return self.build_response(
+                    payload=parsed_payload,
+                    customers=customers,
+                    products=products,
+                    fallback_used=fallback_used,
+                    source="llm_vision" if self.is_image(content_type, filename) else "llm_text",
+                    raw_text=text,
+                )
+
+        parsed_payload = self.parse_text_payload(text, customers, products)
+        return self.build_response(
+            payload=parsed_payload,
+            customers=customers,
+            products=products,
+            fallback_used=True,
+            source="local_text_parser" if text else "catalog_fallback",
+            raw_text=text,
+        )
+
+    def build_messages(
+        self,
+        raw_bytes: bytes,
+        content_type: str,
+        filename: str,
+        text: str,
+        customers: list[Customer],
+        products: list[Product],
+    ) -> list[dict[str, Any]]:
+        product_catalog = "\n".join(f"- {product.name} / {product.sku} / {product.unit_price:.0f} 元" for product in products)
+        customer_catalog = "\n".join(f"- {customer.company} / 联系人 {customer.contact_person}" for customer in customers)
+        instruction = (
+            "请从上传的订单图片、截图、报价单或文本中抽取 CRM 订单草稿。"
+            "只返回 JSON，不要 Markdown。JSON 字段：customer_name, company, confidence, summary, "
+            "suggested_notes, items。items 内每项包含 product_name, quantity, unit_price。"
+            "商品名称和单价优先从商品目录中匹配；数量从上传内容中读取；无法确认时数量为 1，confidence 降低。"
+            f"\n\n客户目录：\n{customer_catalog}\n\n商品目录：\n{product_catalog}\n\n文件名：{filename}"
+        )
+
+        if self.is_image(content_type, filename):
+            image_url = f"data:{content_type};base64,{base64.b64encode(raw_bytes).decode('ascii')}"
+            return [
+                {"role": "system", "content": "你是 CRM 多模态订单录入助手，擅长从图片中抽取结构化订单草稿。"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": instruction},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                },
             ]
 
-        total = sum(item.quantity * item.unit_price for item in sample_items)
-        confidence = 0.91 if "income" in raw_name or "deal" in raw_name else 0.82
-        return VisionExtractResponse(
-            customer_name=name_hint,
-            company=company_hint,
-            confidence=confidence,
-            summary=f"识别到 {len(sample_items)} 个条目，预估总金额 {total:.0f} 元。",
-            items=sample_items,
-            suggested_notes=f"AI 于 {date.today().isoformat()} 从图片中提取客户与商品信息，建议人工复核数量与单价。",
+        return [
+            {"role": "system", "content": "你是 CRM 订单录入助手，擅长从中文报价文本中抽取结构化订单草稿。"},
+            {"role": "user", "content": f"{instruction}\n\n上传文本：\n{text[:8000]}"},
+        ]
+
+    def decode_text(self, raw_bytes: bytes, content_type: str, filename: str) -> str:
+        lower_name = filename.lower()
+        is_text_file = (
+            content_type.startswith("text/")
+            or lower_name.endswith((".txt", ".csv", ".md", ".json", ".log"))
         )
+        if not is_text_file:
+            return ""
+
+        for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+            try:
+                return raw_bytes.decode(encoding).strip()
+            except UnicodeDecodeError:
+                continue
+        return raw_bytes.decode("utf-8", errors="ignore").strip()
+
+    def parse_json_payload(self, model_response: str) -> dict[str, Any] | None:
+        cleaned = model_response.strip()
+        cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"```$", "", cleaned).strip()
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        try:
+            payload = json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def parse_text_payload(
+        self,
+        text: str,
+        customers: list[Customer],
+        products: list[Product],
+    ) -> dict[str, Any]:
+        matched_customer = self.match_customer(text, customers)
+        items: list[dict[str, Any]] = []
+        for product in products:
+            if product.name in text or product.sku in text:
+                quantity = self.extract_quantity(text, product)
+                items.append(
+                    {
+                        "product_name": product.name,
+                        "quantity": quantity,
+                        "unit_price": product.unit_price,
+                    }
+                )
+
+        if not items:
+            items = self.parse_generic_items(text)
+
+        if not items and products:
+            items = [
+                {
+                    "product_name": products[0].name,
+                    "quantity": 1,
+                    "unit_price": products[0].unit_price,
+                }
+            ]
+
+        return {
+            "customer_name": matched_customer.contact_person if matched_customer else "",
+            "company": matched_customer.company if matched_customer else "",
+            "confidence": 0.74 if text and items else 0.42,
+            "items": items,
+            "summary": "",
+            "suggested_notes": "",
+        }
+
+    def parse_generic_items(self, text: str) -> list[dict[str, Any]]:
+        items = []
+        pattern = re.compile(r"(?P<name>[\u4e00-\u9fa5A-Za-z0-9-]{3,40})\s*[x×*]\s*(?P<quantity>\d+)(?:\D{0,8}(?P<price>\d+(?:\.\d+)?))?")
+        for match in pattern.finditer(text):
+            price = float(match.group("price") or 1)
+            items.append(
+                {
+                    "product_name": match.group("name"),
+                    "quantity": int(match.group("quantity")),
+                    "unit_price": price,
+                }
+            )
+        return items[:8]
+
+    def build_response(
+        self,
+        payload: dict[str, Any],
+        customers: list[Customer],
+        products: list[Product],
+        fallback_used: bool,
+        source: str,
+        raw_text: str,
+    ) -> VisionExtractResponse:
+        company = str(payload.get("company") or "").strip()
+        customer_name = str(payload.get("customer_name") or "").strip()
+        matched_customer = self.match_customer(f"{company} {customer_name} {raw_text}", customers)
+        if matched_customer:
+            company = company or matched_customer.company
+            if not customer_name or customer_name == company or customer_name == matched_customer.company:
+                customer_name = matched_customer.contact_person
+        if not company:
+            company = "待复核客户"
+        if not customer_name:
+            customer_name = matched_customer.contact_person if matched_customer else "待复核联系人"
+
+        items = self.normalize_items(payload.get("items") or [], products)
+        if not items and products:
+            items = [VisionExtractItem(product_name=products[0].name, quantity=1, unit_price=products[0].unit_price)]
+
+        confidence = self.clamp_confidence(payload.get("confidence"), fallback_used)
+        total = sum(item.quantity * item.unit_price for item in items)
+        summary = str(payload.get("summary") or "").strip()
+        if not summary:
+            summary = f"抽取到 {len(items)} 个订单条目，预估总金额 {total:.0f} 元。"
+
+        suggested_notes = str(payload.get("suggested_notes") or "").strip()
+        if not suggested_notes:
+            suggested_notes = (
+                f"AI 于 {date.today().isoformat()} 生成订单草稿；来源 {source}。"
+                "提交订单前请人工复核客户、数量、单价和库存。"
+            )
+
+        return VisionExtractResponse(
+            customer_name=customer_name,
+            company=company,
+            confidence=confidence,
+            summary=summary,
+            items=items,
+            suggested_notes=suggested_notes,
+            fallback_used=fallback_used,
+            source=source,
+            raw_text_excerpt=raw_text[:500],
+        )
+
+    def normalize_items(self, items: list[Any], products: list[Product]) -> list[VisionExtractItem]:
+        normalized = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            product_name = str(item.get("product_name") or item.get("name") or "").strip()
+            matched_product = self.match_product(product_name, products)
+            quantity = self.to_int(item.get("quantity"), default=1)
+            unit_price = self.to_float(item.get("unit_price"), default=matched_product.unit_price if matched_product else 1)
+            normalized.append(
+                VisionExtractItem(
+                    product_name=matched_product.name if matched_product else product_name or "待复核商品",
+                    quantity=max(quantity, 1),
+                    unit_price=max(unit_price, 0.01),
+                )
+            )
+        return normalized[:12]
+
+    def match_customer(self, text: str, customers: list[Customer]) -> Customer | None:
+        for customer in customers:
+            if customer.company in text or customer.contact_person in text or customer.name in text:
+                return customer
+        return None
+
+    def match_product(self, product_name: str, products: list[Product]) -> Product | None:
+        for product in products:
+            if product.name == product_name or product.sku == product_name:
+                return product
+        for product in products:
+            if product_name and (product_name in product.name or product.name in product_name):
+                return product
+        return None
+
+    def extract_quantity(self, text: str, product: Product) -> int:
+        escaped_terms = [re.escape(product.name), re.escape(product.sku)]
+        pattern = re.compile(rf"({'|'.join(escaped_terms)}).{{0,30}}?(?:x|×|\*|数量[:：]?)\s*(\d+)", re.IGNORECASE)
+        match = pattern.search(text)
+        if match:
+            return max(int(match.group(2)), 1)
+        return 1
+
+    def clamp_confidence(self, value: Any, fallback_used: bool) -> float:
+        try:
+            confidence = float(value)
+        except (TypeError, ValueError):
+            confidence = 0.72 if fallback_used else 0.86
+        return max(0.1, min(confidence, 0.98))
+
+    def to_int(self, value: Any, default: int) -> int:
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+    def to_float(self, value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def is_image(self, content_type: str, filename: str) -> bool:
+        lower_name = filename.lower()
+        return content_type.startswith("image/") or lower_name.endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp"))
 
 
 class OpenAICompatibleClient:
     async def complete(self, system_prompt: str, user_prompt: str) -> tuple[str, bool]:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return await self.complete_messages(messages=messages, model=settings.llm_model, max_tokens=520)
+
+    async def complete_messages(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        max_tokens: int,
+    ) -> tuple[str, bool]:
         if not settings.llm_api_key:
             return "", True
 
         endpoint = settings.llm_base_url.rstrip("/") + "/chat/completions"
         payload = {
-            "model": settings.llm_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "model": model,
+            "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 520,
+            "max_tokens": max_tokens,
         }
         headers = {
             "Authorization": f"Bearer {settings.llm_api_key}",

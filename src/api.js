@@ -1,11 +1,16 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
 async function request(path, init) {
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers: isFormData
+      ? {
+          ...(init?.headers ?? {}),
+        }
+      : {
+          'Content-Type': 'application/json',
+          ...(init?.headers ?? {}),
+        },
     ...init,
   })
 
@@ -25,6 +30,15 @@ export function generateFollowUp(leadId) {
   return request('/api/copilot/follow-up', {
     method: 'POST',
     body: JSON.stringify({ lead_id: leadId }),
+  })
+}
+
+export function extractOrderFromFile(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request('/api/vision-extract', {
+    method: 'POST',
+    body: formData,
   })
 }
 

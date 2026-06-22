@@ -17,6 +17,8 @@ The course exam requires a full software engineering process package, not only c
 - Expanded demo data to 12 customers, 10 products, 12 contacts, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, and 22 persisted order items with stock deduction.
 - Connected frontend customer, contact, lead, opportunity, case, task, and goal pages to real REST APIs instead of static mock records.
 - Connected dashboard summary widgets to `/api/dashboard`, `/api/leads`, `/api/tasks`, and `/api/goals`, replacing the remaining static dashboard mock data.
+- Replaced deterministic AI capture samples with `/api/vision-extract` real upload parsing: image inputs use OpenAI-compatible multimodal messages when configured; text uploads use local extraction against the CRM customer/product catalog.
+- Added the frontend AI Capture page for uploading order images or text and reviewing extracted draft items.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -36,6 +38,7 @@ The course exam requires a full software engineering process package, not only c
 ## Verification Completed
 
 - `backend/.venv/Scripts/python.exe -m pytest`: 7 passed.
+- After AI capture upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 9 passed.
 - `npm run lint`: passed.
 - `npm test`: 8 passed.
 - `npm run build`: passed.
@@ -50,8 +53,9 @@ The course exam requires a full software engineering process package, not only c
   - `/tasks`: 8 cards.
   - `/goals`: 4 cards.
   - `/dashboard`: metrics, focus strip, stage cards, tasks, opportunities, goals, and activities render from backend payloads.
+  - `/capture`: upload UI calls `/api/vision-extract` and displays extracted customer, confidence, source, and order items.
 
 ## Next Steps
 
-- Upgrade AI vision extraction from local deterministic demo data to a real OCR or multimodal model.
+- Connect AI Capture draft submission directly to `/api/orders`.
 - Capture screenshots and export Word/PPT final materials.

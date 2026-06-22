@@ -101,6 +101,57 @@ def test_create_order() -> None:
     assert payload["items"][0]["quantity"] == 1
 
 
+def test_vision_extract_text_file_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    order_text = "客户：云川医疗 联系人：陈敏\n智能巡检终端 x2\n客户数据接入服务 x1"
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/vision-extract",
+            files={"file": ("order.txt", order_text.encode("utf-8"), "text/plain")},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["company"] == "云川医疗"
+    assert payload["customer_name"] == "陈敏"
+    assert payload["fallback_used"] is True
+    assert payload["source"] == "local_text_parser"
+    assert payload["items"][0]["product_name"] == "智能巡检终端"
+    assert payload["items"][0]["quantity"] == 2
+
+
+def test_vision_extract_llm_json(monkeypatch) -> None:
+    async def fake_complete_messages(**kwargs):
+        messages = kwargs["messages"]
+        assert messages[1]["content"][1]["type"] == "image_url"
+        return (
+            '{"customer_name":"周宁","company":"南山科技","confidence":0.93,'
+            '"summary":"多模态识别到一张订单截图。",'
+            '"items":[{"product_name":"AI 商机评分模块","quantity":3,"unit_price":12800}],'
+            '"suggested_notes":"模型识别结果，需人工复核。"}',
+            False,
+        )
+
+    monkeypatch.setattr(settings, "llm_api_key", "test-key")
+    monkeypatch.setattr(settings, "llm_vision_model", "test-vision-model")
+    monkeypatch.setattr(main_module.vision_service.llm, "complete_messages", fake_complete_messages)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/vision-extract",
+            files={"file": ("order.jpg", b"fake-jpeg-bytes", "image/jpeg")},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["company"] == "南山科技"
+    assert payload["fallback_used"] is False
+    assert payload["source"] == "llm_vision"
+    assert payload["items"][0]["product_name"] == "AI 商机评分模块"
+    assert payload["items"][0]["quantity"] == 3
+
+
 def test_copilot_summary_fallback(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:
