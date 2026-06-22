@@ -56,6 +56,7 @@ The course exam requires a full software engineering process package, not only c
 - Added a data-driven notification center with `/api/notifications` and a real topbar bell panel for overdue/today tasks, inventory risk, key opportunities, Copilot actions, and AI fallback calls.
 - Added owner data-scope enforcement for sales users across contacts, leads/opportunities, cases, tasks, orders, dashboard metrics, notifications, and Copilot recommendation flows. `/api/auth/me` and `/api/admin/permission-matrix` now expose `data_scope` so the frontend can explain all-data vs own-data access.
 - Added a real order approval workflow with `OrderApprovalRequest`, `/api/order-approvals`, `/api/orders/{id}/approval-requests`, `/api/order-approvals/{id}/decision`, seeded pending/approved approval records, order-center approval actions, `approval:manage` permission, notification-center approval reminders, and business audit logs.
+- Added enforceable order approval policy checks for order status transitions. High-value orders, low-confidence AI orders, urgent delivery windows, multi-line orders, and direct fulfillment require manager approval for non-approval roles; direct sales confirmation now returns a 403 policy message instead of silently bypassing the approval workflow.
 - Added real customer owner data scope with a persisted `Customer.owner` field, SQLite lightweight migration/backfill, customer list/create/update/delete owner checks, dashboard customer filtering, and customer ownership checks before order creation or Copilot order drafts.
 - Added current-user owner defaults for create/update flows. The backend now normalizes empty, unassigned, pending, or placeholder owners to the authenticated user, while the frontend opens customer/lead/opportunity/case/task/order forms with the active user as the owner fallback.
 - Replaced the remaining static organization mock source in the frontend: organization selection, sidebar workspace name, and the create-organization action now use the authenticated backend session/register flow.
@@ -119,6 +120,7 @@ The course exam requires a full software engineering process package, not only c
 - Added URL-synced list state for table, board, team, task, and order views. `q`, `tab`, `view`, and `order` now preserve search terms, tabs, board/list mode, and selected order detail across refreshes or shared demo links.
 - Added backend field-level validation for email, phone, status/category enums, goal targets, non-empty order lines, and order due-date ordering. Invalid CRM payloads now fail at the FastAPI/Pydantic layer with 422 instead of silently entering the database.
 - After field-level validation upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 40 passed.
+- After order approval policy enforcement, `backend/.venv/Scripts/python.exe -m pytest -q`: 41 passed. Coverage now verifies that a sales role can create a high-risk draft order, cannot directly confirm it, can submit approval, and a manager decision advances the order to `confirmed`.
 - `npm run lint`: passed.
 - `npm test`: 27 passed.
 - `npm run build`: passed.
@@ -166,5 +168,5 @@ The course exam requires a full software engineering process package, not only c
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, richer approval policies, synced pagination state, saved view preferences, and cross-table consistency checks.
+- Add fuller end-to-end browser smoke coverage, multi-level approval SLA, saved view preferences, and cross-table consistency checks.
 - Capture screenshots and export Word/PPT final materials.

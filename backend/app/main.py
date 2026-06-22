@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from .auth import generate_session_token, hash_password, hash_session_token, verify_password
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
     AuthAuditLogRead,
@@ -103,6 +103,11 @@ auth_scheme = HTTPBearer(auto_error=False)
 RESTOCK_DANGER_THRESHOLD = 80
 RESTOCK_WARNING_THRESHOLD = 300
 AUTH_SESSION_DAYS = 7
+ORDER_APPROVAL_AMOUNT_THRESHOLD = 100000
+ORDER_APPROVAL_AI_CONFIDENCE_THRESHOLD = 0.85
+ORDER_APPROVAL_FAST_DELIVERY_DAYS = 7
+ORDER_APPROVAL_ITEM_COUNT_THRESHOLD = 3
+ORDER_APPROVAL_REQUIRED_STATUSES = {OrderStatus.confirmed, OrderStatus.fulfilled}
 ALL_PERMISSIONS = "*"
 KNOWN_PERMISSIONS = {
     "approval:manage",
@@ -1094,20 +1099,84 @@ def build_customer_timeline(
     return sorted(items, key=lambda item: item.timestamp, reverse=True)[:16]
 
 
-def build_order_approval_risk_summary(order: SalesOrder) -> str:
+def normalize_order_status(value: OrderStatus | str) -> OrderStatus:
+    return value if isinstance(value, OrderStatus) else OrderStatus(value)
+
+
+def count_order_items(order: SalesOrder, session: Session | None = None) -> int:
+    if session is None or order.id is None:
+        return 0
+    return len(session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all())
+
+
+def build_order_approval_policy_reasons(
+    order: SalesOrder,
+    session: Session | None = None,
+    target_order_status: OrderStatus | str | None = None,
+) -> list[str]:
+    target_status = normalize_order_status(target_order_status or order.status)
+    reasons: list[str] = []
+    if target_status not in ORDER_APPROVAL_REQUIRED_STATUSES:
+        return reasons
+
+    if order.total_amount >= ORDER_APPROVAL_AMOUNT_THRESHOLD:
+        reasons.append(f"高价值订单 {order.total_amount:.0f} 元达到经理复核阈值")
+    if order.created_by_ai and order.ai_confidence_score < ORDER_APPROVAL_AI_CONFIDENCE_THRESHOLD:
+        reasons.append(f"AI 录单置信度 {order.ai_confidence_score:.0%}，需要人工核对客户、商品和数量")
+    delivery_window_days = (order.due_date - order.order_date).days
+    if delivery_window_days <= ORDER_APPROVAL_FAST_DELIVERY_DAYS:
+        reasons.append(f"交付周期 {delivery_window_days} 天，需确认库存与实施排期")
+    item_count = count_order_items(order, session)
+    if item_count >= ORDER_APPROVAL_ITEM_COUNT_THRESHOLD:
+        reasons.append(f"订单明细达到 {item_count} 条，需复核组合报价")
+    if target_status == OrderStatus.fulfilled:
+        reasons.append("目标状态为已履约，需经理确认交付闭环")
+    return reasons
+
+
+def build_order_approval_risk_summary(
+    order: SalesOrder,
+    session: Session | None = None,
+    target_order_status: OrderStatus | str | None = None,
+) -> str:
     risk_flags: list[str] = []
-    if order.total_amount >= 100000:
+    risk_flags.extend(build_order_approval_policy_reasons(order, session, target_order_status))
+    if order.total_amount >= ORDER_APPROVAL_AMOUNT_THRESHOLD and not any("高价值订单" in flag for flag in risk_flags):
         risk_flags.append(f"订单金额 {order.total_amount:.0f} 元，建议经理复核商务条款")
     if order.created_by_ai:
-        risk_flags.append("订单由 AI 智能录单生成，需要确认客户、商品和数量")
-        if order.ai_confidence_score < 0.85:
+        if not any("AI" in flag for flag in risk_flags):
+            risk_flags.append("订单由 AI 智能录单生成，需要确认客户、商品和数量")
+        if order.ai_confidence_score < ORDER_APPROVAL_AI_CONFIDENCE_THRESHOLD and not any("置信度" in flag for flag in risk_flags):
             risk_flags.append(f"AI 置信度 {order.ai_confidence_score:.0%}，建议人工复核原始材料")
     days_to_delivery = (order.due_date - date.today()).days
-    if days_to_delivery <= 7:
+    if days_to_delivery <= ORDER_APPROVAL_FAST_DELIVERY_DAYS and not any("交付" in flag for flag in risk_flags):
         risk_flags.append(f"交付窗口 {days_to_delivery} 天，需确认库存和实施排期")
-    if order.status != "draft":
-        risk_flags.append(f"当前订单状态为 {order.status.value}，审批后将推进到目标状态")
+    target_status = normalize_order_status(target_order_status or order.status)
+    if order.status != OrderStatus.draft or target_status != order.status:
+        risk_flags.append(f"当前订单状态为 {order.status.value}，审批后将推进到 {target_status.value}")
     return "；".join(risk_flags) or "订单金额、交付周期和 AI 置信度均未触发高风险规则。"
+
+
+def ensure_order_status_transition_allowed(
+    order: SalesOrder,
+    session: Session,
+    current_user: AuthUser,
+    target_order_status: OrderStatus | str,
+    previous_order_status: OrderStatus | str | None = None,
+) -> None:
+    target_status = normalize_order_status(target_order_status)
+    previous_status = normalize_order_status(previous_order_status or order.status)
+    if target_status == previous_status or target_status not in ORDER_APPROVAL_REQUIRED_STATUSES:
+        return
+    if has_permission(current_user, "approval:manage"):
+        return
+
+    policy_reasons = build_order_approval_policy_reasons(order, session, target_status)
+    if not policy_reasons:
+        return
+    if find_pending_order_approval(session, order.id or 0):
+        raise HTTPException(status_code=403, detail="订单已触发审批策略并存在待审批申请，需经理审批后推进状态")
+    raise HTTPException(status_code=403, detail=f"订单触发审批策略，需提交经理审批：{'；'.join(policy_reasons)}")
 
 
 def serialize_order_approval(approval: OrderApprovalRequest, session: Session) -> OrderApprovalRead:
@@ -2708,6 +2777,8 @@ def submit_order_approval_request(
     require_owner_scope(current_user, order.owner)
     if order.status == "fulfilled":
         raise HTTPException(status_code=400, detail="已履约订单不需要提交审批")
+    if payload.target_order_status not in ORDER_APPROVAL_REQUIRED_STATUSES:
+        raise HTTPException(status_code=400, detail="审批目标状态必须为已确认或已履约")
     if payload.target_order_status == order.status:
         raise HTTPException(status_code=400, detail="目标状态与当前订单状态一致")
     if find_pending_order_approval(session, order_id):
@@ -2721,7 +2792,7 @@ def submit_order_approval_request(
         reviewer=payload.reviewer.strip() or "销售经理",
         status=OrderApprovalStatus.pending,
         reason=summarize_text(reason, limit=360),
-        risk_summary=summarize_text(build_order_approval_risk_summary(order), limit=500),
+        risk_summary=summarize_text(build_order_approval_risk_summary(order, session, payload.target_order_status), limit=500),
         requested_total=order.total_amount,
         previous_order_status=order.status,
         target_order_status=payload.target_order_status,
@@ -2829,15 +2900,22 @@ def update_order(
         raise HTTPException(status_code=404, detail="订单不存在")
     require_owner_scope(current_user, order.owner)
     before_total = order.total_amount
+    previous_status = order.status
     updates = payload.model_dump(exclude_unset=True, exclude_none=True, exclude={"items"})
+    requested_status = updates.pop("status", None)
     if "owner" in updates:
         updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(order, updates)
     if payload.items is not None:
         replace_order_items(order, payload.items, session)
+    if requested_status is not None:
+        ensure_order_status_transition_allowed(order, session, current_user, requested_status, previous_status)
+        order.status = requested_status
     session.add(order)
     changed_fields = sorted(updates.keys())
+    if requested_status is not None:
+        changed_fields.append("status")
     if payload.items is not None:
         changed_fields.append("items")
     add_business_audit(
@@ -2922,6 +3000,7 @@ def create_order(
         )
 
     order.total_amount = total_amount
+    ensure_order_status_transition_allowed(order, session, current_user, order.status, OrderStatus.draft)
     session.add(order)
     add_business_audit(
         session,

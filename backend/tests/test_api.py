@@ -1128,6 +1128,77 @@ def test_order_approval_workflow() -> None:
     assert ("order_approval", "approve") in audit_actions
 
 
+def test_order_approval_policy_blocks_sales_direct_confirmation() -> None:
+    with TestClient(app) as client:
+        sales_login = client.post("/api/auth/login", json={"account": "sales@smart-crm.local", "password": "SmartCRM@2026"})
+        sales_headers = {"Authorization": f"Bearer {sales_login.json()['token']}"}
+        manager_login = client.post("/api/auth/login", json={"account": "manager@smart-crm.local", "password": "SmartCRM@2026"})
+        manager_headers = {"Authorization": f"Bearer {manager_login.json()['token']}"}
+
+        customer = client.get("/api/customers", headers=sales_headers).json()[0]
+        products = client.get("/api/products", headers=sales_headers).json()
+        product = next(item for item in products if item["sku"] == "SERV-DEPLOY-018")
+        order_response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": customer["id"],
+                "owner": "赵可",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "draft",
+                "order_date": "2026-06-23",
+                "due_date": "2026-06-27",
+                "notes": "审批策略拦截测试订单",
+                "created_by_ai": True,
+                "ai_confidence_score": 0.58,
+                "items": [
+                    {
+                        "product_id": product["id"],
+                        "quantity": 4,
+                        "unit_price": product["unit_price"],
+                    }
+                ],
+            },
+            headers=sales_headers,
+        )
+        order_id = order_response.json()["id"]
+        denied_confirmation = client.patch(
+            f"/api/orders/{order_id}",
+            json={"status": "confirmed"},
+            headers=sales_headers,
+        )
+        approval_response = client.post(
+            f"/api/orders/{order_id}/approval-requests",
+            json={"reason": "AI 低置信度且高金额订单，申请经理确认。"},
+            headers=sales_headers,
+        )
+        pending_denied_confirmation = client.patch(
+            f"/api/orders/{order_id}",
+            json={"status": "confirmed"},
+            headers=sales_headers,
+        )
+        decision_response = client.post(
+            f"/api/order-approvals/{approval_response.json()['id']}/decision",
+            json={"decision": "approved", "comment": "合同金额和交付排期已复核。"},
+            headers=manager_headers,
+        )
+        orders_after = client.get("/api/orders", headers=sales_headers).json()
+
+    assert sales_login.status_code == 200
+    assert manager_login.status_code == 200
+    assert order_response.status_code == 201
+    assert denied_confirmation.status_code == 403
+    assert "审批策略" in denied_confirmation.json()["detail"]
+    assert approval_response.status_code == 201
+    assert "高价值订单" in approval_response.json()["risk_summary"]
+    assert "AI" in approval_response.json()["risk_summary"]
+    assert pending_denied_confirmation.status_code == 403
+    assert "待审批申请" in pending_denied_confirmation.json()["detail"]
+    assert decision_response.status_code == 200
+    assert decision_response.json()["status"] == "approved"
+    assert next(order for order in orders_after if order["id"] == order_id)["status"] == "confirmed"
+
+
 def test_update_order_items_reprices_and_adjusts_inventory() -> None:
     with TestClient(app) as client:
         order = next(item for item in client.get("/api/orders").json() if len(item["items"]) >= 2)
