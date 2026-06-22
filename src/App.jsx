@@ -54,6 +54,7 @@ import {
 import avatar from './assets/vendor/unnamed.png'
 import {
   AUTH_STORAGE_KEY,
+  assignOrderApproval,
   askCopilot,
   fetchCases,
   fetchAiAuditLogs,
@@ -105,6 +106,7 @@ import {
   logout,
   register,
   restockProduct,
+  remindOrderApproval,
   submitOrderApproval,
   updateCase,
   updateContact,
@@ -321,6 +323,8 @@ const businessActionLabelMap = {
   delete: '删除',
   restock: '补货',
   submit_approval: '提交审批',
+  remind_approval: '审批催办',
+  assign_approval: '审批转派',
   approve: '审批通过',
   reject: '审批驳回',
 }
@@ -3771,6 +3775,8 @@ function OrdersPage() {
   const [orderSaving, setOrderSaving] = useState(false)
   const [approvalSavingId, setApprovalSavingId] = useState(null)
   const [approvalDecisionId, setApprovalDecisionId] = useState(null)
+  const [approvalActionId, setApprovalActionId] = useState(null)
+  const [approvalAssignmentDrafts, setApprovalAssignmentDrafts] = useState({})
   const [orderDraft, setOrderDraft] = useState(() => buildOrderDraft(null, activeProfile.name))
   const [error, setError] = useState('')
   const { activeTab, setActiveTab, selectedId: selectedOrderId, setSelectedId: setSelectedOrderId } = useResourceUrlState({
@@ -3949,6 +3955,47 @@ function OrdersPage() {
     }
   }
 
+  const handleRemindOrderApproval = async (approval) => {
+    setApprovalActionId(`${approval.id}-remind`)
+    setError('')
+    try {
+      await remindOrderApproval(approval.id, {
+        message: `${activeProfile.name} 催办订单 #${approval.order_id} 审批，请在 ${approval.sla_due_at ? formatDateTime(approval.sla_due_at) : 'SLA 截止前'} 处理。`,
+      })
+      await refreshOrderApprovals()
+    } catch (nextError) {
+      setError(nextError.message || '审批催办失败')
+    } finally {
+      setApprovalActionId(null)
+    }
+  }
+
+  const handleAssignOrderApproval = async (approval) => {
+    const reviewer = String(approvalAssignmentDrafts[approval.id] ?? approval.reviewer ?? '').trim()
+    if (!reviewer) {
+      setError('请输入转派对象')
+      return
+    }
+    setApprovalActionId(`${approval.id}-assign`)
+    setError('')
+    try {
+      await assignOrderApproval(approval.id, {
+        reviewer,
+        comment: `${activeProfile.name} 将审批转派给 ${reviewer} 处理。`,
+      })
+      setApprovalAssignmentDrafts((currentDrafts) => {
+        const nextDrafts = { ...currentDrafts }
+        delete nextDrafts[approval.id]
+        return nextDrafts
+      })
+      await refreshOrderApprovals()
+    } catch (nextError) {
+      setError(nextError.message || '审批转派失败')
+    } finally {
+      setApprovalActionId(null)
+    }
+  }
+
   const summary = useMemo(() => summarizeOrders(orders), [orders])
   const visibleOrders = useMemo(() => filterOrders(orders, activeTab), [activeTab, orders])
   const selectedOrder = useMemo(() => {
@@ -4070,7 +4117,7 @@ function OrdersPage() {
         onTabChange={setActiveTab}
         onCreate={() => navigate('/capture')}
       />
-      <ResourceSyncState loading={loading || Boolean(restockSavingId) || exportSaving || orderSaving || Boolean(approvalSavingId) || Boolean(approvalDecisionId)} error={error} />
+      <ResourceSyncState loading={loading || Boolean(restockSavingId) || exportSaving || orderSaving || Boolean(approvalSavingId) || Boolean(approvalDecisionId) || Boolean(approvalActionId)} error={error} />
 
       <section className="crm-metric-grid">
         <article className="crm-panel crm-metric-card">
@@ -4221,6 +4268,37 @@ function OrdersPage() {
                       <StatusBadge value={approvalRiskLabelMap[approval.risk_level] ?? '中风险'} tone={approvalRiskToneMap[approval.risk_level] ?? 'info'} />
                       <StatusBadge value={approvalSlaLabelMap[approval.sla_status] ?? 'SLA 未设置'} tone={approvalSlaToneMap[approval.sla_status] ?? 'neutral'} />
                       <StatusBadge value={formatCurrency(approval.requested_total)} tone={approval.requested_total >= 100000 ? 'warning' : 'neutral'} />
+                      {approval.status === 'pending' ? (
+                        <button
+                          className="crm-ghost-button"
+                          type="button"
+                          onClick={() => handleRemindOrderApproval(approval)}
+                          disabled={approvalActionId === `${approval.id}-remind`}
+                        >
+                          催办
+                        </button>
+                      ) : null}
+                      {approval.status === 'pending' && canApproveOrders ? (
+                        <div className="crm-approval-assign">
+                          <input
+                            aria-label="审批转派对象"
+                            value={approvalAssignmentDrafts[approval.id] ?? approval.reviewer ?? ''}
+                            onChange={(event) => setApprovalAssignmentDrafts((currentDrafts) => ({
+                              ...currentDrafts,
+                              [approval.id]: event.target.value,
+                            }))}
+                            placeholder="审批人或角色"
+                          />
+                          <button
+                            className="crm-ghost-button"
+                            type="button"
+                            onClick={() => handleAssignOrderApproval(approval)}
+                            disabled={approvalActionId === `${approval.id}-assign`}
+                          >
+                            转派
+                          </button>
+                        </div>
+                      ) : null}
                       {approval.status === 'pending' && canApproveOrders ? (
                         <div className="crm-stack-inline">
                           <button

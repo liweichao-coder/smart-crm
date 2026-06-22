@@ -792,6 +792,25 @@ p {
   min-width: 138px;
 }
 
+.crm-approval-assign {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  gap: 8px;
+  width: min(100%, 260px);
+}
+
+.crm-approval-assign input {
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
 .crm-stack-inline {
   display: flex;
   flex-wrap: wrap;

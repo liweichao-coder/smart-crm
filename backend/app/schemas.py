@@ -862,6 +862,15 @@ class OrderApprovalDecision(BaseModel):
     reviewer: str = ""
 
 
+class OrderApprovalReminderCreate(BaseModel):
+    message: str = Field(default="", max_length=360)
+
+
+class OrderApprovalAssignmentCreate(BaseModel):
+    reviewer: str = Field(min_length=1, max_length=64)
+    comment: str = Field(default="", max_length=360)
+
+
 class OrderApprovalRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

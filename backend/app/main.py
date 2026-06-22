@@ -55,8 +55,10 @@ from .schemas import (
     InventoryRestockAlertRead,
     LeadRead,
     OrderItemRead,
+    OrderApprovalAssignmentCreate,
     OrderApprovalCreate,
     OrderApprovalDecision,
+    OrderApprovalReminderCreate,
     OrderApprovalRead,
     NotificationRead,
     PaginatedResponse,
@@ -2925,6 +2927,69 @@ def submit_order_approval_request(
         operator=current_user.full_name,
         summary=f"提交订单 #{order.id} 审批",
         detail=f"目标状态 {payload.target_order_status.value}；风险等级 {approval.risk_level}；SLA {approval.sla_due_at}；{approval.risk_summary}",
+    )
+    session.commit()
+    session.refresh(approval)
+    return serialize_order_approval(approval, session)
+
+
+@app.post("/api/order-approvals/{approval_id}/reminders", response_model=OrderApprovalRead)
+def remind_order_approval_request(
+    approval_id: int,
+    payload: OrderApprovalReminderCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
+) -> OrderApprovalRead:
+    approval = session.get(OrderApprovalRequest, approval_id)
+    if not approval:
+        raise HTTPException(status_code=404, detail="审批申请不存在")
+    if approval.status != OrderApprovalStatus.pending:
+        raise HTTPException(status_code=400, detail="审批申请已处理，不能催办")
+    require_owner_scope(current_user, approval.owner)
+
+    sla_status, sla_hours_remaining = get_order_approval_sla_details(approval)
+    message = payload.message.strip() or "请尽快处理待审批订单。"
+    add_business_audit(
+        session,
+        action="remind_approval",
+        entity_type="order_approval",
+        entity_id=approval.id,
+        operator=current_user.full_name,
+        summary=f"催办订单 #{approval.order_id} 审批",
+        detail=f"目标审批人 {approval.reviewer or '销售经理'}；SLA 状态 {sla_status}；剩余小时 {sla_hours_remaining}；{message}",
+    )
+    session.commit()
+    session.refresh(approval)
+    return serialize_order_approval(approval, session)
+
+
+@app.post("/api/order-approvals/{approval_id}/assignment", response_model=OrderApprovalRead)
+def assign_order_approval_request(
+    approval_id: int,
+    payload: OrderApprovalAssignmentCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("approval:manage"))],
+) -> OrderApprovalRead:
+    approval = session.get(OrderApprovalRequest, approval_id)
+    if not approval:
+        raise HTTPException(status_code=404, detail="审批申请不存在")
+    if approval.status != OrderApprovalStatus.pending:
+        raise HTTPException(status_code=400, detail="审批申请已处理，不能转派")
+
+    previous_reviewer = approval.reviewer or "销售经理"
+    next_reviewer = payload.reviewer.strip()
+    if not next_reviewer:
+        raise HTTPException(status_code=422, detail="审批人不能为空")
+    approval.reviewer = summarize_text(next_reviewer, limit=64)
+    session.add(approval)
+    add_business_audit(
+        session,
+        action="assign_approval",
+        entity_type="order_approval",
+        entity_id=approval.id,
+        operator=current_user.full_name,
+        summary=f"转派订单 #{approval.order_id} 审批",
+        detail=f"原审批人 {previous_reviewer}；新审批人 {approval.reviewer}；{payload.comment.strip() or '无补充说明'}",
     )
     session.commit()
     session.refresh(approval)

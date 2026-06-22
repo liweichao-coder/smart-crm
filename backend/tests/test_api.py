@@ -1163,6 +1163,20 @@ def test_order_approval_workflow() -> None:
 
         sales_login = client.post("/api/auth/login", json={"account": "approval-sales@smart-crm.local", "password": "Sales@2026"})
         sales_headers = {"Authorization": f"Bearer {sales_login.json()['token']}"}
+        reminder_response = client.post(
+            f"/api/order-approvals/{approval_response.json()['id']}/reminders",
+            json={"message": "请销售经理在 SLA 截止前处理。"},
+            headers=sales_headers,
+        )
+        denied_assignment = client.post(
+            f"/api/order-approvals/{approval_response.json()['id']}/assignment",
+            json={"reviewer": "王蕾", "comment": "销售尝试转派审批。"},
+            headers=sales_headers,
+        )
+        assignment_response = client.post(
+            f"/api/order-approvals/{approval_response.json()['id']}/assignment",
+            json={"reviewer": "王蕾", "comment": "转派给销售经理王蕾处理。"},
+        )
         denied_decision = client.post(
             f"/api/order-approvals/{approval_response.json()['id']}/decision",
             json={"decision": "approved"},
@@ -1193,6 +1207,10 @@ def test_order_approval_workflow() -> None:
     assert duplicate_response.status_code == 400
     assert any(item["id"] == approval_payload["id"] for item in pending_approvals)
     assert any(item["id"] == approval_payload["id"] for item in medium_approvals)
+    assert reminder_response.status_code == 200
+    assert denied_assignment.status_code == 403
+    assert assignment_response.status_code == 200
+    assert assignment_response.json()["reviewer"] == "王蕾"
     assert denied_decision.status_code == 403
     assert decision_response.status_code == 200
     assert decision_response.json()["status"] == "approved"
@@ -1200,6 +1218,8 @@ def test_order_approval_workflow() -> None:
     assert next(order for order in orders_after if order["id"] == order_id)["status"] == "confirmed"
     audit_actions = {(log["entity_type"], log["action"]) for log in audit_logs}
     assert ("order_approval", "submit_approval") in audit_actions
+    assert ("order_approval", "remind_approval") in audit_actions
+    assert ("order_approval", "assign_approval") in audit_actions
     assert ("order_approval", "approve") in audit_actions
 
 

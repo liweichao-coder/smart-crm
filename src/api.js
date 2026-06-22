@@ -395,6 +395,20 @@ export function decideOrderApproval(approvalId, payload) {
   })
 }
 
+export function remindOrderApproval(approvalId, payload) {
+  return request(`/api/order-approvals/${approvalId}/reminders`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function assignOrderApproval(approvalId, payload) {
+  return request(`/api/order-approvals/${approvalId}/assignment`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function exportOrdersCsv() {
   const token = readStoredAuthToken()
   const response = await fetch(`${API_BASE_URL}/api/orders/export.csv`, {
