@@ -994,6 +994,12 @@ p {
   padding: 0;
 }
 
+.crm-panel-action-label {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .crm-icon-button {
   height: 40px;
   width: 40px;

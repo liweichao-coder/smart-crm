@@ -1650,7 +1650,7 @@ function DashboardPage() {
 
       <section className="crm-dashboard-grid">
         <div className="crm-panel">
-          <PanelHeader title="各阶段流程" actionLabel="全部流水线" />
+          <PanelHeader title="各阶段流程" actionLabel="全部流水线" actionHref="/opportunities" />
           <div className="crm-progress-list">
             {stageCards.map((stage) => (
               <div key={stage.label} className="crm-progress-row">
@@ -1668,7 +1668,7 @@ function DashboardPage() {
         </div>
 
         <div className="crm-panel">
-          <PanelHeader title="热门线索" actionLabel="查看全部" />
+          <PanelHeader title="热门线索" actionLabel="查看全部" actionHref="/leads" />
           {hotLeads.length ? (
             <div className="crm-list">
               {hotLeads.map((lead) => (
@@ -1689,7 +1689,7 @@ function DashboardPage() {
 
       <section className="crm-three-col-grid">
         <div className="crm-panel">
-          <PanelHeader title="我的任务" actionLabel="查看全部" />
+          <PanelHeader title="我的任务" actionLabel="查看全部" actionHref="/tasks" />
           <div className="crm-pill-row">
             {['全部', '逾期', '今天', '本周'].map((label, index) => (
               <button key={label} className={`crm-pill ${index === 0 ? 'is-active' : ''}`} type="button">
@@ -1711,7 +1711,7 @@ function DashboardPage() {
         </div>
 
         <div className="crm-panel">
-          <PanelHeader title="我的商机" actionLabel="查看全部" />
+          <PanelHeader title="我的商机" actionLabel="查看全部" actionHref="/opportunities" />
           <div className="crm-list compact">
             {topOpportunities.map((item) => (
               <article key={item.id} className="crm-list-item">
@@ -1726,7 +1726,7 @@ function DashboardPage() {
         </div>
 
         <div className="crm-panel">
-          <PanelHeader title="目标进展" actionLabel="查看全部" />
+          <PanelHeader title="目标进展" actionLabel="查看全部" actionHref="/goals" />
           <div className="crm-goal-mini-list">
             {goalCards.map((goal) => (
               <div key={goal.id} className="crm-goal-mini-item">
@@ -1744,7 +1744,7 @@ function DashboardPage() {
       </section>
 
       <section className="crm-panel">
-        <PanelHeader title="近期活动" actionLabel="查看全部" />
+        <PanelHeader title="近期活动" actionLabel="查看订单" actionHref="/orders" />
         {activities.length ? (
           <div className="crm-activity-list">
             {activities.map((item) => (
@@ -2008,6 +2008,7 @@ function CopilotPage() {
   const [generating, setGenerating] = useState(false)
   const [convertingId, setConvertingId] = useState(null)
   const [createdTasks, setCreatedTasks] = useState({})
+  const [scoreRulesOpen, setScoreRulesOpen] = useState(false)
 
   const refreshHistory = async () => {
     setHistoryLoading(true)
@@ -2156,7 +2157,31 @@ function CopilotPage() {
 
       <section className="crm-copilot-grid">
         <div className="crm-panel">
-          <PanelHeader title="商机智能评分" actionLabel="查看评分规则" />
+          <PanelHeader
+            title="商机智能评分"
+            actionLabel={scoreRulesOpen ? '收起评分规则' : '查看评分规则'}
+            actionOnClick={() => setScoreRulesOpen((value) => !value)}
+          />
+          {scoreRulesOpen ? (
+            <div className="crm-score-rules">
+              <div>
+                <strong>阶段权重</strong>
+                <span>越接近 proposal / negotiation / won，基础分越高。</span>
+              </div>
+              <div>
+                <strong>金额权重</strong>
+                <span>高金额商机提升优先级，避免大单沉没在普通列表里。</span>
+              </div>
+              <div>
+                <strong>紧急度</strong>
+                <span>临近预计成交日期的商机会被优先提醒。</span>
+              </div>
+              <div>
+                <strong>AI 辅助信号</strong>
+                <span>AI 辅助录入或 Copilot 推荐会作为可解释加分项。</span>
+              </div>
+            </div>
+          ) : null}
           <div className="crm-copilot-list">
             {loading ? <EmptyState icon={Bot} title="正在加载后端数据" subtitle="Copilot 将从 FastAPI 获取真实商机评分。" /> : null}
             {!loading && !insights.length ? <EmptyState icon={Bot} title="暂无商机评分" subtitle="请先初始化演示数据库。" /> : null}
@@ -4564,16 +4589,24 @@ function ResourceToolbar({ query, onQueryChange, columnCount, children, inputRef
   )
 }
 
-function PanelHeader({ title, actionLabel }) {
+function PanelHeader({ title, actionLabel, actionHref = '', actionOnClick }) {
+  const actionContent = actionLabel ? (
+    <>
+      {actionLabel}
+      {actionHref || actionOnClick ? <ArrowRight size={14} /> : null}
+    </>
+  ) : null
+
   return (
     <div className="crm-panel-header">
       <strong>{title}</strong>
-      {actionLabel ? (
-        <button className="crm-link-button" type="button">
-          {actionLabel}
-          <ArrowRight size={14} />
+      {actionHref ? <NavLink className="crm-link-button" to={actionHref}>{actionContent}</NavLink> : null}
+      {!actionHref && actionOnClick ? (
+        <button className="crm-link-button" type="button" onClick={actionOnClick}>
+          {actionContent}
         </button>
       ) : null}
+      {!actionHref && !actionOnClick && actionLabel ? <span className="crm-panel-action-label">{actionContent}</span> : null}
     </div>
   )
 }
