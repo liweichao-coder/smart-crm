@@ -163,6 +163,21 @@ class AIInteractionLog(AIInteractionLogBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class BusinessAuditLogBase(SQLModel):
+    action: str = Field(index=True)
+    entity_type: str = Field(index=True)
+    entity_id: Optional[int] = Field(default=None, index=True)
+    operator: str = ""
+    status: str = Field(default="success", index=True)
+    summary: str
+    detail: str = ""
+
+
+class BusinessAuditLog(BusinessAuditLogBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class SalesOrderBase(SQLModel):
     customer_id: int = Field(foreign_key="customer.id")
     owner: str

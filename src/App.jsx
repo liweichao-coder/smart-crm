@@ -10,6 +10,7 @@ import {
   CheckSquare,
   ChevronRight,
   ChevronsUpDown,
+  ClipboardList,
   Download,
   Eye,
   Filter,
@@ -54,6 +55,7 @@ import {
 import {
   fetchCases,
   fetchAiAuditLogs,
+  fetchBusinessAuditLogs,
   fetchContacts,
   fetchCopilotSummary,
   createCase,
@@ -104,6 +106,7 @@ const navItems = [
   { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM' },
   { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM' },
   { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM' },
+  { path: '/business-audit', label: '操作审计', icon: ClipboardList, title: 'Business Audit | 深大 AI CRM' },
   { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM' },
   { path: '/orders', label: '订单', icon: Activity, title: 'Orders | 深大 AI CRM' },
   { path: '/products', label: '商品', icon: Package, title: 'Products | 深大 AI CRM' },
@@ -210,6 +213,19 @@ const aiOperationLabelMap = {
   copilot_follow_up: '跟进话术',
   copilot_order_draft: '订单草稿',
   vision_extract: '智能录单',
+}
+
+const businessActionLabelMap = {
+  create: '新建',
+  update: '更新',
+  delete: '删除',
+  restock: '补货',
+}
+
+const businessEntityLabelMap = {
+  customer: '客户',
+  product: '商品',
+  order: '订单',
 }
 
 const caseStatusValueMap = {
@@ -627,6 +643,7 @@ function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/ai-audit" element={<AiAuditPage />} />
+        <Route path="/business-audit" element={<BusinessAuditPage />} />
         <Route path="/capture" element={<CapturePage />} />
         <Route path="/orders" element={<OrdersPage />} />
         <Route path="/products" element={<ProductsPage />} />
@@ -1756,6 +1773,138 @@ function AiAuditPage() {
           </table>
         </div>
         {!loading && !error && !logs.length ? <EmptyState icon={Shield} title="暂无 AI 审计记录" subtitle="打开 AI 副驾、生成话术或上传智能录单材料后会自动出现记录。" /> : null}
+      </section>
+    </div>
+  )
+}
+
+function BusinessAuditPage() {
+  const [logs, setLogs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    fetchBusinessAuditLogs()
+      .then((payload) => {
+        if (mounted) {
+          setLogs(payload)
+          setError('')
+        }
+      })
+      .catch((nextError) => {
+        if (mounted) {
+          setError(nextError.message || '操作审计日志加载失败')
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const summary = useMemo(() => {
+    const orderCount = logs.filter((log) => log.entity_type === 'order').length
+    const stockCount = logs.filter((log) => log.action === 'restock' || log.summary.includes('库存')).length
+    const operators = new Set(logs.map((log) => log.operator).filter(Boolean))
+    return { orderCount, stockCount, operatorCount: operators.size }
+  }, [logs])
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel crm-copilot-hero">
+        <div>
+          <span className="crm-overline">Business Audit</span>
+          <h2>业务操作审计</h2>
+          <p>记录客户、商品、订单和补货等真实写库动作，展示操作人、对象、摘要和细节，证明系统具备可追踪的业务治理能力。</p>
+        </div>
+        <div className="crm-copilot-summary">
+          <ClipboardList size={18} />
+          <strong>{logs.length ? `已记录 ${logs.length} 次业务操作，最近一次为 ${businessActionLabelMap[logs[0].action] ?? logs[0].action} ${businessEntityLabelMap[logs[0].entity_type] ?? logs[0].entity_type}。` : '创建客户、商品、订单或补货后会自动写入业务审计。'}</strong>
+        </div>
+      </section>
+
+      <ResourceSyncState loading={loading} error={error} />
+
+      <section className="crm-metric-grid">
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-accent">
+            <ClipboardList size={18} />
+          </div>
+          <div>
+            <span>审计记录</span>
+            <strong>{logs.length}</strong>
+            <small>来自 SQLite 的真实业务日志</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-qualified">
+            <Activity size={18} />
+          </div>
+          <div>
+            <span>订单动作</span>
+            <strong>{summary.orderCount}</strong>
+            <small>订单创建、编辑和明细调整</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-proposal">
+            <Package size={18} />
+          </div>
+          <div>
+            <span>库存相关</span>
+            <strong>{summary.stockCount}</strong>
+            <small>补货或库存调整行为</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-won">
+            <Users size={18} />
+          </div>
+          <div>
+            <span>操作人</span>
+            <strong>{summary.operatorCount}</strong>
+            <small>按审计记录去重统计</small>
+          </div>
+        </article>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="最近业务操作" />
+        <div className="crm-table-wrap">
+          <table className="crm-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>动作</th>
+                <th>对象</th>
+                <th>操作人</th>
+                <th>状态</th>
+                <th>摘要</th>
+                <th>细节</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id}>
+                  <td>{formatDateTime(log.created_at)}</td>
+                  <td>{businessActionLabelMap[log.action] ?? log.action}</td>
+                  <td>{businessEntityLabelMap[log.entity_type] ?? log.entity_type} #{log.entity_id ?? '-'}</td>
+                  <td>{log.operator || '系统'}</td>
+                  <td><StatusBadge value={log.status === 'success' ? '成功' : log.status} tone={log.status === 'success' ? 'success' : 'warning'} /></td>
+                  <td>{log.summary}</td>
+                  <td>{log.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!loading && !error && !logs.length ? <EmptyState icon={ClipboardList} title="暂无业务审计记录" subtitle="创建客户、商品、订单或执行补货后会自动出现记录。" /> : null}
       </section>
     </div>
   )

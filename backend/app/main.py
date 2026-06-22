@@ -13,9 +13,10 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, Contact, Customer, InventoryMovement, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, BusinessAuditLog, Contact, Customer, InventoryMovement, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
+    BusinessAuditLogRead,
     ContactCreate,
     ContactRead,
     ContactUpdate,
@@ -171,6 +172,30 @@ def save_ai_interaction(
     )
     session.add(log)
     session.commit()
+
+
+def add_business_audit(
+    session: Session,
+    *,
+    action: str,
+    entity_type: str,
+    entity_id: int | None,
+    operator: str,
+    summary: str,
+    detail: str = "",
+    status: str = "success",
+) -> None:
+    session.add(
+        BusinessAuditLog(
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            operator=operator,
+            status=status,
+            summary=summarize_text(summary),
+            detail=summarize_text(detail, limit=360),
+        )
+    )
 
 
 def serialize_order(order: SalesOrder, session: Session) -> SalesOrderRead:
@@ -394,6 +419,16 @@ def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
         status=payload.status,
     )
     session.add(customer)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="customer",
+        entity_id=customer.id,
+        operator=customer.contact_person,
+        summary=f"新建客户 {customer.company}",
+        detail=f"行业 {customer.industry}，城市 {customer.city}，等级 {customer.level}",
+    )
     session.commit()
     session.refresh(customer)
     return customer
@@ -410,6 +445,15 @@ def update_customer(customer_id: int, payload: CustomerUpdate, session: SessionD
     if not customer.name:
         customer.name = customer.contact_person or customer.company
     session.add(customer)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="customer",
+        entity_id=customer.id,
+        operator=customer.contact_person,
+        summary=f"更新客户 {customer.company}",
+        detail=", ".join(sorted(patch_values(payload).keys())) or "更新客户资料",
+    )
     session.commit()
     session.refresh(customer)
     return customer
@@ -423,6 +467,15 @@ def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | i
     order = session.exec(select(SalesOrder).where(SalesOrder.customer_id == customer_id)).first()
     if order:
         raise HTTPException(status_code=400, detail="客户已有订单，不能直接删除")
+    add_business_audit(
+        session,
+        action="delete",
+        entity_type="customer",
+        entity_id=customer_id,
+        operator=customer.contact_person,
+        summary=f"删除客户 {customer.company}",
+        detail=f"客户 ID {customer_id}",
+    )
     session.delete(customer)
     session.commit()
     return delete_response("customer", customer_id)
@@ -440,6 +493,16 @@ def create_product(payload: ProductCreate, session: SessionDep) -> Product:
         raise HTTPException(status_code=400, detail="SKU 已存在")
     product = Product(**payload.model_dump())
     session.add(product)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="product",
+        entity_id=product.id,
+        operator="商品管理员",
+        summary=f"新建商品 {product.name}",
+        detail=f"SKU {product.sku}，库存 {product.stock}，单价 {product.unit_price}",
+    )
     session.commit()
     session.refresh(product)
     return product
@@ -458,6 +521,15 @@ def update_product(product_id: int, payload: ProductUpdate, session: SessionDep)
             raise HTTPException(status_code=400, detail="SKU 已存在")
     apply_updates(product, updates)
     session.add(product)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="product",
+        entity_id=product.id,
+        operator="商品管理员",
+        summary=f"更新商品 {product.name}",
+        detail=", ".join(sorted(updates.keys())) or "更新商品资料",
+    )
     session.commit()
     session.refresh(product)
     return product
@@ -472,6 +544,15 @@ def delete_product(product_id: int, session: SessionDep) -> dict[str, bool | int
     movement = session.exec(select(InventoryMovement).where(InventoryMovement.product_id == product_id)).first()
     if order_item or movement:
         raise HTTPException(status_code=400, detail="商品已有订单或库存流水，不能直接删除")
+    add_business_audit(
+        session,
+        action="delete",
+        entity_type="product",
+        entity_id=product_id,
+        operator="商品管理员",
+        summary=f"删除商品 {product.name}",
+        detail=f"SKU {product.sku}",
+    )
     session.delete(product)
     session.commit()
     return delete_response("product", product_id)
@@ -508,6 +589,16 @@ def restock_product(product_id: int, payload: ProductRestockRequest, session: Se
     )
     session.add(product)
     session.add(movement)
+    session.flush()
+    add_business_audit(
+        session,
+        action="restock",
+        entity_type="product",
+        entity_id=product.id,
+        operator=payload.operator,
+        summary=f"补货 {product.name} {payload.quantity} 件",
+        detail=f"库存 {before_stock} -> {product.stock}；原因：{payload.reason}",
+    )
     session.commit()
     session.refresh(product)
     session.refresh(movement)
@@ -717,6 +808,12 @@ def list_ai_audit_logs(session: SessionDep, limit: int = 30) -> list[AIInteracti
     return session.exec(select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc()).limit(safe_limit)).all()
 
 
+@app.get("/api/business-audit-logs", response_model=list[BusinessAuditLogRead])
+def list_business_audit_logs(session: SessionDep, limit: int = 40) -> list[BusinessAuditLog]:
+    safe_limit = min(max(limit, 1), 120)
+    return session.exec(select(BusinessAuditLog).order_by(BusinessAuditLog.created_at.desc()).limit(safe_limit)).all()
+
+
 @app.get("/api/orders", response_model=list[SalesOrderRead])
 def list_orders(session: SessionDep) -> list[SalesOrderRead]:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
@@ -753,10 +850,24 @@ def update_order(order_id: int, payload: SalesOrderUpdate, session: SessionDep) 
     order = session.get(SalesOrder, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在")
-    apply_updates(order, payload.model_dump(exclude_unset=True, exclude_none=True, exclude={"items"}))
+    before_total = order.total_amount
+    updates = payload.model_dump(exclude_unset=True, exclude_none=True, exclude={"items"})
+    apply_updates(order, updates)
     if payload.items is not None:
         replace_order_items(order, payload.items, session)
     session.add(order)
+    changed_fields = sorted(updates.keys())
+    if payload.items is not None:
+        changed_fields.append("items")
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="order",
+        entity_id=order.id,
+        operator=order.owner,
+        summary=f"更新订单 #{order.id}",
+        detail=f"字段：{', '.join(changed_fields) or '无'}；金额 {before_total:.0f} -> {order.total_amount:.0f}",
+    )
     session.commit()
     session.refresh(order)
     return serialize_order(order, session)
@@ -824,6 +935,15 @@ def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRe
 
     order.total_amount = total_amount
     session.add(order)
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="order",
+        entity_id=order.id,
+        operator=payload.owner,
+        summary=f"创建订单 #{order.id}",
+        detail=f"客户 {customer.company}，明细 {len(payload.items)} 条，总额 {order.total_amount:.0f}",
+    )
     session.commit()
     session.refresh(order)
     return serialize_order(order, session)

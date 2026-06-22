@@ -313,6 +313,20 @@ class AIInteractionLogRead(BaseModel):
     created_at: datetime
 
 
+class BusinessAuditLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    action: str
+    entity_type: str
+    entity_id: int | None
+    operator: str
+    status: str
+    summary: str
+    detail: str
+    created_at: datetime
+
+
 class OrderItemPayload(BaseModel):
     product_id: int
     quantity: int = Field(ge=1)

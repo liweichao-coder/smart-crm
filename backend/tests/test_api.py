@@ -585,6 +585,75 @@ def test_ai_audit_logs_record_runtime_actions(monkeypatch) -> None:
     assert all("sk-" not in log["request_summary"] for log in logs)
 
 
+def test_business_audit_logs_record_core_write_actions() -> None:
+    with TestClient(app) as client:
+        assert client.get("/api/business-audit-logs").json() == []
+        customer_response = client.post(
+            "/api/customers",
+            json={
+                "company": "审计测试客户",
+                "industry": "智能制造",
+                "contact_person": "审计负责人",
+                "annual_revenue": 420000,
+                "status": "active",
+            },
+        )
+        product_response = client.post(
+            "/api/products",
+            json={
+                "name": "审计测试商品",
+                "sku": "AUDIT-PRODUCT-001",
+                "category": "软件",
+                "unit_price": 3600,
+                "stock": 30,
+            },
+        )
+        product = product_response.json()
+        restock_response = client.post(
+            f"/api/products/{product['id']}/restock",
+            json={"quantity": 5, "reason": "审计测试补货", "operator": "审计员"},
+        )
+        order_response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": customer_response.json()["id"],
+                "owner": "审计员",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "draft",
+                "order_date": "2026-06-23",
+                "due_date": "2026-06-30",
+                "notes": "审计测试订单",
+                "created_by_ai": False,
+                "items": [
+                    {
+                        "product_id": product["id"],
+                        "quantity": 2,
+                        "unit_price": product["unit_price"],
+                    }
+                ],
+            },
+        )
+        update_response = client.patch(
+            f"/api/orders/{order_response.json()['id']}",
+            json={"status": "confirmed", "notes": "审计测试订单已确认"},
+        )
+        audit_logs = client.get("/api/business-audit-logs").json()
+
+    assert customer_response.status_code == 201
+    assert product_response.status_code == 201
+    assert restock_response.status_code == 200
+    assert order_response.status_code == 201
+    assert update_response.status_code == 200
+    actions = {(log["entity_type"], log["action"]) for log in audit_logs}
+    assert ("customer", "create") in actions
+    assert ("product", "create") in actions
+    assert ("product", "restock") in actions
+    assert ("order", "create") in actions
+    assert ("order", "update") in actions
+    assert all(log["status"] == "success" for log in audit_logs)
+
+
 def test_copilot_summary_fallback(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:
