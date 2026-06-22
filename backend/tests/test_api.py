@@ -234,6 +234,41 @@ def test_vision_extract_llm_json(monkeypatch) -> None:
     assert payload["items"][0]["quantity"] == 3
 
 
+def test_ai_audit_logs_record_runtime_actions(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    order_text = "客户：云川医疗 联系人：陈敏\n智能巡检终端 x1"
+
+    with TestClient(app) as client:
+        assert client.get("/api/ai-audit-logs").json() == []
+        lead = client.get("/api/leads").json()[0]
+        customer = client.get("/api/customers").json()[0]
+        product = client.get("/api/products").json()[0]
+
+        client.get("/api/copilot/summary")
+        client.post("/api/copilot/follow-up", json={"lead_id": lead["id"]})
+        client.post(
+            "/api/copilot/order-draft",
+            json={
+                "customer_id": customer["id"],
+                "product_ids": [product["id"]],
+                "business_goal": "验证 AI 审计日志",
+            },
+        )
+        client.post(
+            "/api/vision-extract",
+            files={"file": ("order.txt", order_text.encode("utf-8"), "text/plain")},
+        )
+        response = client.get("/api/ai-audit-logs")
+
+    assert response.status_code == 200
+    logs = response.json()
+    operations = {log["operation"] for log in logs}
+    assert {"copilot_summary", "copilot_follow_up", "copilot_order_draft", "vision_extract"} <= operations
+    assert all(log["fallback_used"] is True for log in logs)
+    assert all(log["latency_ms"] >= 0 for log in logs)
+    assert all("sk-" not in log["request_summary"] for log in logs)
+
+
 def test_copilot_summary_fallback(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:

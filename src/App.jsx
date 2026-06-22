@@ -49,6 +49,7 @@ import {
 } from './data/mockData.js'
 import {
   fetchCases,
+  fetchAiAuditLogs,
   fetchContacts,
   fetchCopilotSummary,
   createCase,
@@ -77,6 +78,7 @@ const STORAGE_KEY = 'huahenuancrm:selected-org'
 const navItems = [
   { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM' },
   { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM' },
+  { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM' },
   { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM' },
   { path: '/orders', label: '订单', icon: Activity, title: 'Orders | 深大 AI CRM' },
   { path: '/leads', label: '线索', icon: Target, title: 'Leads | 深大 AI CRM' },
@@ -118,6 +120,8 @@ const statusToneMap = {
   draft: 'warning',
   confirmed: 'accent',
   fulfilled: 'success',
+  llm: 'success',
+  fallback: 'warning',
 }
 
 const boardToneMap = {
@@ -166,6 +170,13 @@ const orderStatusLabelMap = {
   draft: '草稿',
   confirmed: '已确认',
   fulfilled: '已履约',
+}
+
+const aiOperationLabelMap = {
+  copilot_summary: '副驾摘要',
+  copilot_follow_up: '跟进话术',
+  copilot_order_draft: '订单草稿',
+  vision_extract: '智能录单',
 }
 
 const caseStatusValueMap = {
@@ -506,6 +517,7 @@ function App() {
       <Route element={<AppShell />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
+        <Route path="/ai-audit" element={<AiAuditPage />} />
         <Route path="/capture" element={<CapturePage />} />
         <Route path="/orders" element={<OrdersPage />} />
         <Route path="/profile" element={<ProfilePage />} />
@@ -1457,6 +1469,140 @@ function CopilotPage() {
             <EmptyState icon={Bot} title="暂无 Copilot 建议" subtitle="接入真实商机数据后将自动生成。" />
           )}
         </div>
+      </section>
+    </div>
+  )
+}
+
+function AiAuditPage() {
+  const [logs, setLogs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    fetchAiAuditLogs()
+      .then((payload) => {
+        if (mounted) {
+          setLogs(payload)
+          setError('')
+        }
+      })
+      .catch((nextError) => {
+        if (mounted) {
+          setError(nextError.message || 'AI 审计日志加载失败')
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const summary = useMemo(() => {
+    const llmCount = logs.filter((log) => !log.fallback_used).length
+    const fallbackCount = logs.filter((log) => log.fallback_used).length
+    const avgLatency = logs.length
+      ? Math.round(logs.reduce((total, log) => total + Number(log.latency_ms ?? 0), 0) / logs.length)
+      : 0
+    return { llmCount, fallbackCount, avgLatency }
+  }, [logs])
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel crm-copilot-hero">
+        <div>
+          <span className="crm-overline">AI Audit</span>
+          <h2>AI 调用审计</h2>
+          <p>记录 Copilot、智能录单和订单草稿生成的运行状态、模型、耗时、兜底情况和关联对象，便于答辩时证明 AI 能力可追踪。</p>
+        </div>
+        <div className="crm-copilot-summary">
+          <Shield size={18} />
+          <strong>{logs.length ? `已记录 ${logs.length} 次 AI 行为，最近一次为 ${aiOperationLabelMap[logs[0].operation] ?? logs[0].operation}。` : '调用 AI 副驾或智能录单后会自动写入审计记录。'}</strong>
+        </div>
+      </section>
+
+      <ResourceSyncState loading={loading} error={error} />
+
+      <section className="crm-metric-grid">
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-accent">
+            <Activity size={18} />
+          </div>
+          <div>
+            <span>审计记录</span>
+            <strong>{logs.length}</strong>
+            <small>来自 SQLite 的真实运行日志</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-won">
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <span>LLM 成功</span>
+            <strong>{summary.llmCount}</strong>
+            <small>模型返回有效内容</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-proposal">
+            <Shield size={18} />
+          </div>
+          <div>
+            <span>兜底次数</span>
+            <strong>{summary.fallbackCount}</strong>
+            <small>API Key 缺失或模型失败时保留可用结果</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-qualified">
+            <Flame size={18} />
+          </div>
+          <div>
+            <span>平均耗时</span>
+            <strong>{summary.avgLatency}ms</strong>
+            <small>端点级运行时间</small>
+          </div>
+        </article>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="最近 AI 行为" />
+        <div className="crm-table-wrap">
+          <table className="crm-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>操作</th>
+                <th>状态</th>
+                <th>模型</th>
+                <th>耗时</th>
+                <th>请求摘要</th>
+                <th>响应摘要</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id}>
+                  <td>{formatDateTime(log.created_at)}</td>
+                  <td>{aiOperationLabelMap[log.operation] ?? log.operation}</td>
+                  <td><StatusBadge value={log.fallback_used ? '兜底' : 'LLM'} tone={log.fallback_used ? 'warning' : 'success'} /></td>
+                  <td>{log.model || '未配置'}</td>
+                  <td>{log.latency_ms}ms</td>
+                  <td>{log.request_summary}</td>
+                  <td>{log.response_summary}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!loading && !error && !logs.length ? <EmptyState icon={Shield} title="暂无 AI 审计记录" subtitle="打开 AI 副驾、生成话术或上传智能录单材料后会自动出现记录。" /> : null}
       </section>
     </div>
   )
@@ -2569,6 +2715,18 @@ function formatPercent(value) {
     style: 'percent',
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return '未记录'
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value))
 }
 
 function loadStoredOrg() {

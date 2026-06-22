@@ -130,6 +130,24 @@ class SalesGoal(SalesGoalBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class AIInteractionLogBase(SQLModel):
+    operation: str = Field(index=True)
+    provider: str = "openai-compatible"
+    model: str = ""
+    status: str = Field(default="fallback", index=True)
+    fallback_used: bool = True
+    latency_ms: int = 0
+    entity_type: str = ""
+    entity_id: Optional[int] = None
+    request_summary: str = ""
+    response_summary: str = ""
+
+
+class AIInteractionLog(AIInteractionLogBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class SalesOrderBase(SQLModel):
     customer_id: int = Field(foreign_key="customer.id")
     owner: str

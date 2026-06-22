@@ -172,6 +172,23 @@ class SalesGoalCreate(BaseModel):
     note: str = ""
 
 
+class AIInteractionLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    operation: str
+    provider: str
+    model: str
+    status: str
+    fallback_used: bool
+    latency_ms: int
+    entity_type: str
+    entity_id: int | None
+    request_summary: str
+    response_summary: str
+    created_at: datetime
+
+
 class OrderItemPayload(BaseModel):
     product_id: int
     quantity: int = Field(ge=1)

@@ -26,6 +26,10 @@ export function fetchCopilotSummary() {
   return request('/api/copilot/summary')
 }
 
+export function fetchAiAuditLogs() {
+  return request('/api/ai-audit-logs')
+}
+
 export function generateFollowUp(leadId) {
   return request('/api/copilot/follow-up', {
     method: 'POST',

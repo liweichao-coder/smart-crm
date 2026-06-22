@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
+from time import perf_counter
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
@@ -10,8 +11,9 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import Contact, Customer, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, Contact, Customer, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
+    AIInteractionLogRead,
     ContactCreate,
     ContactRead,
     CopilotFollowUpRequest,
@@ -45,6 +47,40 @@ from .services import CopilotService, VisionExtractionService
 vision_service = VisionExtractionService()
 copilot_service = CopilotService()
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def summarize_text(value: str, limit: int = 220) -> str:
+    normalized = " ".join(str(value or "").split())
+    return normalized[:limit]
+
+
+def save_ai_interaction(
+    session: Session,
+    *,
+    operation: str,
+    model: str,
+    fallback_used: bool,
+    start_time: float,
+    request_summary: str,
+    response_summary: str,
+    entity_type: str = "",
+    entity_id: int | None = None,
+) -> None:
+    latency_ms = max(0, round((perf_counter() - start_time) * 1000))
+    log = AIInteractionLog(
+        operation=operation,
+        provider="openai-compatible",
+        model=model,
+        status="fallback" if fallback_used else "llm",
+        fallback_used=fallback_used,
+        latency_ms=latency_ms,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        request_summary=summarize_text(request_summary),
+        response_summary=summarize_text(response_summary),
+    )
+    session.add(log)
+    session.commit()
 
 
 def serialize_order(order: SalesOrder, session: Session) -> SalesOrderRead:
@@ -218,6 +254,12 @@ def create_goal(payload: SalesGoalCreate, session: SessionDep) -> SalesGoal:
     return goal
 
 
+@app.get("/api/ai-audit-logs", response_model=list[AIInteractionLogRead])
+def list_ai_audit_logs(session: SessionDep, limit: int = 30) -> list[AIInteractionLog]:
+    safe_limit = min(max(limit, 1), 100)
+    return session.exec(select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc()).limit(safe_limit)).all()
+
+
 @app.get("/api/orders", response_model=list[SalesOrderRead])
 def list_orders(session: SessionDep) -> list[SalesOrderRead]:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
@@ -276,27 +318,67 @@ def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRe
 
 @app.post("/api/vision-extract", response_model=VisionExtractResponse)
 async def vision_extract(file: Annotated[UploadFile, File(...)], session: SessionDep) -> VisionExtractResponse:
+    start_time = perf_counter()
+    filename = file.filename or "uploaded-file"
+    content_type = file.content_type or "unknown"
     customers = session.exec(select(Customer)).all()
     products = session.exec(select(Product)).all()
-    return await vision_service.extract(file, customers=customers, products=products)
+    result = await vision_service.extract(file, customers=customers, products=products)
+    save_ai_interaction(
+        session,
+        operation="vision_extract",
+        model=settings.llm_vision_model or settings.llm_model,
+        fallback_used=result.fallback_used,
+        start_time=start_time,
+        request_summary=f"{filename} / {content_type} / {len(customers)} customers / {len(products)} products",
+        response_summary=f"{result.company} / {result.source} / {len(result.items)} items / {result.summary}",
+    )
+    return result
 
 
 @app.get("/api/copilot/summary", response_model=CopilotSummaryResponse)
 async def copilot_summary(session: SessionDep) -> CopilotSummaryResponse:
+    start_time = perf_counter()
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
-    return await copilot_service.summarize(leads)
+    result = await copilot_service.summarize(leads)
+    save_ai_interaction(
+        session,
+        operation="copilot_summary",
+        model=settings.llm_model,
+        fallback_used=result.fallback_used,
+        start_time=start_time,
+        request_summary=f"{len(leads)} leads",
+        response_summary=result.llm_summary,
+        entity_type="lead",
+        entity_id=result.top_opportunity.id if result.top_opportunity else None,
+    )
+    return result
 
 
 @app.post("/api/copilot/follow-up", response_model=CopilotFollowUpResponse)
 async def copilot_follow_up(payload: CopilotFollowUpRequest, session: SessionDep) -> CopilotFollowUpResponse:
+    start_time = perf_counter()
     lead = session.get(SalesLead, payload.lead_id) if payload.lead_id else None
     if payload.lead_id and not lead:
         raise HTTPException(status_code=404, detail="商机不存在")
-    return await copilot_service.follow_up(payload, lead)
+    result = await copilot_service.follow_up(payload, lead)
+    save_ai_interaction(
+        session,
+        operation="copilot_follow_up",
+        model=settings.llm_model,
+        fallback_used=result.fallback_used,
+        start_time=start_time,
+        request_summary=lead.title if lead else f"{payload.customer_name} / {payload.opportunity_title}",
+        response_summary=result.message_draft,
+        entity_type="lead" if lead else "",
+        entity_id=lead.id if lead else None,
+    )
+    return result
 
 
 @app.post("/api/copilot/order-draft", response_model=CopilotOrderDraftResponse)
 async def copilot_order_draft(payload: CopilotOrderDraftRequest, session: SessionDep) -> CopilotOrderDraftResponse:
+    start_time = perf_counter()
     customer = session.get(Customer, payload.customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
@@ -311,7 +393,19 @@ async def copilot_order_draft(payload: CopilotOrderDraftRequest, session: Sessio
     if not products:
         raise HTTPException(status_code=400, detail="没有可用于生成草稿的商品")
 
-    return await copilot_service.order_draft(customer, products, payload.business_goal)
+    result = await copilot_service.order_draft(customer, products, payload.business_goal)
+    save_ai_interaction(
+        session,
+        operation="copilot_order_draft",
+        model=settings.llm_model,
+        fallback_used=result.fallback_used,
+        start_time=start_time,
+        request_summary=f"{customer.company} / {len(products)} products / {payload.business_goal}",
+        response_summary=result.llm_summary,
+        entity_type="customer",
+        entity_id=customer.id,
+    )
+    return result
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)

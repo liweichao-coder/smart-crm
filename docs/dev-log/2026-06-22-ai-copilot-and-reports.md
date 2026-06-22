@@ -24,6 +24,8 @@ The course exam requires a full software engineering process package, not only c
 - Added `src/orderUtils.js` and tests for order summary, filtering, and inventory severity logic.
 - Added real create endpoints for customers, contacts, leads/opportunities, cases, tasks, and goals; frontend create modals now POST to FastAPI and insert the persisted response instead of using `local-*` records.
 - Added backend regression coverage for resource creation across six business modules.
+- Added persisted AI interaction audit logs for Copilot summary, follow-up generation, Copilot order drafts, and vision extraction.
+- Added `/api/ai-audit-logs` and an AI Audit frontend page showing operation, LLM/fallback status, model, latency, request summary, and response summary.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -45,6 +47,7 @@ The course exam requires a full software engineering process package, not only c
 - `backend/.venv/Scripts/python.exe -m pytest`: 7 passed.
 - After AI capture upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 9 passed.
 - After resource create upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 10 passed.
+- After AI audit upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 11 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -61,8 +64,10 @@ The course exam requires a full software engineering process package, not only c
   - `/dashboard`: metrics, focus strip, stage cards, tasks, opportunities, goals, and activities render from backend payloads.
   - `/capture`: upload UI calls `/api/vision-extract` and displays extracted customer, confidence, source, and order items.
   - `/orders`: title `Orders | 深大 AI CRM`, 12 backend orders, 4 metrics, and 6 low-stock inventory cards render without console errors.
+  - `/ai-audit`: title `AI Audit | 深大 AI CRM`, 2 real LLM audit rows, 4 metrics, and no console errors.
 - End-to-end AI Capture smoke succeeded: text upload returned `source=llm_text`, then `/api/orders` created order `#13`, total `37800`, with 2 items; demo DB was reset afterward.
 - Real resource create smoke succeeded: POST create for customer, contact, lead, case, task, and goal returned server IDs/statuses; frontend customer modal created a persisted customer and updated the table to 13 rows; demo DB was reset afterward to 12/12/15/8/8/4/12 baseline.
+- AI audit smoke succeeded: Copilot summary and follow-up returned `fallback_used=false`, `/api/ai-audit-logs` returned 2 `llm` records, and the AI Audit page rendered the persisted rows.
 
 ## Next Steps
 

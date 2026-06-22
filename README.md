@@ -17,6 +17,7 @@
 - Cases 工单页
 - Tasks 任务页
 - Sales Goals 目标页
+- AI Audit AI 审计页
 - AI Capture 智能录单页
 - Orders 订单中心页
 - 后端健康检查、商品、客户、联系人、商机、工单、任务、目标、订单和 AI 订单草稿接口
@@ -29,6 +30,7 @@
 - `backend/` 已实现 FastAPI API、SQLite 数据库、资源创建、订单创建、库存扣减、资源列表、Copilot 摘要和测试。
 - AI 录单已支持上传图片或文本，配置视觉模型时走 OpenAI-compatible 多模态抽取；无视觉模型时使用本地文本解析兜底。
 - 智能录单草稿可在前端复核后提交到 `/api/orders`，生成真实订单并触发库存扣减。
+- AI 副驾、智能录单和订单草稿接口会写入 `AIInteractionLog` 审计表，可在 AI 审计页查看模型、状态、耗时和摘要。
 - 订单中心已接入 `/api/orders` 和 `/api/products`，可查看订单筛选、订单明细、AI 标记、置信度和低库存预警。
 - 登录鉴权、完整 CRUD、复杂报表、前后端统一鉴权仍未完成。
 
