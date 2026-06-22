@@ -16,6 +16,7 @@ from .schemas import (
     AIInteractionLogRead,
     ContactCreate,
     ContactRead,
+    ContactUpdate,
     CopilotFollowUpRequest,
     CopilotFollowUpResponse,
     CopilotOrderDraftRequest,
@@ -23,6 +24,7 @@ from .schemas import (
     CopilotSummaryResponse,
     CustomerCreate,
     CustomerRead,
+    CustomerUpdate,
     DashboardMetric,
     DashboardResponse,
     LeadRead,
@@ -31,13 +33,17 @@ from .schemas import (
     RevenuePoint,
     SalesGoalCreate,
     SalesGoalRead,
+    SalesGoalUpdate,
     SalesLeadCreate,
+    SalesLeadUpdate,
     SalesOrderCreate,
     SalesOrderRead,
     SupportCaseCreate,
     SupportCaseRead,
+    SupportCaseUpdate,
     TaskItemCreate,
     TaskItemRead,
+    TaskItemUpdate,
     VisionExtractResponse,
 )
 from .seed import seed_data
@@ -52,6 +58,19 @@ SessionDep = Annotated[Session, Depends(get_session)]
 def summarize_text(value: str, limit: int = 220) -> str:
     normalized = " ".join(str(value or "").split())
     return normalized[:limit]
+
+
+def apply_updates(instance, updates: dict) -> None:
+    for key, value in updates.items():
+        setattr(instance, key, value)
+
+
+def patch_values(payload) -> dict:
+    return payload.model_dump(exclude_unset=True, exclude_none=True)
+
+
+def delete_response(entity: str, item_id: int) -> dict[str, bool | int | str]:
+    return {"deleted": True, "entity": entity, "id": item_id}
 
 
 def save_ai_interaction(
@@ -169,6 +188,35 @@ def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
     return customer
 
 
+@app.patch("/api/customers/{customer_id}", response_model=CustomerRead)
+def update_customer(customer_id: int, payload: CustomerUpdate, session: SessionDep) -> Customer:
+    customer = session.get(Customer, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    apply_updates(customer, patch_values(payload))
+    if not customer.contact_person:
+        customer.contact_person = customer.name or customer.company
+    if not customer.name:
+        customer.name = customer.contact_person or customer.company
+    session.add(customer)
+    session.commit()
+    session.refresh(customer)
+    return customer
+
+
+@app.delete("/api/customers/{customer_id}")
+def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+    customer = session.get(Customer, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    order = session.exec(select(SalesOrder).where(SalesOrder.customer_id == customer_id)).first()
+    if order:
+        raise HTTPException(status_code=400, detail="客户已有订单，不能直接删除")
+    session.delete(customer)
+    session.commit()
+    return delete_response("customer", customer_id)
+
+
 @app.get("/api/products", response_model=list[ProductRead])
 def list_products(session: SessionDep) -> list[Product]:
     return session.exec(select(Product).order_by(Product.created_at.desc())).all()
@@ -188,6 +236,28 @@ def create_contact(payload: ContactCreate, session: SessionDep) -> Contact:
     return contact
 
 
+@app.patch("/api/contacts/{contact_id}", response_model=ContactRead)
+def update_contact(contact_id: int, payload: ContactUpdate, session: SessionDep) -> Contact:
+    contact = session.get(Contact, contact_id)
+    if not contact:
+        raise HTTPException(status_code=404, detail="联系人不存在")
+    apply_updates(contact, patch_values(payload))
+    session.add(contact)
+    session.commit()
+    session.refresh(contact)
+    return contact
+
+
+@app.delete("/api/contacts/{contact_id}")
+def delete_contact(contact_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+    contact = session.get(Contact, contact_id)
+    if not contact:
+        raise HTTPException(status_code=404, detail="联系人不存在")
+    session.delete(contact)
+    session.commit()
+    return delete_response("contact", contact_id)
+
+
 @app.get("/api/leads", response_model=list[LeadRead])
 def list_leads(session: SessionDep) -> list[SalesLead]:
     return session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
@@ -200,6 +270,28 @@ def create_lead(payload: SalesLeadCreate, session: SessionDep) -> SalesLead:
     session.commit()
     session.refresh(lead)
     return lead
+
+
+@app.patch("/api/leads/{lead_id}", response_model=LeadRead)
+def update_lead(lead_id: int, payload: SalesLeadUpdate, session: SessionDep) -> SalesLead:
+    lead = session.get(SalesLead, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="商机不存在")
+    apply_updates(lead, patch_values(payload))
+    session.add(lead)
+    session.commit()
+    session.refresh(lead)
+    return lead
+
+
+@app.delete("/api/leads/{lead_id}")
+def delete_lead(lead_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+    lead = session.get(SalesLead, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="商机不存在")
+    session.delete(lead)
+    session.commit()
+    return delete_response("lead", lead_id)
 
 
 @app.get("/api/cases", response_model=list[SupportCaseRead])
@@ -216,6 +308,28 @@ def create_case(payload: SupportCaseCreate, session: SessionDep) -> SupportCase:
     return support_case
 
 
+@app.patch("/api/cases/{case_id}", response_model=SupportCaseRead)
+def update_case(case_id: int, payload: SupportCaseUpdate, session: SessionDep) -> SupportCase:
+    support_case = session.get(SupportCase, case_id)
+    if not support_case:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    apply_updates(support_case, patch_values(payload))
+    session.add(support_case)
+    session.commit()
+    session.refresh(support_case)
+    return support_case
+
+
+@app.delete("/api/cases/{case_id}")
+def delete_case(case_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+    support_case = session.get(SupportCase, case_id)
+    if not support_case:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    session.delete(support_case)
+    session.commit()
+    return delete_response("case", case_id)
+
+
 @app.get("/api/tasks", response_model=list[TaskItemRead])
 def list_tasks(session: SessionDep) -> list[TaskItem]:
     return session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
@@ -228,6 +342,28 @@ def create_task(payload: TaskItemCreate, session: SessionDep) -> TaskItem:
     session.commit()
     session.refresh(task)
     return task
+
+
+@app.patch("/api/tasks/{task_id}", response_model=TaskItemRead)
+def update_task(task_id: int, payload: TaskItemUpdate, session: SessionDep) -> TaskItem:
+    task = session.get(TaskItem, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    apply_updates(task, patch_values(payload))
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+    task = session.get(TaskItem, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    session.delete(task)
+    session.commit()
+    return delete_response("task", task_id)
 
 
 @app.get("/api/goals", response_model=list[SalesGoalRead])
@@ -252,6 +388,31 @@ def create_goal(payload: SalesGoalCreate, session: SessionDep) -> SalesGoal:
     session.commit()
     session.refresh(goal)
     return goal
+
+
+@app.patch("/api/goals/{goal_id}", response_model=SalesGoalRead)
+def update_goal(goal_id: int, payload: SalesGoalUpdate, session: SessionDep) -> SalesGoal:
+    goal = session.get(SalesGoal, goal_id)
+    if not goal:
+        raise HTTPException(status_code=404, detail="目标不存在")
+    updates = patch_values(payload)
+    apply_updates(goal, updates)
+    if "progress" not in updates and goal.target:
+        goal.progress = min(max(round(goal.current / goal.target * 100), 0), 100)
+    session.add(goal)
+    session.commit()
+    session.refresh(goal)
+    return goal
+
+
+@app.delete("/api/goals/{goal_id}")
+def delete_goal(goal_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+    goal = session.get(SalesGoal, goal_id)
+    if not goal:
+        raise HTTPException(status_code=404, detail="目标不存在")
+    session.delete(goal)
+    session.commit()
+    return delete_response("goal", goal_id)
 
 
 @app.get("/api/ai-audit-logs", response_model=list[AIInteractionLogRead])

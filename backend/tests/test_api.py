@@ -150,6 +150,65 @@ def test_create_business_resources() -> None:
     assert any(lead["title"] == "测试智能制造 CRM 升级" for lead in lead_list)
 
 
+def test_update_and_delete_business_resources() -> None:
+    with TestClient(app) as client:
+        customer = client.post("/api/customers", json={"company": "可编辑客户", "contact_person": "旧联系人"}).json()
+        updated_customer = client.patch(
+            f"/api/customers/{customer['id']}",
+            json={"industry": "智能制造", "contact_person": "新联系人"},
+        )
+
+        contact = client.post("/api/contacts", json={"name": "可编辑联系人", "company": "可编辑客户", "owner": "李伟超"}).json()
+        updated_contact = client.patch(f"/api/contacts/{contact['id']}", json={"role": "采购负责人"})
+
+        lead = client.post(
+            "/api/leads",
+            json={
+                "title": "可编辑商机",
+                "customer_name": "可编辑客户",
+                "owner": "李伟超",
+                "stage": "proposal",
+                "due_date": "2026-06-30",
+            },
+        ).json()
+        updated_lead = client.patch(f"/api/leads/{lead['id']}", json={"stage": "negotiation", "expected_amount": 188000})
+
+        case = client.post(
+            "/api/cases",
+            json={"title": "可编辑工单", "account": "可编辑客户", "owner": "徐柠", "due_date": "2026-06-25"},
+        ).json()
+        updated_case = client.patch(f"/api/cases/{case['id']}", json={"status": "working", "status_label": "Pending"})
+
+        task = client.post("/api/tasks", json={"title": "可编辑任务", "owner": "李伟超"}).json()
+        updated_task = client.patch(f"/api/tasks/{task['id']}", json={"status": "today", "status_label": "今天"})
+
+        goal = client.post("/api/goals", json={"name": "可编辑目标", "current": 10, "target": 100}).json()
+        updated_goal = client.patch(f"/api/goals/{goal['id']}", json={"current": 50})
+
+        delete_responses = [
+            client.delete(f"/api/contacts/{contact['id']}"),
+            client.delete(f"/api/leads/{lead['id']}"),
+            client.delete(f"/api/cases/{case['id']}"),
+            client.delete(f"/api/tasks/{task['id']}"),
+            client.delete(f"/api/goals/{goal['id']}"),
+            client.delete(f"/api/customers/{customer['id']}"),
+        ]
+        seeded_customer = client.get("/api/customers").json()[0]
+        protected_delete = client.delete(f"/api/customers/{seeded_customer['id']}")
+
+    assert updated_customer.status_code == 200
+    assert updated_customer.json()["contact_person"] == "新联系人"
+    assert updated_contact.json()["role"] == "采购负责人"
+    assert updated_lead.json()["stage"] == "negotiation"
+    assert updated_lead.json()["expected_amount"] == 188000
+    assert updated_case.json()["status_label"] == "Pending"
+    assert updated_task.json()["status"] == "today"
+    assert updated_goal.json()["progress"] == 50
+    assert all(response.status_code == 200 and response.json()["deleted"] is True for response in delete_responses)
+    assert protected_delete.status_code == 400
+    assert "已有订单" in protected_delete.json()["detail"]
+
+
 def test_create_order() -> None:
     with TestClient(app) as client:
         customers = client.get("/api/customers").json()

@@ -20,6 +20,7 @@ import {
   LogOut,
   Menu,
   PanelLeftClose,
+  Pencil,
   Phone,
   Plus,
   Search,
@@ -27,6 +28,7 @@ import {
   Sparkles,
   Target,
   TrendingUp,
+  Trash2,
   Trophy,
   UploadCloud,
   Users,
@@ -59,6 +61,12 @@ import {
   createLead,
   createOrder,
   createTask,
+  deleteCase,
+  deleteContact,
+  deleteCustomer,
+  deleteGoal,
+  deleteLead,
+  deleteTask,
   fetchCustomers,
   fetchDashboard,
   fetchGoals,
@@ -68,6 +76,12 @@ import {
   fetchTasks,
   extractOrderFromFile,
   generateFollowUp,
+  updateCase,
+  updateContact,
+  updateCustomer,
+  updateGoal,
+  updateLead,
+  updateTask,
 } from './api.js'
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
@@ -390,6 +404,17 @@ function buildGoalPayload(draft) {
   }
 }
 
+function buildDraftFromRecord(columns, record, workflowField) {
+  const draft = columns.reduce(
+    (nextDraft, column) => ({
+      ...nextDraft,
+      [column.key]: record[column.key] ?? '',
+    }),
+    workflowField ? { [workflowField.key]: record[workflowField.key] ?? workflowField.value } : {},
+  )
+  return draft
+}
+
 function mapCustomerRecord(customer) {
   return {
     id: customer.id,
@@ -546,6 +571,8 @@ function AccountsPage() {
       loading={loading}
       error={error}
       onCreateRecord={(draft) => createCustomer(buildCustomerPayload(draft)).then(mapCustomerRecord)}
+      onUpdateRecord={(id, draft) => updateCustomer(id, buildCustomerPayload(draft)).then(mapCustomerRecord)}
+      onDeleteRecord={deleteCustomer}
       createLabel="新建客户"
       columns={[
         { key: 'name', label: '客户名称' },
@@ -575,6 +602,8 @@ function ContactsPage() {
       loading={loading}
       error={error}
       onCreateRecord={(draft) => createContact(buildContactPayload(draft)).then(mapContactRecord)}
+      onUpdateRecord={(id, draft) => updateContact(id, buildContactPayload(draft)).then(mapContactRecord)}
+      onDeleteRecord={deleteContact}
       createLabel="新建联系人"
       columns={[
         { key: 'name', label: '姓名' },
@@ -604,6 +633,8 @@ function LeadsPage() {
       loading={loading}
       error={error}
       onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'lead')).then(mapLeadRecord)}
+      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, 'lead')).then(mapLeadRecord)}
+      onDeleteRecord={deleteLead}
       createLabel="新建线索"
       boardKey="stage"
       columns={[
@@ -629,6 +660,8 @@ function OpportunitiesPage() {
       loading={loading}
       error={error}
       onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'opportunity')).then(mapOpportunityRecord)}
+      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, 'opportunity')).then(mapOpportunityRecord)}
+      onDeleteRecord={deleteLead}
       createLabel="新建商机"
       boardKey="stage"
       columns={[
@@ -654,6 +687,8 @@ function CasesPage() {
       loading={loading}
       error={error}
       onCreateRecord={(draft) => createCase(buildCasePayload(draft)).then(mapCaseRecord)}
+      onUpdateRecord={(id, draft) => updateCase(id, buildCasePayload(draft)).then(mapCaseRecord)}
+      onDeleteRecord={deleteCase}
       createLabel="新建工单"
       boardKey="statusLabel"
       columns={[
@@ -2000,14 +2035,30 @@ function OrdersPage() {
   )
 }
 
-function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs, createLabel, loading = false, error = '', onCreateRecord }) {
+function TableResourcePage({
+  title,
+  subtitle,
+  icon: Icon,
+  records,
+  columns,
+  tabs,
+  createLabel,
+  loading = false,
+  error = '',
+  onCreateRecord,
+  onUpdateRecord,
+  onDeleteRecord,
+}) {
   const [rows, setRows] = useState(records)
   const [activeTab, setActiveTab] = useState(tabs[0].key)
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
+  const [deleteSaving, setDeleteSaving] = useState(false)
+  const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
   const [draft, setDraft] = useState(() => createDraftFromColumns(columns))
+  const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
 
   useEffect(() => {
     setRows(records)
@@ -2028,7 +2079,15 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
   }, [activeTab, query, rows, tabs])
 
   const handleOpenCreate = () => {
+    setEditingRecord(null)
     setDraft(createDraftFromColumns(columns))
+    setCreateError('')
+    setCreateOpen(true)
+  }
+
+  const handleOpenEdit = (record) => {
+    setEditingRecord(record)
+    setDraft(buildDraftFromRecord(columns, record))
     setCreateError('')
     setCreateOpen(true)
   }
@@ -2038,15 +2097,37 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
     setCreateSaving(true)
     setCreateError('')
     try {
-      const record = onCreateRecord
-        ? await onCreateRecord(draft)
-        : buildClientRecord({ draft, columns, existingCount: rows.length })
-      setRows((currentRows) => [record, ...currentRows])
+      if (editingRecord && onUpdateRecord) {
+        const record = await onUpdateRecord(editingRecord.id, draft)
+        setRows((currentRows) => currentRows.map((item) => (item.id === editingRecord.id ? record : item)))
+      } else {
+        const record = onCreateRecord
+          ? await onCreateRecord(draft)
+          : buildClientRecord({ draft, columns, existingCount: rows.length })
+        setRows((currentRows) => [record, ...currentRows])
+      }
       setCreateOpen(false)
+      setEditingRecord(null)
     } catch (nextError) {
-      setCreateError(nextError.message || '新建记录失败')
+      setCreateError(nextError.message || (editingRecord ? '更新记录失败' : '新建记录失败'))
     } finally {
       setCreateSaving(false)
+    }
+  }
+
+  const handleDeleteRecord = async (record) => {
+    if (!onDeleteRecord || !window.confirm(`确认删除 ${record.name ?? record.title ?? '这条记录'}？`)) {
+      return
+    }
+    setDeleteSaving(true)
+    setCreateError('')
+    try {
+      await onDeleteRecord(record.id)
+      setRows((currentRows) => currentRows.filter((item) => item.id !== record.id))
+    } catch (nextError) {
+      setCreateError(nextError.message || '删除记录失败')
+    } finally {
+      setDeleteSaving(false)
     }
   }
 
@@ -2062,7 +2143,7 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
         onTabChange={setActiveTab}
         onCreate={handleOpenCreate}
       />
-      <ResourceSyncState loading={loading || createSaving} error={error || createError} />
+      <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
       <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} />
       <div className="crm-panel">
         <div className="crm-table-wrap">
@@ -2072,6 +2153,7 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
                 {columns.map((column) => (
                   <th key={column.key}>{column.label}</th>
                 ))}
+                {hasActions ? <th className="crm-table-actions-cell">操作</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -2080,6 +2162,28 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
                   {columns.map((column) => (
                     <td key={column.key}>{renderCell(record[column.key], column)}</td>
                   ))}
+                  {hasActions ? (
+                    <td className="crm-table-actions-cell">
+                      <div className="crm-row-actions">
+                        {onUpdateRecord ? (
+                          <button className="crm-icon-button" type="button" aria-label="编辑记录" title="编辑" onClick={() => handleOpenEdit(record)}>
+                            <Pencil size={15} />
+                          </button>
+                        ) : null}
+                        {onDeleteRecord ? (
+                          <button
+                            className="crm-icon-button crm-icon-button--danger"
+                            type="button"
+                            aria-label="删除记录"
+                            title="删除"
+                            onClick={() => handleDeleteRecord(record)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -2089,11 +2193,14 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
       {!loading && !error && !visibleRecords.length ? <EmptyState icon={Icon} title={`暂无${title}数据`} subtitle="后端演示数据同步后会显示在这里。" /> : null}
       <CreateRecordModal
         open={createOpen}
-        title={createLabel}
+        title={editingRecord ? `编辑${title}` : createLabel}
         columns={columns}
         draft={draft}
         onDraftChange={setDraft}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false)
+          setEditingRecord(null)
+        }}
         onSubmit={handleSubmitCreate}
         submitting={createSaving}
       />
@@ -2101,13 +2208,29 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
   )
 }
 
-function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, createLabel, boardKey, loading = false, error = '', onCreateRecord }) {
+function BoardResourcePage({
+  title,
+  subtitle,
+  icon: Icon,
+  records,
+  columns,
+  createLabel,
+  boardKey,
+  loading = false,
+  error = '',
+  onCreateRecord,
+  onUpdateRecord,
+  onDeleteRecord,
+}) {
   const [rows, setRows] = useState(records)
   const [view, setView] = useState('list')
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
+  const [deleteSaving, setDeleteSaving] = useState(false)
+  const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
+  const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
   const boardValues = useMemo(() => [...new Set(rows.map((record) => record[boardKey]))], [boardKey, rows])
   const workflowField = useMemo(
     () => ({ key: boardKey, label: '阶段', value: boardValues[0] ?? 'New', options: boardValues.length ? boardValues : ['New'] }),
@@ -2135,7 +2258,15 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
   }, [boardKey, visibleRecords])
 
   const handleOpenCreate = () => {
+    setEditingRecord(null)
     setDraft(createDraftFromColumns(columns, workflowField))
+    setCreateError('')
+    setCreateOpen(true)
+  }
+
+  const handleOpenEdit = (record) => {
+    setEditingRecord(record)
+    setDraft(buildDraftFromRecord(columns, record, workflowField))
     setCreateError('')
     setCreateOpen(true)
   }
@@ -2145,23 +2276,45 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
     setCreateSaving(true)
     setCreateError('')
     try {
-      const record = onCreateRecord
-        ? await onCreateRecord(draft)
-        : buildClientRecord({ draft, columns, existingCount: rows.length, workflowField })
-      setRows((currentRows) => [record, ...currentRows])
+      if (editingRecord && onUpdateRecord) {
+        const record = await onUpdateRecord(editingRecord.id, draft)
+        setRows((currentRows) => currentRows.map((item) => (item.id === editingRecord.id ? record : item)))
+      } else {
+        const record = onCreateRecord
+          ? await onCreateRecord(draft)
+          : buildClientRecord({ draft, columns, existingCount: rows.length, workflowField })
+        setRows((currentRows) => [record, ...currentRows])
+      }
       setCreateOpen(false)
+      setEditingRecord(null)
       setView('list')
     } catch (nextError) {
-      setCreateError(nextError.message || '新建记录失败')
+      setCreateError(nextError.message || (editingRecord ? '更新记录失败' : '新建记录失败'))
     } finally {
       setCreateSaving(false)
+    }
+  }
+
+  const handleDeleteRecord = async (record) => {
+    if (!onDeleteRecord || !window.confirm(`确认删除 ${record.name ?? record.title ?? '这条记录'}？`)) {
+      return
+    }
+    setDeleteSaving(true)
+    setCreateError('')
+    try {
+      await onDeleteRecord(record.id)
+      setRows((currentRows) => currentRows.filter((item) => item.id !== record.id))
+    } catch (nextError) {
+      setCreateError(nextError.message || '删除记录失败')
+    } finally {
+      setDeleteSaving(false)
     }
   }
 
   return (
     <div className="crm-page-stack">
       <ResourceHeader title={title} subtitle={subtitle} icon={Icon} createLabel={createLabel} onCreate={handleOpenCreate} />
-      <ResourceSyncState loading={loading || createSaving} error={error || createError} />
+      <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
       <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length}>
         <div className="crm-view-toggle">
           <button className={view === 'list' ? 'is-active' : ''} type="button" onClick={() => setView('list')}>
@@ -2184,6 +2337,7 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
                   {columns.map((column) => (
                     <th key={column.key}>{column.label}</th>
                   ))}
+                  {hasActions ? <th className="crm-table-actions-cell">操作</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -2192,6 +2346,28 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
                     {columns.map((column) => (
                       <td key={column.key}>{renderCell(record[column.key], column)}</td>
                     ))}
+                    {hasActions ? (
+                      <td className="crm-table-actions-cell">
+                        <div className="crm-row-actions">
+                          {onUpdateRecord ? (
+                            <button className="crm-icon-button" type="button" aria-label="编辑记录" title="编辑" onClick={() => handleOpenEdit(record)}>
+                              <Pencil size={15} />
+                            </button>
+                          ) : null}
+                          {onDeleteRecord ? (
+                            <button
+                              className="crm-icon-button crm-icon-button--danger"
+                              type="button"
+                              aria-label="删除记录"
+                              title="删除"
+                              onClick={() => handleDeleteRecord(record)}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
@@ -2217,6 +2393,26 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
                     {'amount' in item ? <span>{formatCurrency(item.amount)}</span> : null}
                     {'nextStep' in item ? <span>{item.nextStep}</span> : null}
                     {'priority' in item ? <StatusBadge value={item.priority} tone={statusToneMap[item.priority] ?? 'neutral'} /> : null}
+                    {hasActions ? (
+                      <div className="crm-board-card-actions">
+                        {onUpdateRecord ? (
+                          <button className="crm-icon-button" type="button" aria-label="编辑记录" title="编辑" onClick={() => handleOpenEdit(item)}>
+                            <Pencil size={15} />
+                          </button>
+                        ) : null}
+                        {onDeleteRecord ? (
+                          <button
+                            className="crm-icon-button crm-icon-button--danger"
+                            type="button"
+                            aria-label="删除记录"
+                            title="删除"
+                            onClick={() => handleDeleteRecord(item)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -2227,12 +2423,15 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
       {!loading && !error && !visibleRecords.length ? <EmptyState icon={Icon} title={`暂无${title}数据`} subtitle="后端演示数据同步后会显示在这里。" /> : null}
       <CreateRecordModal
         open={createOpen}
-        title={createLabel}
+        title={editingRecord ? `编辑${title}` : createLabel}
         columns={columns}
         workflowField={workflowField}
         draft={draft}
         onDraftChange={setDraft}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false)
+          setEditingRecord(null)
+        }}
         onSubmit={handleSubmitCreate}
         submitting={createSaving}
       />
@@ -2256,6 +2455,8 @@ function TasksPage() {
   const [tasks, setTasks] = useState(fetchedTasks)
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
+  const [deleteSaving, setDeleteSaving] = useState(false)
+  const [editingTask, setEditingTask] = useState(null)
   const [createError, setCreateError] = useState('')
   const [draft, setDraft] = useState(() => createDraftFromColumns(taskCreateColumns))
   const tabs = [
@@ -2275,7 +2476,15 @@ function TasksPage() {
   }, [fetchedTasks])
 
   const handleOpenCreate = () => {
+    setEditingTask(null)
     setDraft(createDraftFromColumns(taskCreateColumns))
+    setCreateError('')
+    setCreateOpen(true)
+  }
+
+  const handleOpenEdit = (task) => {
+    setEditingTask(task)
+    setDraft(buildDraftFromRecord(taskCreateColumns, task))
     setCreateError('')
     setCreateOpen(true)
   }
@@ -2285,13 +2494,36 @@ function TasksPage() {
     setCreateSaving(true)
     setCreateError('')
     try {
-      const task = await createTask(buildTaskPayload(draft))
-      setTasks((currentTasks) => [mapTaskRecord(task), ...currentTasks])
+      if (editingTask) {
+        const task = await updateTask(editingTask.id, buildTaskPayload(draft))
+        const mappedTask = mapTaskRecord(task)
+        setTasks((currentTasks) => currentTasks.map((item) => (item.id === editingTask.id ? mappedTask : item)))
+      } else {
+        const task = await createTask(buildTaskPayload(draft))
+        setTasks((currentTasks) => [mapTaskRecord(task), ...currentTasks])
+      }
       setCreateOpen(false)
+      setEditingTask(null)
     } catch (nextError) {
-      setCreateError(nextError.message || '新建任务失败')
+      setCreateError(nextError.message || (editingTask ? '更新任务失败' : '新建任务失败'))
     } finally {
       setCreateSaving(false)
+    }
+  }
+
+  const handleDeleteTask = async (task) => {
+    if (!window.confirm(`确认删除 ${task.title}？`)) {
+      return
+    }
+    setDeleteSaving(true)
+    setCreateError('')
+    try {
+      await deleteTask(task.id)
+      setTasks((currentTasks) => currentTasks.filter((item) => item.id !== task.id))
+    } catch (nextError) {
+      setCreateError(nextError.message || '删除任务失败')
+    } finally {
+      setDeleteSaving(false)
     }
   }
 
@@ -2307,7 +2539,7 @@ function TasksPage() {
         onTabChange={setActiveTab}
         onCreate={handleOpenCreate}
       />
-      <ResourceSyncState loading={loading || createSaving} error={error || createError} />
+      <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
 
       <section className="crm-task-grid">
         {visibleTasks.map((task) => (
@@ -2322,17 +2554,34 @@ function TasksPage() {
               <span>{task.owner}</span>
               <time>{task.dueDate}</time>
             </div>
+            <div className="crm-row-actions">
+              <button className="crm-icon-button" type="button" aria-label="编辑任务" title="编辑" onClick={() => handleOpenEdit(task)}>
+                <Pencil size={15} />
+              </button>
+              <button
+                className="crm-icon-button crm-icon-button--danger"
+                type="button"
+                aria-label="删除任务"
+                title="删除"
+                onClick={() => handleDeleteTask(task)}
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
           </article>
         ))}
       </section>
       {!loading && !error && !visibleTasks.length ? <EmptyState icon={CheckSquare} title="暂无任务" subtitle="后端任务数据同步后会显示在这里。" /> : null}
       <CreateRecordModal
         open={createOpen}
-        title="新建任务"
+        title={editingTask ? '编辑任务' : '新建任务'}
         columns={taskCreateColumns}
         draft={draft}
         onDraftChange={setDraft}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false)
+          setEditingTask(null)
+        }}
         onSubmit={handleSubmitCreate}
         submitting={createSaving}
       />
@@ -2355,6 +2604,8 @@ function GoalsPage() {
   const [goals, setGoals] = useState(fetchedGoals)
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
+  const [deleteSaving, setDeleteSaving] = useState(false)
+  const [editingGoal, setEditingGoal] = useState(null)
   const [createError, setCreateError] = useState('')
   const [draft, setDraft] = useState(() => createDraftFromColumns(goalCreateColumns))
 
@@ -2363,7 +2614,15 @@ function GoalsPage() {
   }, [fetchedGoals])
 
   const handleOpenCreate = () => {
+    setEditingGoal(null)
     setDraft(createDraftFromColumns(goalCreateColumns))
+    setCreateError('')
+    setCreateOpen(true)
+  }
+
+  const handleOpenEdit = (goal) => {
+    setEditingGoal(goal)
+    setDraft(buildDraftFromRecord(goalCreateColumns, goal))
     setCreateError('')
     setCreateOpen(true)
   }
@@ -2373,20 +2632,43 @@ function GoalsPage() {
     setCreateSaving(true)
     setCreateError('')
     try {
-      const goal = await createGoal(buildGoalPayload(draft))
-      setGoals((currentGoals) => [mapGoalRecord(goal), ...currentGoals])
+      if (editingGoal) {
+        const goal = await updateGoal(editingGoal.id, buildGoalPayload(draft))
+        const mappedGoal = mapGoalRecord(goal)
+        setGoals((currentGoals) => currentGoals.map((item) => (item.id === editingGoal.id ? mappedGoal : item)))
+      } else {
+        const goal = await createGoal(buildGoalPayload(draft))
+        setGoals((currentGoals) => [mapGoalRecord(goal), ...currentGoals])
+      }
       setCreateOpen(false)
+      setEditingGoal(null)
     } catch (nextError) {
-      setCreateError(nextError.message || '新建目标失败')
+      setCreateError(nextError.message || (editingGoal ? '更新目标失败' : '新建目标失败'))
     } finally {
       setCreateSaving(false)
+    }
+  }
+
+  const handleDeleteGoal = async (goal) => {
+    if (!window.confirm(`确认删除 ${goal.name}？`)) {
+      return
+    }
+    setDeleteSaving(true)
+    setCreateError('')
+    try {
+      await deleteGoal(goal.id)
+      setGoals((currentGoals) => currentGoals.filter((item) => item.id !== goal.id))
+    } catch (nextError) {
+      setCreateError(nextError.message || '删除目标失败')
+    } finally {
+      setDeleteSaving(false)
     }
   }
 
   return (
     <div className="crm-page-stack">
       <ResourceHeader title="销售目标" subtitle="季度目标、完成进度和预测结果一屏查看。" icon={Trophy} createLabel="新建目标" onCreate={handleOpenCreate} />
-      <ResourceSyncState loading={loading || createSaving} error={error || createError} />
+      <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
 
       <section className="crm-goal-grid">
         {goals.map((goal) => (
@@ -2396,7 +2678,23 @@ function GoalsPage() {
                 <strong>{goal.name}</strong>
                 <span>{goal.period}</span>
               </div>
-              <StatusBadge value={`${goal.progress}%`} tone={goal.progress >= 80 ? 'success' : 'warning'} />
+              <div className="crm-goal-card-actions">
+                <StatusBadge value={`${goal.progress}%`} tone={goal.progress >= 80 ? 'success' : 'warning'} />
+                <div className="crm-row-actions">
+                  <button className="crm-icon-button" type="button" aria-label="编辑目标" title="编辑" onClick={() => handleOpenEdit(goal)}>
+                    <Pencil size={15} />
+                  </button>
+                  <button
+                    className="crm-icon-button crm-icon-button--danger"
+                    type="button"
+                    aria-label="删除目标"
+                    title="删除"
+                    onClick={() => handleDeleteGoal(goal)}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="crm-goal-values">
               <strong>{formatCurrency(goal.current)}</strong>
@@ -2412,11 +2710,14 @@ function GoalsPage() {
       {!loading && !error && !goals.length ? <EmptyState icon={Trophy} title="暂无销售目标" subtitle="后端目标数据同步后会显示在这里。" /> : null}
       <CreateRecordModal
         open={createOpen}
-        title="新建目标"
+        title={editingGoal ? '编辑目标' : '新建目标'}
         columns={goalCreateColumns}
         draft={draft}
         onDraftChange={setDraft}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false)
+          setEditingGoal(null)
+        }}
         onSubmit={handleSubmitCreate}
         submitting={createSaving}
       />

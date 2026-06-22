@@ -1,5 +1,17 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
+async function readResponsePayload(response) {
+  const text = await response.text()
+  if (!text) {
+    return null
+  }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
 async function request(path, init) {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -14,12 +26,12 @@ async function request(path, init) {
     ...init,
   })
 
+  const payload = await readResponsePayload(response)
   if (!response.ok) {
-    const detail = await response.text()
-    throw new Error(detail || '请求失败')
+    throw new Error(typeof payload === 'string' ? payload : payload?.detail ?? '请求失败')
   }
 
-  return response.json()
+  return payload
 }
 
 export function fetchCopilotSummary() {
@@ -61,6 +73,19 @@ export function createCustomer(payload) {
   })
 }
 
+export function updateCustomer(customerId, payload) {
+  return request(`/api/customers/${customerId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteCustomer(customerId) {
+  return request(`/api/customers/${customerId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function fetchProducts() {
   return request('/api/products')
 }
@@ -76,6 +101,19 @@ export function createContact(payload) {
   })
 }
 
+export function updateContact(contactId, payload) {
+  return request(`/api/contacts/${contactId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteContact(contactId) {
+  return request(`/api/contacts/${contactId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function fetchLeads() {
   return request('/api/leads')
 }
@@ -84,6 +122,19 @@ export function createLead(payload) {
   return request('/api/leads', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export function updateLead(leadId, payload) {
+  return request(`/api/leads/${leadId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteLead(leadId) {
+  return request(`/api/leads/${leadId}`, {
+    method: 'DELETE',
   })
 }
 
@@ -98,6 +149,19 @@ export function createCase(payload) {
   })
 }
 
+export function updateCase(caseId, payload) {
+  return request(`/api/cases/${caseId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteCase(caseId) {
+  return request(`/api/cases/${caseId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function fetchTasks() {
   return request('/api/tasks')
 }
@@ -109,6 +173,19 @@ export function createTask(payload) {
   })
 }
 
+export function updateTask(taskId, payload) {
+  return request(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteTask(taskId) {
+  return request(`/api/tasks/${taskId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function fetchGoals() {
   return request('/api/goals')
 }
@@ -117,6 +194,19 @@ export function createGoal(payload) {
   return request('/api/goals', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export function updateGoal(goalId, payload) {
+  return request(`/api/goals/${goalId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteGoal(goalId) {
+  return request(`/api/goals/${goalId}`, {
+    method: 'DELETE',
   })
 }
 

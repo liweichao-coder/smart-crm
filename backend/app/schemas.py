@@ -39,6 +39,20 @@ class CustomerCreate(BaseModel):
     status: str = "active"
 
 
+class CustomerUpdate(BaseModel):
+    name: str | None = None
+    company: str | None = None
+    industry: str | None = None
+    city: str | None = None
+    contact_person: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    source: str | None = None
+    level: str | None = None
+    annual_revenue: float | None = Field(default=None, ge=0)
+    status: str | None = None
+
+
 class ProductRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -74,6 +88,16 @@ class ContactCreate(BaseModel):
     status: str = "active"
 
 
+class ContactUpdate(BaseModel):
+    name: str | None = None
+    company: str | None = None
+    role: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    owner: str | None = None
+    status: str | None = None
+
+
 class LeadRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,6 +126,18 @@ class SalesLeadCreate(BaseModel):
     ai_assisted: bool = False
 
 
+class SalesLeadUpdate(BaseModel):
+    title: str | None = None
+    customer_name: str | None = None
+    owner: str | None = None
+    region: str | None = None
+    expected_amount: float | None = Field(default=None, ge=0)
+    stage: LeadStage | None = None
+    next_action: str | None = None
+    due_date: date | None = None
+    ai_assisted: bool | None = None
+
+
 class SupportCaseRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -124,6 +160,16 @@ class SupportCaseCreate(BaseModel):
     status: str = "open"
     status_label: str = "Open"
     due_date: date = Field(default_factory=date.today)
+
+
+class SupportCaseUpdate(BaseModel):
+    title: str | None = None
+    account: str | None = None
+    owner: str | None = None
+    priority: str | None = None
+    status: str | None = None
+    status_label: str | None = None
+    due_date: date | None = None
 
 
 class TaskItemRead(BaseModel):
@@ -150,6 +196,16 @@ class TaskItemCreate(BaseModel):
     status_label: str = "本周"
 
 
+class TaskItemUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    owner: str | None = None
+    due_date: str | None = None
+    priority: str | None = None
+    status: str | None = None
+    status_label: str | None = None
+
+
 class SalesGoalRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -170,6 +226,15 @@ class SalesGoalCreate(BaseModel):
     target: float = Field(default=1, ge=0)
     progress: int | None = Field(default=None, ge=0, le=100)
     note: str = ""
+
+
+class SalesGoalUpdate(BaseModel):
+    name: str | None = None
+    period: str | None = None
+    current: float | None = Field(default=None, ge=0)
+    target: float | None = Field(default=None, ge=0)
+    progress: int | None = Field(default=None, ge=0, le=100)
+    note: str | None = None
 
 
 class AIInteractionLogRead(BaseModel):

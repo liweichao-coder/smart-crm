@@ -706,6 +706,37 @@ p {
   padding: 0;
 }
 
+.crm-row-actions,
+.crm-board-card-actions,
+.crm-goal-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.crm-row-actions {
+  justify-content: flex-end;
+  min-width: 88px;
+}
+
+.crm-row-actions .crm-icon-button,
+.crm-board-card-actions .crm-icon-button,
+.crm-goal-card-actions .crm-icon-button {
+  height: 34px;
+  width: 34px;
+}
+
+.crm-icon-button--danger {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.22);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.crm-icon-button--danger:hover {
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(248, 113, 113, 0.14);
+}
+
 .crm-search-box {
   display: flex;
   align-items: center;
@@ -747,6 +778,11 @@ p {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0;
+}
+
+.crm-table .crm-table-actions-cell {
+  width: 112px;
+  text-align: right;
 }
 
 .crm-table tbody tr {
@@ -813,6 +849,16 @@ p {
   border: 1px solid var(--border-default);
   background: rgba(255, 255, 255, 0.04);
   padding: 16px;
+}
+
+.crm-board-card-actions,
+.crm-goal-card-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.crm-board-card-actions {
+  margin-top: 4px;
 }
 
 .crm-board-head span,
