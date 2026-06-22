@@ -2150,6 +2150,34 @@ body {
   font-size: 13px;
 }
 
+.crm-ask-panel {
+  gap: 14px;
+}
+
+.crm-ask-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.crm-ask-form .crm-primary-button {
+  min-height: 42px;
+}
+
+.crm-ask-result {
+  display: grid;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
+.crm-ask-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .crm-workspace-item-side {
   display: flex;
   align-items: center;
@@ -2205,6 +2233,15 @@ body {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.55;
+}
+
+.crm-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: var(--color-primary-default);
 }
 
 .crm-activity-form {
@@ -2376,6 +2413,8 @@ body {
   .crm-task-grid,
   .crm-form-grid,
   .crm-copilot-grid,
+  .crm-ask-form,
+  .crm-ask-columns,
   .crm-board-grid,
   .crm-stock-grid,
   .crm-report-filter-bar {

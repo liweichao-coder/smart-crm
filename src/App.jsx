@@ -53,6 +53,7 @@ import {
 import avatar from './assets/vendor/unnamed.png'
 import {
   AUTH_STORAGE_KEY,
+  askCopilot,
   fetchCases,
   fetchAiAuditLogs,
   fetchBusinessAuditLogs,
@@ -2416,6 +2417,10 @@ function CopilotPage() {
   const [convertingId, setConvertingId] = useState(null)
   const [createdTasks, setCreatedTasks] = useState({})
   const [scoreRulesOpen, setScoreRulesOpen] = useState(false)
+  const [askQuestion, setAskQuestion] = useState('本周最需要优先跟进哪些客户？')
+  const [askResult, setAskResult] = useState(null)
+  const [askLoading, setAskLoading] = useState(false)
+  const [askError, setAskError] = useState('')
 
   const refreshHistory = async () => {
     setHistoryLoading(true)
@@ -2498,6 +2503,24 @@ function CopilotPage() {
     }
   }
 
+  const handleAskCopilot = async (event) => {
+    event.preventDefault()
+    const question = askQuestion.trim()
+    if (!question) {
+      return
+    }
+    setAskLoading(true)
+    setAskError('')
+    try {
+      const payload = await askCopilot({ question })
+      setAskResult(payload)
+    } catch (requestError) {
+      setAskError(requestError.message || '经营问答生成失败')
+    } finally {
+      setAskLoading(false)
+    }
+  }
+
   return (
     <div className="crm-page-stack">
       <section className="crm-hero-panel crm-copilot-hero">
@@ -2560,6 +2583,38 @@ function CopilotPage() {
             <small>后端 OpenAI 兼容接口 + 可解释评分</small>
           </div>
         </article>
+      </section>
+
+      <section className="crm-panel crm-ask-panel">
+        <PanelHeader title="CRM Skill 经营问答" actionLabel={askResult?.fallback_used ? '规则兜底' : askResult ? 'LLM 增强' : '实时上下文'} />
+        <form className="crm-ask-form" onSubmit={handleAskCopilot}>
+          <label className="crm-field">
+            <span>问题</span>
+            <input value={askQuestion} onChange={(event) => setAskQuestion(event.target.value)} maxLength={500} />
+          </label>
+          <button className="crm-primary-button" type="submit" disabled={askLoading}>
+            <Sparkles size={16} />
+            {askLoading ? '分析中' : '询问 Copilot'}
+          </button>
+        </form>
+        {askError ? (
+          <div className="crm-ai-alert">
+            <Shield size={16} />
+            <span>{askError}</span>
+          </div>
+        ) : null}
+        {askResult ? (
+          <div className="crm-ask-result">
+            <div className="crm-script-box">
+              <span>{askResult.model}</span>
+              <p>{askResult.answer}</p>
+            </div>
+            <div className="crm-ask-columns">
+              <CustomerPlanList title="证据片段" items={askResult.evidence ?? []} tone="accent" />
+              <CustomerPlanList title="下一步动作" items={askResult.next_actions ?? []} tone="success" />
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="crm-copilot-grid">

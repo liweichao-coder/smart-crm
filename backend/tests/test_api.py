@@ -266,7 +266,8 @@ def test_rbac_rejects_unauthenticated_business_api() -> None:
     assert login_response.status_code == 200
 
 
-def test_rbac_sales_role_permissions() -> None:
+def test_rbac_sales_role_permissions(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
     register_payload = {
         "organization_name": "销售权限测试组",
         "full_name": "李伟超",
@@ -420,6 +421,16 @@ def test_rbac_sales_role_permissions() -> None:
             headers=headers,
         )
         recommendations = client.get("/api/copilot/recommendations", headers=headers)
+        own_copilot_ask = client.post(
+            "/api/copilot/ask",
+            json={"question": "我本周应该优先跟进什么？"},
+            headers=headers,
+        )
+        denied_copilot_ask = client.post(
+            "/api/copilot/ask",
+            json={"question": "这个客户有什么风险？", "customer_id": other_customer_id},
+            headers=headers,
+        )
         denied_recommendation_task = client.post(
             f"/api/copilot/recommendations/{other_recommendation_id}/task",
             headers=headers,
@@ -443,6 +454,8 @@ def test_rbac_sales_role_permissions() -> None:
     assert tasks.status_code == 200
     assert orders.status_code == 200
     assert recommendations.status_code == 200
+    assert own_copilot_ask.status_code == 200
+    assert denied_copilot_ask.status_code == 403
     assert customers.json()
     assert leads.json()
     assert tasks.json()
@@ -1353,6 +1366,23 @@ def test_copilot_summary_fallback(monkeypatch) -> None:
     assert history["items"][0]["score_reasons"]
     assert history["items"][0]["llm_summary"]
     assert history["items"][0]["fallback_used"] is True
+
+
+def test_copilot_ask_uses_crm_context_and_audit(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    with TestClient(app) as client:
+        response = client.post("/api/copilot/ask", json={"question": "本周最需要优先跟进哪些客户？"})
+        audit_logs = client.get("/api/ai-audit-logs", params={"operation": "copilot_ask"}).json()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["question"] == "本周最需要优先跟进哪些客户？"
+    assert payload["answer"]
+    assert payload["next_actions"]
+    assert payload["evidence"]
+    assert any("客户" in item and "商机" in item for item in payload["evidence"])
+    assert payload["fallback_used"] is True
+    assert any(log["operation"] == "copilot_ask" and log["fallback_used"] is True for log in audit_logs)
 
 
 def test_copilot_follow_up_by_lead(monkeypatch) -> None:

@@ -33,6 +33,8 @@ from .schemas import (
     ContactCreate,
     ContactRead,
     ContactUpdate,
+    CopilotAskRequest,
+    CopilotAskResponse,
     CopilotFollowUpRequest,
     CopilotFollowUpResponse,
     CopilotOrderDraftRequest,
@@ -2834,6 +2836,65 @@ async def copilot_summary(
         response_summary=result.llm_summary,
         entity_type="lead",
         entity_id=result.top_opportunity.id if result.top_opportunity else None,
+    )
+    return result
+
+
+@app.post("/api/copilot/ask", response_model=CopilotAskResponse)
+async def copilot_ask(
+    payload: CopilotAskRequest,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+) -> CopilotAskResponse:
+    start_time = perf_counter()
+    customers = session.exec(select(Customer).order_by(Customer.created_at.desc())).all()
+    activities = session.exec(select(CustomerActivity).order_by(CustomerActivity.occurred_at.desc())).all()
+    leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+    orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
+    tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    cases = session.exec(select(SupportCase).order_by(SupportCase.created_at.desc())).all()
+    recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
+
+    if payload.customer_id is not None:
+        customer = session.get(Customer, payload.customer_id)
+        if not customer:
+            raise HTTPException(status_code=404, detail="客户不存在")
+        require_owner_scope(current_user, customer.owner)
+        customers = [customer]
+        activities = [activity for activity in activities if activity.customer_id == customer.id]
+        leads = [lead for lead in leads if lead.customer_name == customer.company]
+        orders = [order for order in orders if order.customer_id == customer.id]
+        cases = [case for case in cases if case.account == customer.company]
+        recommendations = [item for item in recommendations if item.customer_name == customer.company]
+    else:
+        customers = filter_by_owner_scope(customers, current_user)
+        activities = filter_by_owner_scope(activities, current_user)
+        leads = filter_by_owner_scope(leads, current_user)
+        orders = filter_by_owner_scope(orders, current_user)
+        cases = filter_by_owner_scope(cases, current_user)
+        recommendations = filter_by_owner_scope(recommendations, current_user)
+
+    tasks = filter_by_owner_scope(tasks, current_user)
+    result = await copilot_service.ask(
+        payload.question,
+        customers=customers,
+        activities=activities,
+        leads=leads,
+        orders=orders,
+        tasks=tasks,
+        cases=cases,
+        recommendations=recommendations,
+    )
+    save_ai_interaction(
+        session,
+        operation="copilot_ask",
+        model=result.model,
+        fallback_used=result.fallback_used,
+        start_time=start_time,
+        request_summary=f"{payload.question} / {len(customers)} customers / {len(leads)} leads / {len(orders)} orders",
+        response_summary=result.answer,
+        entity_type="customer" if payload.customer_id is not None else "crm",
+        entity_id=payload.customer_id,
     )
     return result
 

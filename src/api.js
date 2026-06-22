@@ -74,6 +74,13 @@ export function fetchCopilotRecommendations(params) {
   return request(`/api/copilot/recommendations${buildQueryString(params)}`)
 }
 
+export function askCopilot(payload) {
+  return request('/api/copilot/ask', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function convertCopilotRecommendationToTask(recommendationId) {
   return request(`/api/copilot/recommendations/${recommendationId}/task`, {
     method: 'POST',

@@ -66,6 +66,7 @@ The course exam requires a full software engineering process package, not only c
 - Added a Customer 360 workspace with `GET /api/customers/{customer_id}/workspace`, account-level metrics, contacts/leads/orders/cases/recommendations, a chronological timeline, owner-scope enforcement, and an OpenAI-compatible LLM account plan with deterministic fallback.
 - Added real customer activity records with `CustomerActivity`, `/api/customer-activities`, `/api/customers/{customer_id}/activities`, seeded touchpoints, workspace activity creation, business audit logging, owner-scope checks, and account-plan context.
 - Added customer activity-to-task conversion with `POST /api/customer-activities/{activity_id}/task`; it creates a real follow-up task from the activity next action, avoids duplicate tasks with a `CustomerActivity#id` marker, respects owner data scope, and writes business audit logs.
+- Added CRM Skill business Q&A with `POST /api/copilot/ask`; it gathers scoped CRM context from customers, activities, leads, orders, tasks, cases, and Copilot recommendations, calls the OpenAI-compatible LLM when configured, returns evidence plus next actions, and writes AI audit logs.
 
 ## Report Changes
 
@@ -111,6 +112,8 @@ The course exam requires a full software engineering process package, not only c
 - After Customer 360 workspace upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 36 passed.
 - After customer activity timeline upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 37 passed.
 - After customer activity-to-task upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 37 passed; the existing customer activity tests now also cover activity conversion, duplicate prevention, task audit logging, and sales owner-scope rejection.
+- After CRM Skill Q&A upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 38 passed; `npm test -- --run`: 24 passed; `npm run lint`: passed; `npm run build`: passed.
+- CRM Skill real LLM smoke succeeded with the configured DeepSeek-compatible key: `/api/copilot/ask` returned `fallback_used=false`, a non-empty answer, 3 evidence items, and 5 next actions.
 - `npm run lint`: passed.
 - `npm test`: 24 passed.
 - `npm run build`: passed.

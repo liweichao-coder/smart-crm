@@ -10,9 +10,10 @@ from fastapi import UploadFile
 import httpx
 
 from .config import settings
-from .models import Contact, CopilotRecommendation, Customer, CustomerActivity, LeadStage, Product, SalesLead, SalesOrder, SupportCase
+from .models import Contact, CopilotRecommendation, Customer, CustomerActivity, LeadStage, Product, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     CustomerAccountPlanResponse,
+    CopilotAskResponse,
     CopilotFollowUpRequest,
     CopilotFollowUpResponse,
     CopilotOpportunityInsight,
@@ -423,6 +424,77 @@ class CopilotService:
         if score >= 48:
             return "C"
         return "D"
+
+    async def ask(
+        self,
+        question: str,
+        customers: list[Customer],
+        activities: list[CustomerActivity],
+        leads: list[SalesLead],
+        orders: list[SalesOrder],
+        tasks: list[TaskItem],
+        cases: list[SupportCase],
+        recommendations: list[CopilotRecommendation],
+    ) -> CopilotAskResponse:
+        open_leads = [lead for lead in leads if lead.stage not in {LeadStage.won, LeadStage.lost}]
+        top_leads = sorted(open_leads, key=lambda item: item.expected_amount, reverse=True)[:5]
+        risk_activities = [activity for activity in activities if activity.sentiment in {"risk", "negative"}][:5]
+        overdue_tasks = [task for task in tasks if task.status == "overdue"][:5]
+        pending_cases = [case for case in cases if case.status not in {"resolved", "closed"}][:5]
+        total_revenue = sum(order.total_amount for order in orders)
+        pipeline_amount = sum(lead.expected_amount for lead in open_leads)
+
+        evidence = [
+            f"客户 {len(customers)} 个，累计订单收入 {total_revenue:.0f} 元，在管商机 {len(open_leads)} 个，管道金额 {pipeline_amount:.0f} 元。",
+            f"最高金额商机：{top_leads[0].title} / {top_leads[0].customer_name} / {top_leads[0].expected_amount:.0f} 元。" if top_leads else "当前没有在管商机。",
+            f"风险互动 {len(risk_activities)} 条，逾期任务 {len(overdue_tasks)} 条，未关闭工单 {len(pending_cases)} 条。",
+        ]
+        if recommendations:
+            latest_recommendation = recommendations[0]
+            evidence.append(f"最近 Copilot 建议：{latest_recommendation.next_best_action or latest_recommendation.llm_summary}")
+
+        next_actions = []
+        for lead in top_leads:
+            if lead.next_action:
+                next_actions.append(f"{lead.customer_name}：{lead.next_action}")
+        for activity in risk_activities:
+            if activity.next_action:
+                next_actions.append(f"{activity.customer_name}：{activity.next_action}")
+        for task in overdue_tasks:
+            next_actions.append(f"{task.owner}：处理逾期任务“{task.title}”")
+        if not next_actions:
+            next_actions.append("筛选 A/B 级商机，安排一次客户复盘会议并确认预算、决策人和时间点。")
+
+        context = "\n".join(
+            [
+                f"用户问题：{question}",
+                f"客户概览：{len(customers)} 个客户，订单 {len(orders)} 张，累计收入 {total_revenue:.0f} 元。",
+                f"商机：{len(open_leads)} 个在管，管道金额 {pipeline_amount:.0f} 元。",
+                "重点商机：" + "；".join(f"{lead.title}/{lead.customer_name}/{lead.stage.value}/{lead.expected_amount:.0f}/{lead.next_action}" for lead in top_leads),
+                "风险互动：" + "；".join(f"{activity.customer_name}/{activity.subject}/{activity.sentiment}/{activity.next_action}" for activity in risk_activities),
+                "逾期任务：" + "；".join(f"{task.owner}/{task.title}/{task.due_date}" for task in overdue_tasks),
+                "未关闭工单：" + "；".join(f"{case.account}/{case.title}/{case.priority}/{case.due_date}" for case in pending_cases),
+                "最近建议：" + "；".join((item.next_best_action or item.llm_summary) for item in recommendations[:5]),
+            ]
+        )
+        answer, fallback = await self.llm.complete(
+            "你是 Smart CRM 的销售经营问答 Copilot。必须只基于提供的 CRM 数据回答，中文输出，先给结论，再给2到4条行动建议；不要编造不存在的客户、金额或任务。",
+            context,
+        )
+        if not answer:
+            answer = (
+                f"基于当前 CRM 数据，优先关注 {len(open_leads)} 个在管商机和 {len(risk_activities)} 条风险互动。"
+                f"管道金额约 {pipeline_amount:.0f} 元，建议先推进最高金额商机，并处理逾期任务和未关闭工单。"
+            )
+
+        return CopilotAskResponse(
+            question=question,
+            answer=answer,
+            next_actions=next_actions[:5],
+            evidence=evidence[:5],
+            fallback_used=fallback,
+            model=settings.llm_model,
+        )
 
     async def summarize(self, leads: list[SalesLead]) -> CopilotSummaryResponse:
         insights = sorted((self.build_insight(lead) for lead in leads), key=lambda item: item.rule_score, reverse=True)

@@ -693,6 +693,20 @@ class CopilotSummaryResponse(BaseModel):
     insights: list[CopilotOpportunityInsight]
 
 
+class CopilotAskRequest(BaseModel):
+    question: str = Field(min_length=2, max_length=500)
+    customer_id: int | None = None
+
+
+class CopilotAskResponse(BaseModel):
+    question: str
+    answer: str
+    next_actions: list[str]
+    evidence: list[str]
+    fallback_used: bool
+    model: str
+
+
 class CopilotFollowUpRequest(BaseModel):
     lead_id: int | None = None
     customer_name: str = ""
