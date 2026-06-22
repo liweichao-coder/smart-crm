@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
@@ -17,7 +18,7 @@ from sqlmodel import Session, select
 from .auth import generate_session_token, hash_password, hash_session_token, verify_password
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, Customer, InventoryMovement, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, InventoryMovement, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
     AuthAuditLogRead,
@@ -36,6 +37,7 @@ from .schemas import (
     CopilotFollowUpResponse,
     CopilotOrderDraftRequest,
     CopilotOrderDraftResponse,
+    CopilotRecommendationRead,
     CopilotSummaryResponse,
     CustomerCreate,
     CustomerRead,
@@ -463,6 +465,113 @@ def save_ai_interaction(
     )
     session.add(log)
     session.commit()
+
+
+def normalize_stage_value(stage) -> str:
+    if stage is None:
+        return ""
+    if hasattr(stage, "value"):
+        return str(stage.value)
+    return str(stage)
+
+
+def encode_score_reasons(reasons: list[str]) -> str:
+    return json.dumps([str(reason) for reason in reasons if str(reason).strip()], ensure_ascii=False)
+
+
+def decode_score_reasons(raw: str) -> list[str]:
+    try:
+        payload = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [str(item) for item in payload if str(item).strip()]
+
+
+def serialize_copilot_recommendation(recommendation: CopilotRecommendation) -> CopilotRecommendationRead:
+    return CopilotRecommendationRead(
+        id=recommendation.id or 0,
+        source=recommendation.source,
+        lead_id=recommendation.lead_id,
+        lead_title=recommendation.lead_title,
+        customer_name=recommendation.customer_name,
+        owner=recommendation.owner,
+        region=recommendation.region,
+        stage=recommendation.stage,
+        grade=recommendation.grade,
+        rule_score=recommendation.rule_score,
+        win_rate=recommendation.win_rate,
+        expected_amount=recommendation.expected_amount,
+        next_best_action=recommendation.next_best_action,
+        score_reasons=decode_score_reasons(recommendation.score_reasons_json),
+        llm_summary=recommendation.llm_summary,
+        message_draft=recommendation.message_draft,
+        fallback_used=recommendation.fallback_used,
+        model=recommendation.model,
+        created_at=recommendation.created_at,
+    )
+
+
+def add_copilot_summary_history(session: Session, result: CopilotSummaryResponse) -> None:
+    for insight in result.insights[:5]:
+        session.add(
+            CopilotRecommendation(
+                source="summary",
+                lead_id=insight.id,
+                lead_title=summarize_text(insight.title, limit=180),
+                customer_name=summarize_text(insight.customer_name, limit=180),
+                owner=insight.owner,
+                region=insight.region,
+                stage=normalize_stage_value(insight.stage),
+                grade=insight.grade,
+                rule_score=insight.rule_score,
+                win_rate=insight.win_rate,
+                expected_amount=insight.expected_amount,
+                next_best_action=summarize_text(insight.next_best_action, limit=360),
+                score_reasons_json=encode_score_reasons(insight.score_reasons),
+                llm_summary=summarize_text(result.llm_summary, limit=600),
+                fallback_used=result.fallback_used,
+                model=settings.llm_model,
+            )
+        )
+
+
+def add_copilot_follow_up_history(
+    session: Session,
+    payload: CopilotFollowUpRequest,
+    result: CopilotFollowUpResponse,
+    lead: SalesLead | None,
+) -> None:
+    lead_title = lead.title if lead else payload.opportunity_title
+    customer_name = lead.customer_name if lead else payload.customer_name
+    stage = normalize_stage_value(lead.stage if lead else payload.stage)
+    expected_amount = lead.expected_amount if lead else payload.expected_amount
+    score_reasons = [
+        "匹配已有商机上下文生成跟进话术。" if lead else "根据手动输入的客户与商机上下文生成跟进话术。",
+        f"当前评分 {result.rule_score} 分，建议动作：{result.next_best_action}",
+    ]
+    session.add(
+        CopilotRecommendation(
+            source="follow_up",
+            lead_id=lead.id if lead else payload.lead_id,
+            lead_title=summarize_text(lead_title, limit=180),
+            customer_name=summarize_text(customer_name, limit=180),
+            owner=lead.owner if lead else "",
+            region=lead.region if lead else "",
+            stage=stage,
+            grade=result.grade,
+            rule_score=result.rule_score,
+            win_rate=max(0, min(result.rule_score / 100, 1)),
+            expected_amount=expected_amount,
+            next_best_action=summarize_text(result.next_best_action, limit=360),
+            score_reasons_json=encode_score_reasons(score_reasons),
+            llm_summary=summarize_text(result.llm_summary, limit=600),
+            message_draft=summarize_text(result.message_draft, limit=900),
+            fallback_used=result.fallback_used,
+            model=settings.llm_model,
+        )
+    )
 
 
 def add_business_audit(
@@ -1755,6 +1864,7 @@ async def copilot_summary(session: SessionDep) -> CopilotSummaryResponse:
     start_time = perf_counter()
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
     result = await copilot_service.summarize(leads)
+    add_copilot_summary_history(session, result)
     save_ai_interaction(
         session,
         operation="copilot_summary",
@@ -1769,6 +1879,48 @@ async def copilot_summary(session: SessionDep) -> CopilotSummaryResponse:
     return result
 
 
+@app.get("/api/copilot/recommendations", response_model=list[CopilotRecommendationRead] | PaginatedResponse[CopilotRecommendationRead], dependencies=[Depends(require_permission("ai:use"))])
+def list_copilot_recommendations(
+    session: SessionDep,
+    limit: int = 30,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    source: str = "",
+    grade: str = "",
+    stage: str = "",
+    fallback_used: bool | None = None,
+) -> list[CopilotRecommendationRead] | dict:
+    safe_limit = min(max(limit, 1), 100)
+    has_filter = bool(q.strip() or source.strip() or grade.strip() or stage.strip() or fallback_used is not None)
+    query_limit = None if page is not None or per_page is not None or has_filter else safe_limit
+    statement = select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())
+    if query_limit is not None:
+        statement = statement.limit(query_limit)
+    recommendations = [serialize_copilot_recommendation(item) for item in session.exec(statement).all()]
+    recommendations = filter_records(
+        recommendations,
+        q=q,
+        fields=(
+            "source",
+            "lead_title",
+            "customer_name",
+            "owner",
+            "region",
+            "stage",
+            "grade",
+            "next_best_action",
+            "message_draft",
+            "llm_summary",
+        ),
+        source=source,
+        grade=grade,
+        stage=stage,
+    )
+    recommendations = filter_bool(recommendations, "fallback_used", fallback_used)
+    return paginate_or_list(recommendations, page=page, per_page=per_page)
+
+
 @app.post("/api/copilot/follow-up", response_model=CopilotFollowUpResponse, dependencies=[Depends(require_permission("ai:use"))])
 async def copilot_follow_up(payload: CopilotFollowUpRequest, session: SessionDep) -> CopilotFollowUpResponse:
     start_time = perf_counter()
@@ -1776,6 +1928,7 @@ async def copilot_follow_up(payload: CopilotFollowUpRequest, session: SessionDep
     if payload.lead_id and not lead:
         raise HTTPException(status_code=404, detail="商机不存在")
     result = await copilot_service.follow_up(payload, lead)
+    add_copilot_follow_up_history(session, payload, result, lead)
     save_ai_interaction(
         session,
         operation="copilot_follow_up",

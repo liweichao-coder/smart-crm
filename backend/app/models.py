@@ -220,6 +220,31 @@ class AIInteractionLog(AIInteractionLogBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class CopilotRecommendationBase(SQLModel):
+    source: str = Field(index=True)
+    lead_id: Optional[int] = Field(default=None, index=True)
+    lead_title: str = ""
+    customer_name: str = Field(default="", index=True)
+    owner: str = ""
+    region: str = ""
+    stage: str = Field(default="", index=True)
+    grade: str = Field(default="", index=True)
+    rule_score: int = Field(default=0, index=True)
+    win_rate: float = 0
+    expected_amount: float = 0
+    next_best_action: str = ""
+    score_reasons_json: str = "[]"
+    llm_summary: str = ""
+    message_draft: str = ""
+    fallback_used: bool = Field(default=True, index=True)
+    model: str = ""
+
+
+class CopilotRecommendation(CopilotRecommendationBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class BusinessAuditLogBase(SQLModel):
     action: str = Field(index=True)
     entity_type: str = Field(index=True)

@@ -622,6 +622,28 @@ class CopilotFollowUpResponse(BaseModel):
     fallback_used: bool
 
 
+class CopilotRecommendationRead(BaseModel):
+    id: int
+    source: str
+    lead_id: int | None = None
+    lead_title: str
+    customer_name: str
+    owner: str
+    region: str
+    stage: str
+    grade: str
+    rule_score: int = Field(ge=0, le=100)
+    win_rate: float = Field(ge=0, le=1)
+    expected_amount: float
+    next_best_action: str
+    score_reasons: list[str]
+    llm_summary: str
+    message_draft: str
+    fallback_used: bool
+    model: str
+    created_at: datetime
+
+
 class CopilotOrderDraftRequest(BaseModel):
     customer_id: int
     product_ids: list[int] = Field(default_factory=list)

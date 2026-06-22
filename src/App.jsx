@@ -60,6 +60,7 @@ import {
   fetchAiAuditLogs,
   fetchBusinessAuditLogs,
   fetchContacts,
+  fetchCopilotRecommendations,
   fetchCopilotSummary,
   fetchCurrentUser,
   createCase,
@@ -1888,11 +1889,27 @@ function ReportBreakdownPanel({ title, rows, maxValue }) {
 
 function CopilotPage() {
   const [summary, setSummary] = useState(null)
+  const [historyRecords, setHistoryRecords] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [followUp, setFollowUp] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(true)
   const [error, setError] = useState('')
+  const [historyError, setHistoryError] = useState('')
   const [generating, setGenerating] = useState(false)
+
+  const refreshHistory = async () => {
+    setHistoryLoading(true)
+    try {
+      const payload = await fetchCopilotRecommendations({ limit: 8 })
+      setHistoryRecords(Array.isArray(payload) ? payload : payload.items ?? [])
+      setHistoryError('')
+    } catch (requestError) {
+      setHistoryError(requestError.message || 'Copilot 推荐历史加载失败')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
 
   useEffect(() => {
     let mounted = true
@@ -1906,10 +1923,12 @@ function CopilotPage() {
         setSelectedId(String(payload.top_opportunity?.id ?? payload.insights?.[0]?.id ?? ''))
         setFollowUp(null)
         setError('')
+        refreshHistory()
       })
       .catch((requestError) => {
         if (mounted) {
           setError(requestError.message || 'AI 副驾接口请求失败')
+          refreshHistory()
         }
       })
       .finally(() => {
@@ -1935,6 +1954,7 @@ function CopilotPage() {
     try {
       const payload = await generateFollowUp(selectedInsight.id)
       setFollowUp(payload)
+      refreshHistory()
     } catch (requestError) {
       setError(requestError.message || '生成跟进话术失败')
     } finally {
@@ -2064,6 +2084,42 @@ function CopilotPage() {
             <EmptyState icon={Bot} title="暂无 Copilot 建议" subtitle="接入真实商机数据后将自动生成。" />
           )}
         </div>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="Copilot 推荐历史" actionLabel={historyLoading ? '同步中' : `${historyRecords.length} 条记录`} />
+        {historyError ? (
+          <div className="crm-ai-alert">
+            <Shield size={16} />
+            <span>{historyError}</span>
+          </div>
+        ) : null}
+        <div className="crm-copilot-history">
+          {historyRecords.map((record) => (
+            <article key={record.id} className="crm-copilot-history-card">
+              <div className="crm-copilot-history-head">
+                <div>
+                  <span>{record.source === 'follow_up' ? '跟进话术' : '摘要建议'} · {formatDateTime(record.created_at)}</span>
+                  <strong>{record.lead_title || record.customer_name || '未命名推荐'}</strong>
+                </div>
+                <div className="crm-score-pill">
+                  <span>{record.grade || '-'}</span>
+                  <strong>{record.rule_score ?? 0}</strong>
+                </div>
+              </div>
+              <p>{record.next_best_action || record.llm_summary || '暂无建议内容'}</p>
+              {record.message_draft ? <small>{record.message_draft}</small> : null}
+              <div className="crm-copilot-history-meta">
+                <span>{record.customer_name || '未知客户'}</span>
+                <span>{record.stage || '未标记阶段'}</span>
+                <span>{record.fallback_used ? '规则兜底' : 'LLM 增强'}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+        {!historyLoading && !historyError && !historyRecords.length ? (
+          <EmptyState icon={Bot} title="暂无推荐历史" subtitle="打开副驾摘要或生成跟进话术后会自动落库。" />
+        ) : null}
       </section>
     </div>
   )

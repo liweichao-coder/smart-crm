@@ -875,6 +875,7 @@ def test_copilot_summary_fallback(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:
         response = client.get("/api/copilot/summary")
+        history_response = client.get("/api/copilot/recommendations?source=summary&page=1&per_page=3")
 
     assert response.status_code == 200
     payload = response.json()
@@ -883,18 +884,33 @@ def test_copilot_summary_fallback(monkeypatch) -> None:
     assert payload["forecast_amount"] >= 0
     assert payload["fallback_used"] is True
 
+    assert history_response.status_code == 200
+    history = history_response.json()
+    assert history["total"] >= min(len(payload["insights"]), 5)
+    assert len(history["items"]) <= 3
+    assert history["items"][0]["source"] == "summary"
+    assert history["items"][0]["score_reasons"]
+    assert history["items"][0]["llm_summary"]
+    assert history["items"][0]["fallback_used"] is True
+
 
 def test_copilot_follow_up_by_lead(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:
         lead = client.get("/api/leads").json()[0]
         response = client.post("/api/copilot/follow-up", json={"lead_id": lead["id"]})
+        history_response = client.get("/api/copilot/recommendations?source=follow_up&fallback_used=true")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["message_draft"]
     assert payload["next_best_action"]
     assert payload["fallback_used"] is True
+
+    assert history_response.status_code == 200
+    history = history_response.json()
+    assert any(item["lead_id"] == lead["id"] and item["message_draft"] for item in history)
+    assert all(item["source"] == "follow_up" for item in history)
 
 
 def test_copilot_order_draft(monkeypatch) -> None:

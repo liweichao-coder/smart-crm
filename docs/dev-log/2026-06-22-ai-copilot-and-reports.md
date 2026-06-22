@@ -51,6 +51,7 @@ The course exam requires a full software engineering process package, not only c
 - Added root `pytest.ini` so backend tests can be run from the repository root with `backend/.venv/Scripts/python.exe -m pytest`.
 - Added real sales BI reporting with `/api/reports/sales-performance`, `reports:read` permission, and a frontend Reports page for revenue trend, owner/region performance, sales funnel, AI revenue impact, and inventory risks.
 - Added real permission matrix governance with `/api/admin/permission-matrix`, `permissions:read` permission, and a frontend Permissions page backed by backend RBAC policy constants.
+- Added persisted Copilot recommendation history with `CopilotRecommendation`, `/api/copilot/recommendations`, and a Copilot page history panel showing summary suggestions, follow-up drafts, scores, model mode, and fallback status.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -86,6 +87,7 @@ The course exam requires a full software engineering process package, not only c
 - After RBAC upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 26 passed.
 - After sales BI report upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 27 passed.
 - After permission matrix upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 28 passed.
+- After Copilot recommendation history upgrade, `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_api.py -q`: 28 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.

@@ -70,6 +70,10 @@ export function fetchCopilotSummary() {
   return request('/api/copilot/summary')
 }
 
+export function fetchCopilotRecommendations(params) {
+  return request(`/api/copilot/recommendations${buildQueryString(params)}`)
+}
+
 export function login(payload) {
   return request('/api/auth/login', {
     method: 'POST',
