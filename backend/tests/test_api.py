@@ -142,6 +142,7 @@ def test_create_business_resources() -> None:
 
         customer_list = client.get("/api/customers").json()
         lead_list = client.get("/api/leads").json()
+        audit_logs = client.get("/api/business-audit-logs").json()
 
     for response in responses.values():
         assert response.status_code == 201
@@ -151,6 +152,8 @@ def test_create_business_resources() -> None:
     assert responses["goal"].json()["progress"] == 50
     assert any(customer["company"] == "测试智能制造" for customer in customer_list)
     assert any(lead["title"] == "测试智能制造 CRM 升级" for lead in lead_list)
+    created_entities = {log["entity_type"] for log in audit_logs if log["action"] == "create"}
+    assert {"customer", "contact", "lead", "case", "task", "goal"} <= created_entities
 
 
 def test_create_update_and_delete_products() -> None:
@@ -238,6 +241,7 @@ def test_update_and_delete_business_resources() -> None:
         ]
         seeded_customer = client.get("/api/customers").json()[0]
         protected_delete = client.delete(f"/api/customers/{seeded_customer['id']}")
+        audit_logs = client.get("/api/business-audit-logs").json()
 
     assert updated_customer.status_code == 200
     assert updated_customer.json()["contact_person"] == "新联系人"
@@ -250,6 +254,10 @@ def test_update_and_delete_business_resources() -> None:
     assert all(response.status_code == 200 and response.json()["deleted"] is True for response in delete_responses)
     assert protected_delete.status_code == 400
     assert "已有订单" in protected_delete.json()["detail"]
+    audit_actions = {(log["entity_type"], log["action"]) for log in audit_logs}
+    for entity_type in {"contact", "lead", "case", "task", "goal"}:
+        assert (entity_type, "update") in audit_actions
+        assert (entity_type, "delete") in audit_actions
 
 
 def test_create_order() -> None:

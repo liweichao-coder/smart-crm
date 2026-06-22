@@ -41,6 +41,7 @@ The course exam requires a full software engineering process package, not only c
 - Added an order item editor in the Orders modal with product selection, quantity, price, line totals, and recalculated order total.
 - Added `GET /api/orders/{order_id}/inventory-movements` and a selected-order inventory audit panel in the Orders page.
 - Added `BusinessAuditLog`, `/api/business-audit-logs`, and a Business Audit frontend page for customer, product, order, and restock write actions.
+- Expanded `BusinessAuditLog` coverage to contacts, leads/opportunities, support cases, tasks, and sales goals.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -99,9 +100,10 @@ The course exam requires a full software engineering process package, not only c
 - Order item edit regression succeeded: PATCH replaced item rows, recalculated `total_amount`, deducted new product stock, restored removed product stock, and wrote `order_adjustment` movements.
 - Order inventory audit regression succeeded: selected-order endpoint returned only movements containing `订单 #{id}` and included both seed deductions and later order adjustments.
 - Business audit regression succeeded: customer create, product create, product restock, order create, and order update wrote `success` logs visible through `/api/business-audit-logs`.
+- Secondary resource audit regression succeeded: contacts, leads/opportunities, cases, tasks, and goals now write create/update/delete logs.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps
 
-- Add table pagination, stricter field-level validation, and expand business audit coverage to every secondary resource module.
+- Add table pagination, stricter field-level validation, and fuller end-to-end browser smoke coverage.
 - Capture screenshots and export Word/PPT final materials.

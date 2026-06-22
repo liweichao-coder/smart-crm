@@ -618,6 +618,16 @@ def list_contacts(session: SessionDep) -> list[Contact]:
 def create_contact(payload: ContactCreate, session: SessionDep) -> Contact:
     contact = Contact(**payload.model_dump())
     session.add(contact)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="contact",
+        entity_id=contact.id,
+        operator=contact.owner,
+        summary=f"新建联系人 {contact.name}",
+        detail=f"客户 {contact.company}，角色 {contact.role}",
+    )
     session.commit()
     session.refresh(contact)
     return contact
@@ -628,8 +638,18 @@ def update_contact(contact_id: int, payload: ContactUpdate, session: SessionDep)
     contact = session.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="联系人不存在")
-    apply_updates(contact, patch_values(payload))
+    updates = patch_values(payload)
+    apply_updates(contact, updates)
     session.add(contact)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="contact",
+        entity_id=contact.id,
+        operator=contact.owner,
+        summary=f"更新联系人 {contact.name}",
+        detail=", ".join(sorted(updates.keys())) or "更新联系人资料",
+    )
     session.commit()
     session.refresh(contact)
     return contact
@@ -640,6 +660,15 @@ def delete_contact(contact_id: int, session: SessionDep) -> dict[str, bool | int
     contact = session.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="联系人不存在")
+    add_business_audit(
+        session,
+        action="delete",
+        entity_type="contact",
+        entity_id=contact_id,
+        operator=contact.owner,
+        summary=f"删除联系人 {contact.name}",
+        detail=f"客户 {contact.company}",
+    )
     session.delete(contact)
     session.commit()
     return delete_response("contact", contact_id)
@@ -654,6 +683,16 @@ def list_leads(session: SessionDep) -> list[SalesLead]:
 def create_lead(payload: SalesLeadCreate, session: SessionDep) -> SalesLead:
     lead = SalesLead(**payload.model_dump())
     session.add(lead)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="lead",
+        entity_id=lead.id,
+        operator=lead.owner,
+        summary=f"新建商机 {lead.title}",
+        detail=f"客户 {lead.customer_name}，阶段 {lead.stage.value}，金额 {lead.expected_amount:.0f}",
+    )
     session.commit()
     session.refresh(lead)
     return lead
@@ -664,8 +703,18 @@ def update_lead(lead_id: int, payload: SalesLeadUpdate, session: SessionDep) -> 
     lead = session.get(SalesLead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="商机不存在")
-    apply_updates(lead, patch_values(payload))
+    updates = patch_values(payload)
+    apply_updates(lead, updates)
     session.add(lead)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="lead",
+        entity_id=lead.id,
+        operator=lead.owner,
+        summary=f"更新商机 {lead.title}",
+        detail=", ".join(sorted(updates.keys())) or "更新商机资料",
+    )
     session.commit()
     session.refresh(lead)
     return lead
@@ -676,6 +725,15 @@ def delete_lead(lead_id: int, session: SessionDep) -> dict[str, bool | int | str
     lead = session.get(SalesLead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="商机不存在")
+    add_business_audit(
+        session,
+        action="delete",
+        entity_type="lead",
+        entity_id=lead_id,
+        operator=lead.owner,
+        summary=f"删除商机 {lead.title}",
+        detail=f"客户 {lead.customer_name}",
+    )
     session.delete(lead)
     session.commit()
     return delete_response("lead", lead_id)
@@ -690,6 +748,16 @@ def list_cases(session: SessionDep) -> list[SupportCase]:
 def create_case(payload: SupportCaseCreate, session: SessionDep) -> SupportCase:
     support_case = SupportCase(**payload.model_dump())
     session.add(support_case)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="case",
+        entity_id=support_case.id,
+        operator=support_case.owner,
+        summary=f"新建工单 {support_case.title}",
+        detail=f"客户 {support_case.account}，状态 {support_case.status_label}",
+    )
     session.commit()
     session.refresh(support_case)
     return support_case
@@ -700,8 +768,18 @@ def update_case(case_id: int, payload: SupportCaseUpdate, session: SessionDep) -
     support_case = session.get(SupportCase, case_id)
     if not support_case:
         raise HTTPException(status_code=404, detail="工单不存在")
-    apply_updates(support_case, patch_values(payload))
+    updates = patch_values(payload)
+    apply_updates(support_case, updates)
     session.add(support_case)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="case",
+        entity_id=support_case.id,
+        operator=support_case.owner,
+        summary=f"更新工单 {support_case.title}",
+        detail=", ".join(sorted(updates.keys())) or "更新工单资料",
+    )
     session.commit()
     session.refresh(support_case)
     return support_case
@@ -712,6 +790,15 @@ def delete_case(case_id: int, session: SessionDep) -> dict[str, bool | int | str
     support_case = session.get(SupportCase, case_id)
     if not support_case:
         raise HTTPException(status_code=404, detail="工单不存在")
+    add_business_audit(
+        session,
+        action="delete",
+        entity_type="case",
+        entity_id=case_id,
+        operator=support_case.owner,
+        summary=f"删除工单 {support_case.title}",
+        detail=f"客户 {support_case.account}",
+    )
     session.delete(support_case)
     session.commit()
     return delete_response("case", case_id)
@@ -726,6 +813,16 @@ def list_tasks(session: SessionDep) -> list[TaskItem]:
 def create_task(payload: TaskItemCreate, session: SessionDep) -> TaskItem:
     task = TaskItem(**payload.model_dump())
     session.add(task)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="task",
+        entity_id=task.id,
+        operator=task.owner,
+        summary=f"新建任务 {task.title}",
+        detail=f"状态 {task.status_label}，优先级 {task.priority}",
+    )
     session.commit()
     session.refresh(task)
     return task
@@ -736,8 +833,18 @@ def update_task(task_id: int, payload: TaskItemUpdate, session: SessionDep) -> T
     task = session.get(TaskItem, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    apply_updates(task, patch_values(payload))
+    updates = patch_values(payload)
+    apply_updates(task, updates)
     session.add(task)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="task",
+        entity_id=task.id,
+        operator=task.owner,
+        summary=f"更新任务 {task.title}",
+        detail=", ".join(sorted(updates.keys())) or "更新任务资料",
+    )
     session.commit()
     session.refresh(task)
     return task
@@ -748,6 +855,15 @@ def delete_task(task_id: int, session: SessionDep) -> dict[str, bool | int | str
     task = session.get(TaskItem, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
+    add_business_audit(
+        session,
+        action="delete",
+        entity_type="task",
+        entity_id=task_id,
+        operator=task.owner,
+        summary=f"删除任务 {task.title}",
+        detail=f"状态 {task.status_label}",
+    )
     session.delete(task)
     session.commit()
     return delete_response("task", task_id)
@@ -772,6 +888,16 @@ def create_goal(payload: SalesGoalCreate, session: SessionDep) -> SalesGoal:
         note=payload.note,
     )
     session.add(goal)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="goal",
+        entity_id=goal.id,
+        operator="目标管理员",
+        summary=f"新建销售目标 {goal.name}",
+        detail=f"周期 {goal.period}，进度 {goal.progress}%",
+    )
     session.commit()
     session.refresh(goal)
     return goal
@@ -787,6 +913,15 @@ def update_goal(goal_id: int, payload: SalesGoalUpdate, session: SessionDep) -> 
     if "progress" not in updates and goal.target:
         goal.progress = min(max(round(goal.current / goal.target * 100), 0), 100)
     session.add(goal)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="goal",
+        entity_id=goal.id,
+        operator="目标管理员",
+        summary=f"更新销售目标 {goal.name}",
+        detail=", ".join(sorted(updates.keys())) or "更新目标资料",
+    )
     session.commit()
     session.refresh(goal)
     return goal
@@ -797,6 +932,15 @@ def delete_goal(goal_id: int, session: SessionDep) -> dict[str, bool | int | str
     goal = session.get(SalesGoal, goal_id)
     if not goal:
         raise HTTPException(status_code=404, detail="目标不存在")
+    add_business_audit(
+        session,
+        action="delete",
+        entity_type="goal",
+        entity_id=goal_id,
+        operator="目标管理员",
+        summary=f"删除销售目标 {goal.name}",
+        detail=f"周期 {goal.period}",
+    )
     session.delete(goal)
     session.commit()
     return delete_response("goal", goal_id)

@@ -224,6 +224,11 @@ const businessActionLabelMap = {
 
 const businessEntityLabelMap = {
   customer: '客户',
+  contact: '联系人',
+  lead: '线索/商机',
+  case: '工单',
+  task: '任务',
+  goal: '销售目标',
   product: '商品',
   order: '订单',
 }
