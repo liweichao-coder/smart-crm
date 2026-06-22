@@ -28,6 +28,10 @@ export function generateFollowUp(leadId) {
   })
 }
 
+export function fetchDashboard() {
+  return request('/api/dashboard')
+}
+
 export function fetchCustomers() {
   return request('/api/customers')
 }

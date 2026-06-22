@@ -16,6 +16,7 @@ The course exam requires a full software engineering process package, not only c
 - Added real backend models and list APIs for contacts, support cases, task items, and sales goals.
 - Expanded demo data to 12 customers, 10 products, 12 contacts, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, and 22 persisted order items with stock deduction.
 - Connected frontend customer, contact, lead, opportunity, case, task, and goal pages to real REST APIs instead of static mock records.
+- Connected dashboard summary widgets to `/api/dashboard`, `/api/leads`, `/api/tasks`, and `/api/goals`, replacing the remaining static dashboard mock data.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -48,8 +49,9 @@ The course exam requires a full software engineering process package, not only c
   - `/cases`: 8 rows.
   - `/tasks`: 8 cards.
   - `/goals`: 4 cards.
+  - `/dashboard`: metrics, focus strip, stage cards, tasks, opportunities, goals, and activities render from backend payloads.
 
 ## Next Steps
 
-- Continue replacing the dashboard summary widgets with live `/api/dashboard` data.
+- Upgrade AI vision extraction from local deterministic demo data to a real OCR or multimodal model.
 - Capture screenshots and export Word/PPT final materials.

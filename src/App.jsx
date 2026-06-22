@@ -19,7 +19,6 @@ import {
   LogOut,
   Menu,
   PanelLeftClose,
-  Percent,
   Phone,
   Plus,
   Search,
@@ -44,22 +43,14 @@ import {
 } from 'react-router-dom'
 import avatar from './assets/vendor/unnamed.png'
 import {
-  activities,
-  dashboardMetrics,
-  dashboardStages,
-  focusItems,
-  goals as demoGoals,
-  hotLeads,
-  opportunities as demoOpportunities,
   orgs,
-  pipelineCards,
-  taskCards,
 } from './data/mockData.js'
 import {
   fetchCases,
   fetchContacts,
   fetchCopilotSummary,
   fetchCustomers,
+  fetchDashboard,
   fetchGoals,
   fetchLeads,
   fetchTasks,
@@ -135,8 +126,121 @@ const stageLabelMap = {
   lost: 'Lost',
 }
 
+const dashboardStageMeta = {
+  new: { label: '新线索', tone: 'new' },
+  qualified: { label: '资格确认', tone: 'qualified' },
+  proposal: { label: '方案提案', tone: 'proposal' },
+  negotiation: { label: '商务谈判', tone: 'negotiation' },
+  won: { label: '已成交', tone: 'won' },
+  lost: { label: '已丢单', tone: 'neutral' },
+}
+
+const dashboardMetricMeta = {
+  本月订单额: { icon: TrendingUp, tone: 'accent' },
+  'AI参与订单': { icon: Sparkles, tone: 'proposal' },
+  'AI 参与订单': { icon: Sparkles, tone: 'proposal' },
+  在跟进商机: { icon: Target, tone: 'qualified' },
+  客户总数: { icon: Users, tone: 'won' },
+}
+
 function mapStageLabel(stage) {
   return stageLabelMap[stage] ?? stage
+}
+
+function normalizeStage(stage) {
+  const matchedEntry = Object.entries(stageLabelMap).find(([, label]) => label === stage)
+  return matchedEntry?.[0] ?? stage
+}
+
+function buildDashboardStages(leads) {
+  const buckets = Object.keys(dashboardStageMeta).map((stage) => ({
+    stage,
+    ...dashboardStageMeta[stage],
+    amount: 0,
+    count: 0,
+  }))
+  const bucketMap = new Map(buckets.map((bucket) => [bucket.stage, bucket]))
+
+  leads.forEach((lead) => {
+    const stage = normalizeStage(lead.stage)
+    const bucket = bucketMap.get(stage)
+    if (!bucket) {
+      return
+    }
+    bucket.count += 1
+    bucket.amount += Number(lead.expected_amount ?? lead.amount ?? 0)
+  })
+
+  const maxAmount = Math.max(...buckets.map((bucket) => bucket.amount), 1)
+  return buckets
+    .filter((bucket) => bucket.count > 0 || bucket.stage !== 'lost')
+    .map((bucket) => ({
+      ...bucket,
+      progress: Math.max(8, Math.round((bucket.amount / maxAmount) * 100)),
+    }))
+}
+
+function buildDashboardMetrics(dashboard) {
+  if (!dashboard?.metrics?.length) {
+    return []
+  }
+
+  return dashboard.metrics.map((metric) => {
+    const meta = dashboardMetricMeta[metric.label] ?? { icon: Activity, tone: 'neutral' }
+    return {
+      ...metric,
+      icon: meta.icon,
+      tone: meta.tone,
+    }
+  })
+}
+
+function buildDashboardFocus({ dashboard, leads, tasks }) {
+  const todayTasks = tasks.filter((task) => task.status === 'today').length
+  const overdueTasks = tasks.filter((task) => task.status === 'overdue').length
+  const urgentLeads = dashboard?.urgent_leads?.length ?? leads.filter((lead) => normalizeStage(lead.stage) !== 'won' && normalizeStage(lead.stage) !== 'lost').slice(0, 5).length
+  const forecastAmount = leads
+    .filter((lead) => !['won', 'lost'].includes(normalizeStage(lead.stage)))
+    .reduce((total, lead) => total + Number(lead.expected_amount ?? 0), 0)
+
+  return [
+    { label: '今天任务', value: todayTasks, href: '/tasks', icon: Calendar },
+    { label: '逾期任务', value: overdueTasks, href: '/tasks', icon: Flame },
+    { label: '需要跟进', value: urgentLeads, href: '/leads', icon: Phone },
+    { label: '未结预测', value: formatCompactCurrency(forecastAmount), href: '/opportunities', icon: Sparkles },
+  ]
+}
+
+function buildHotLeads(leads) {
+  return [...leads]
+    .filter((lead) => !['won', 'lost'].includes(normalizeStage(lead.stage)))
+    .sort((first, second) => {
+      const scoreA = Number(first.expected_amount ?? 0) + (first.ai_assisted ? 50000 : 0)
+      const scoreB = Number(second.expected_amount ?? 0) + (second.ai_assisted ? 50000 : 0)
+      return scoreB - scoreA
+    })
+    .slice(0, 5)
+    .map(mapLeadRecord)
+}
+
+function buildRecentActivities(dashboard) {
+  const orderActivities = (dashboard?.recent_orders ?? []).slice(0, 4).map((order) => ({
+    id: `order-${order.id}`,
+    title: `${order.customer_name} 订单已更新`,
+    description: `${order.owner} 创建 ${formatCurrency(order.total_amount)} 订单，状态为 ${order.status}。`,
+    time: order.order_date,
+    icon: Activity,
+  }))
+
+  const leadActivities = (dashboard?.urgent_leads ?? []).slice(0, 2).map((lead) => ({
+    id: `lead-${lead.id}`,
+    title: `${lead.customer_name} 需要跟进`,
+    description: `${lead.title} 下一步：${lead.next_action}`,
+    time: lead.due_date,
+    icon: Flame,
+  }))
+
+  return [...orderActivities, ...leadActivities].slice(0, 5)
 }
 
 function mapCustomerRecord(customer) {
@@ -800,15 +904,74 @@ function OrgSelectionPage() {
 }
 
 function DashboardPage() {
+  const [dashboardData, setDashboardData] = useState({
+    dashboard: null,
+    leads: [],
+    tasks: [],
+    goals: [],
+    loading: true,
+    error: '',
+  })
+
+  useEffect(() => {
+    let mounted = true
+
+    Promise.all([fetchDashboard(), fetchLeads(), fetchTasks(), fetchGoals()])
+      .then(([dashboard, leads, tasks, goals]) => {
+        if (mounted) {
+          setDashboardData({
+            dashboard,
+            leads,
+            tasks,
+            goals,
+            loading: false,
+            error: '',
+          })
+        }
+      })
+      .catch((error) => {
+        if (mounted) {
+          setDashboardData((current) => ({
+            ...current,
+            loading: false,
+            error: error.message || '仪表盘数据同步失败',
+          }))
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const { dashboard, leads, tasks, goals, loading, error } = dashboardData
+  const focusItems = useMemo(() => buildDashboardFocus({ dashboard, leads, tasks }), [dashboard, leads, tasks])
+  const stageCards = useMemo(() => buildDashboardStages(leads), [leads])
+  const dashboardMetrics = useMemo(() => buildDashboardMetrics(dashboard), [dashboard])
+  const hotLeads = useMemo(() => buildHotLeads(leads), [leads])
+  const topTasks = useMemo(() => tasks.map(mapTaskRecord).slice(0, 4), [tasks])
+  const topOpportunities = useMemo(
+    () =>
+      [...leads]
+        .filter((lead) => !['lost'].includes(normalizeStage(lead.stage)))
+        .sort((first, second) => Number(second.expected_amount ?? 0) - Number(first.expected_amount ?? 0))
+        .slice(0, 4)
+        .map(mapOpportunityRecord),
+    [leads],
+  )
+  const goalCards = useMemo(() => goals.map(mapGoalRecord), [goals])
+  const activities = useMemo(() => buildRecentActivities(dashboard), [dashboard])
+
   return (
     <div className="crm-page-stack">
       <section className="crm-hero-panel">
         <div>
           <span className="crm-overline">下午好</span>
           <h2>仪表盘</h2>
-          <p>以下是你今天的 CRM 概况，聚焦重点任务、跟进和销售管道。</p>
+          <p>以下数据来自 FastAPI 后端，聚焦重点任务、跟进和销售管道。</p>
         </div>
       </section>
+      <ResourceSyncState loading={loading} error={error} />
 
       <section className="crm-focus-strip">
         <div className="crm-focus-title">
@@ -827,7 +990,7 @@ function DashboardPage() {
       </section>
 
       <section className="crm-stage-row">
-        {pipelineCards.map((stage) => (
+        {stageCards.map((stage) => (
           <article key={stage.label} className={`crm-stage-card tone-${stage.tone}`}>
             <div className="crm-stage-top">
               <span>{stage.label}</span>
@@ -846,8 +1009,8 @@ function DashboardPage() {
             </div>
             <div>
               <span>{metric.label}</span>
-              <strong>{metric.format === 'percent' ? `${metric.value}%` : formatCurrency(metric.value)}</strong>
-              <small>{metric.note}</small>
+              <strong>{metric.value}</strong>
+              <small>{metric.hint}</small>
             </div>
           </article>
         ))}
@@ -857,7 +1020,7 @@ function DashboardPage() {
         <div className="crm-panel">
           <PanelHeader title="各阶段流程" actionLabel="全部流水线" />
           <div className="crm-progress-list">
-            {dashboardStages.map((stage) => (
+            {stageCards.map((stage) => (
               <div key={stage.label} className="crm-progress-row">
                 <div className="crm-progress-meta">
                   <div className={`crm-dot tone-${stage.tone}`} />
@@ -903,13 +1066,13 @@ function DashboardPage() {
             ))}
           </div>
           <div className="crm-list compact">
-            {taskCards.map((task) => (
+            {topTasks.map((task) => (
               <article key={task.id} className="crm-list-item">
                 <div>
                   <strong>{task.title}</strong>
                   <span>{task.owner}</span>
                 </div>
-                <StatusBadge value={task.dueLabel} tone={statusToneMap[task.tone]} />
+                <StatusBadge value={task.statusLabel} tone={statusToneMap[task.status]} />
               </article>
             ))}
           </div>
@@ -918,7 +1081,7 @@ function DashboardPage() {
         <div className="crm-panel">
           <PanelHeader title="我的商机" actionLabel="查看全部" />
           <div className="crm-list compact">
-            {demoOpportunities.slice(0, 3).map((item) => (
+            {topOpportunities.map((item) => (
               <article key={item.id} className="crm-list-item">
                 <div>
                   <strong>{item.name}</strong>
@@ -933,7 +1096,7 @@ function DashboardPage() {
         <div className="crm-panel">
           <PanelHeader title="目标进展" actionLabel="查看全部" />
           <div className="crm-goal-mini-list">
-            {demoGoals.map((goal) => (
+            {goalCards.map((goal) => (
               <div key={goal.id} className="crm-goal-mini-item">
                 <div className="crm-goal-mini-head">
                   <strong>{goal.name}</strong>
@@ -950,20 +1113,24 @@ function DashboardPage() {
 
       <section className="crm-panel">
         <PanelHeader title="近期活动" actionLabel="查看全部" />
-        <div className="crm-activity-list">
-          {activities.map((item) => (
-            <article key={item.id} className="crm-activity-item">
-              <div className="crm-activity-icon">
-                <item.icon size={16} />
-              </div>
-              <div>
-                <strong>{item.title}</strong>
-                <span>{item.description}</span>
-              </div>
-              <time>{item.time}</time>
-            </article>
-          ))}
-        </div>
+        {activities.length ? (
+          <div className="crm-activity-list">
+            {activities.map((item) => (
+              <article key={item.id} className="crm-activity-item">
+                <div className="crm-activity-icon">
+                  <item.icon size={16} />
+                </div>
+                <div>
+                  <strong>{item.title}</strong>
+                  <span>{item.description}</span>
+                </div>
+                <time>{item.time}</time>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon={Activity} title="暂无近期活动" subtitle="后端订单或商机更新后会自动显示。" />
+        )}
       </section>
     </div>
   )
@@ -1718,8 +1885,17 @@ function renderCell(value, column) {
 function formatCurrency(value) {
   return new Intl.NumberFormat('zh-CN', {
     style: 'currency',
-    currency: 'USD',
+    currency: 'CNY',
     maximumFractionDigits: 0,
+  }).format(value)
+}
+
+function formatCompactCurrency(value) {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    notation: 'compact',
+    maximumFractionDigits: 1,
   }).format(value)
 }
 
