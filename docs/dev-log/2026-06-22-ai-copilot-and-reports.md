@@ -54,6 +54,7 @@ The course exam requires a full software engineering process package, not only c
 - Added persisted Copilot recommendation history with `CopilotRecommendation`, `/api/copilot/recommendations`, and a Copilot page history panel showing summary suggestions, follow-up drafts, scores, model mode, and fallback status.
 - Added Copilot recommendation-to-task conversion with `/api/copilot/recommendations/{id}/task`; it creates a real task, updates the linked lead's next action, and writes business audit logs.
 - Added a data-driven notification center with `/api/notifications` and a real topbar bell panel for overdue/today tasks, inventory risk, key opportunities, Copilot actions, and AI fallback calls.
+- Added owner data-scope enforcement for sales users across contacts, leads/opportunities, cases, tasks, orders, dashboard metrics, notifications, and Copilot recommendation flows. `/api/auth/me` and `/api/admin/permission-matrix` now expose `data_scope` so the frontend can explain all-data vs own-data access.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -92,6 +93,7 @@ The course exam requires a full software engineering process package, not only c
 - After Copilot recommendation history upgrade, `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_api.py -q`: 28 passed.
 - After Copilot recommendation-to-task upgrade, `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_api.py -q`: 29 passed.
 - After notification center upgrade, `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_api.py -q`: 30 passed.
+- After owner data-scope upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 30 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -126,9 +128,10 @@ The course exam requires a full software engineering process package, not only c
 - RBAC regression succeeded: unauthenticated business API calls return 401, while a sales role can read/write customers but cannot manage products or read audit logs.
 - Sales BI report regression succeeded: `/api/reports/sales-performance` returns real metrics, revenue trend, owner/region breakdowns, funnel, AI impact, inventory risks, filter echoing, invalid date-range rejection, and sales-role 403.
 - Permission matrix regression succeeded: `/api/admin/permission-matrix` returns the backend permission catalog, role matrix, module access matrix, and sales-role 403.
+- Owner data-scope regression succeeded: a sales role sees only `李伟超` owner records for leads, tasks, orders, and Copilot recommendations; cross-owner lead/order/task updates and Copilot task conversion return 403.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps
 
-- Add data-scope permissions, stricter field-level validation, fuller end-to-end browser smoke coverage, and URL-synced table filter state.
+- Add stricter field-level validation, fuller end-to-end browser smoke coverage, approval workflow hooks, and URL-synced table filter state.
 - Capture screenshots and export Word/PPT final materials.

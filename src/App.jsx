@@ -144,6 +144,7 @@ const userProfile = {
   location: '上海 · 浦东',
   joinDate: '2024 年 2 月 18 日',
   permissions: ['*'],
+  dataScope: 'all',
 }
 
 const statusToneMap = {
@@ -166,6 +167,11 @@ const statusToneMap = {
   fulfilled: 'success',
   llm: 'success',
   fallback: 'warning',
+}
+
+const dataScopeLabelMap = {
+  all: '全量数据',
+  own: '本人数据',
 }
 
 const boardToneMap = {
@@ -2605,7 +2611,10 @@ function PermissionMatrixPage() {
                 <span className="crm-overline">Role</span>
                 <h3>{role.role}</h3>
               </div>
-              <StatusBadge value={role.all_permissions ? '全部权限' : `${role.granted_count} 项`} tone={role.all_permissions ? 'success' : 'accent'} />
+              <div className="crm-stack-inline">
+                <StatusBadge value={dataScopeLabelMap[role.data_scope] ?? role.data_scope ?? '全量数据'} tone={role.data_scope === 'own' ? 'warning' : 'success'} />
+                <StatusBadge value={role.all_permissions ? '全部权限' : `${role.granted_count} 项`} tone={role.all_permissions ? 'success' : 'accent'} />
+              </div>
             </div>
             <p>{role.description}</p>
             <div className="crm-permission-chip-list">
@@ -4074,6 +4083,7 @@ function ProfilePage() {
     { label: '账户状态', value: '正常', tone: 'success' },
     { label: '组织权限', value: selectedOrg.role, tone: 'accent' },
     { label: '权限策略', value: activeProfile.permissions.includes('*') ? '全部权限' : `${activeProfile.permissions.length} 项权限`, tone: 'info' },
+    { label: '数据范围', value: dataScopeLabelMap[activeProfile.dataScope] ?? activeProfile.dataScope, tone: activeProfile.dataScope === 'own' ? 'warning' : 'success' },
   ]
 
   return (
@@ -4480,6 +4490,7 @@ function buildUserProfile(user) {
     location: user.location || userProfile.location,
     joinDate: formatProfileDate(user.created_at),
     permissions: user.permissions ?? [],
+    dataScope: user.data_scope ?? userProfile.dataScope,
   }
 }
 

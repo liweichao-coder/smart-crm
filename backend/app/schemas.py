@@ -37,6 +37,7 @@ class AuthUserRead(BaseModel):
     email: str
     phone: str
     role: str
+    data_scope: str
     position: str
     department: str
     location: str
@@ -88,6 +89,7 @@ class PermissionCatalogItem(BaseModel):
 class RolePermissionRead(BaseModel):
     role: str
     description: str
+    data_scope: str
     permissions: list[str]
     granted_count: int
     all_permissions: bool

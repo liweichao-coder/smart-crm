@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app import database
 from app.config import settings
 import app.main as main_module
-from app.models import AuthUser
+from app.models import AuthUser, CopilotRecommendation, SalesLead, SalesOrder, TaskItem
 from app.seed import seed_data
 
 
@@ -219,7 +219,7 @@ def test_rbac_rejects_unauthenticated_business_api() -> None:
 def test_rbac_sales_role_permissions() -> None:
     register_payload = {
         "organization_name": "销售权限测试组",
-        "full_name": "销售权限用户",
+        "full_name": "李伟超",
         "email": "sales-rbac@smart-crm.local",
         "phone": "18800002222",
         "password": "Sales@2026",
@@ -241,7 +241,67 @@ def test_rbac_sales_role_permissions() -> None:
         headers = {"Authorization": f"Bearer {token}"}
         me = client.get("/api/auth/me", headers=headers)
         customers = client.get("/api/customers", headers=headers)
+        dashboard = client.get("/api/dashboard", headers=headers)
+        leads = client.get("/api/leads", headers=headers)
+        tasks = client.get("/api/tasks", headers=headers)
+        orders = client.get("/api/orders", headers=headers)
         created_customer = client.post("/api/customers", json={"company": "销售权限客户", "contact_person": "销售员"}, headers=headers)
+        denied_lead_create = client.post(
+            "/api/leads",
+            json={"title": "越权商机", "customer_name": "越权客户", "owner": "王蕾", "due_date": "2026-06-30"},
+            headers=headers,
+        )
+
+        with Session(main_module.engine) as session:
+            other_lead = session.exec(select(SalesLead).where(SalesLead.owner != "李伟超")).first()
+            other_order = session.exec(select(SalesOrder).where(SalesOrder.owner != "李伟超")).first()
+            other_task = session.exec(select(TaskItem).where(TaskItem.owner != "李伟超")).first()
+            assert other_lead is not None
+            assert other_order is not None
+            assert other_task is not None
+            other_lead_id = other_lead.id
+            other_order_id = other_order.id
+            other_task_id = other_task.id
+
+            own_recommendation = CopilotRecommendation(
+                source="scope_test",
+                lead_title="本人 Copilot 推荐",
+                customer_name="北辰教育科技",
+                owner="李伟超",
+                region="华南",
+                stage="proposal",
+                grade="A",
+                rule_score=91,
+                next_best_action="联系采购确认最终报价",
+            )
+            other_recommendation = CopilotRecommendation(
+                source="scope_test",
+                lead_id=other_lead.id,
+                lead_title=other_lead.title,
+                customer_name=other_lead.customer_name,
+                owner=other_lead.owner,
+                region=other_lead.region,
+                stage=other_lead.stage.value,
+                grade="B",
+                rule_score=82,
+                next_best_action="整理跨团队跟进方案",
+            )
+            session.add(own_recommendation)
+            session.add(other_recommendation)
+            session.commit()
+            session.refresh(own_recommendation)
+            session.refresh(other_recommendation)
+            own_recommendation_id = own_recommendation.id
+            other_recommendation_id = other_recommendation.id
+
+        denied_lead_update = client.patch(f"/api/leads/{other_lead_id}", json={"stage": "won"}, headers=headers)
+        denied_order_update = client.patch(f"/api/orders/{other_order_id}", json={"status": "fulfilled"}, headers=headers)
+        denied_task_update = client.patch(f"/api/tasks/{other_task_id}", json={"status": "today"}, headers=headers)
+        recommendations = client.get("/api/copilot/recommendations", headers=headers)
+        denied_recommendation_task = client.post(
+            f"/api/copilot/recommendations/{other_recommendation_id}/task",
+            headers=headers,
+        )
         denied_product = client.post(
             "/api/products",
             json={"name": "无权限商品", "sku": "RBAC-DENIED-001", "category": "软件", "unit_price": 100, "stock": 1},
@@ -253,9 +313,29 @@ def test_rbac_sales_role_permissions() -> None:
 
     assert login.status_code == 200
     assert me.json()["user"]["role"] == "销售"
+    assert me.json()["user"]["data_scope"] == "own"
     assert "catalog:manage" not in me.json()["user"]["permissions"]
     assert customers.status_code == 200
+    assert dashboard.status_code == 200
+    assert leads.status_code == 200
+    assert tasks.status_code == 200
+    assert orders.status_code == 200
+    assert recommendations.status_code == 200
+    assert leads.json()
+    assert tasks.json()
+    assert orders.json()
+    assert all(item["owner"] == "李伟超" for item in leads.json())
+    assert all(item["owner"] == "李伟超" for item in tasks.json())
+    assert all(item["owner"] == "李伟超" for item in orders.json())
+    assert all(item["owner"] == "李伟超" for item in recommendations.json())
+    assert any(item["id"] == own_recommendation_id for item in recommendations.json())
+    assert all(item["id"] != other_recommendation_id for item in recommendations.json())
     assert created_customer.status_code == 201
+    assert denied_lead_create.status_code == 403
+    assert denied_lead_update.status_code == 403
+    assert denied_order_update.status_code == 403
+    assert denied_task_update.status_code == 403
+    assert denied_recommendation_task.status_code == 403
     assert denied_product.status_code == 403
     assert denied_audit.status_code == 403
     assert denied_report.status_code == 403

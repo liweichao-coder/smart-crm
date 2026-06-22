@@ -118,6 +118,7 @@ ROLE_DESCRIPTIONS = {
     "支持": "实施/售后角色，可查看 CRM 基础信息和处理服务协作。",
     "审计员": "审计与管理角色，可查看报表、审计和权限矩阵。",
 }
+OWN_DATA_SCOPE_ROLES = {"销售"}
 PERMISSION_CATALOG = {
     "ai:use": ("AI 能力", "AI 副驾与智能录单", "调用 Copilot、跟进话术、订单草稿和智能录单接口。"),
     "audit:read": ("审计", "审计读取", "查看认证审计、AI 审计和业务操作审计。"),
@@ -287,6 +288,34 @@ def role_has_permission(role: str, permission: str) -> bool:
     return ALL_PERMISSIONS in permissions or permission in permissions
 
 
+def data_scope_for_role(role: str) -> str:
+    return "own" if role in OWN_DATA_SCOPE_ROLES else "all"
+
+
+def has_all_data_scope(user: AuthUser) -> bool:
+    return data_scope_for_role(user.role) == "all"
+
+
+def owner_matches_user(owner: str, user: AuthUser) -> bool:
+    return normalize_account(owner) == normalize_account(user.full_name)
+
+
+def filter_by_owner_scope(records: list, user: AuthUser, owner_field: str = "owner") -> list:
+    if has_all_data_scope(user):
+        return records
+    return [record for record in records if owner_matches_user(getattr(record, owner_field, ""), user)]
+
+
+def require_owner_scope(user: AuthUser, owner: str, detail: str = "当前账号没有该数据范围权限") -> None:
+    if not has_all_data_scope(user) and not owner_matches_user(owner, user):
+        raise HTTPException(status_code=403, detail=detail)
+
+
+def require_payload_owner_scope(user: AuthUser, owner: str) -> None:
+    if not has_all_data_scope(user) and owner and not owner_matches_user(owner, user):
+        raise HTTPException(status_code=403, detail="只能创建或指派给自己的业务数据")
+
+
 def serialize_auth_organization(user: AuthUser, organization: Organization) -> AuthOrganizationRead:
     return AuthOrganizationRead(
         id=organization.id,
@@ -307,6 +336,7 @@ def serialize_auth_user(user: AuthUser, organization: Organization) -> AuthUserR
         email=user.email,
         phone=user.phone,
         role=user.role,
+        data_scope=data_scope_for_role(user.role),
         position=user.position,
         department=user.department,
         location=user.location,
@@ -640,11 +670,12 @@ def make_notification(
     )
 
 
-def collect_notifications(session: Session, limit: int = 20) -> list[NotificationRead]:
+def collect_notifications(session: Session, current_user: AuthUser, limit: int = 20) -> list[NotificationRead]:
     notifications: list[NotificationRead] = []
     today = date.today()
 
     tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    tasks = filter_by_owner_scope(tasks, current_user)
     for task in tasks:
         if task.status == "overdue":
             notifications.append(
@@ -694,6 +725,7 @@ def collect_notifications(session: Session, limit: int = 20) -> list[Notificatio
         )
 
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc(), SalesLead.expected_amount.desc())).all()
+    leads = filter_by_owner_scope(leads, current_user)
     for lead in leads:
         stage = normalize_stage_value(lead.stage)
         if stage in {"won", "lost"}:
@@ -717,7 +749,8 @@ def collect_notifications(session: Session, limit: int = 20) -> list[Notificatio
             )
         )
 
-    recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc()).limit(8)).all()
+    recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
+    recommendations = filter_by_owner_scope(recommendations, current_user)[:8]
     for recommendation in recommendations:
         if recommendation.id and find_task_for_copilot_recommendation(session, recommendation.id):
             continue
@@ -1100,6 +1133,7 @@ def get_permission_matrix(
         RolePermissionRead(
             role=role,
             description=ROLE_DESCRIPTIONS.get(role, ""),
+            data_scope=data_scope_for_role(role),
             permissions=permissions_for_role(role),
             granted_count=len(permissions_for_role(role)),
             all_permissions=ALL_PERMISSIONS in permissions,
@@ -1124,12 +1158,13 @@ def get_permission_matrix(
     )
 
 
-@app.get("/api/notifications", response_model=list[NotificationRead], dependencies=[Depends(require_permission("dashboard:read"))])
+@app.get("/api/notifications", response_model=list[NotificationRead])
 def list_notifications(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("dashboard:read"))],
     limit: int = Query(default=20, ge=1, le=50),
 ) -> list[NotificationRead]:
-    return collect_notifications(session, limit=limit)
+    return collect_notifications(session, current_user=current_user, limit=limit)
 
 
 @app.get(
@@ -1402,9 +1437,10 @@ def restock_product(product_id: int, payload: ProductRestockRequest, session: Se
     )
 
 
-@app.get("/api/contacts", response_model=list[ContactRead] | PaginatedResponse[ContactRead], dependencies=[Depends(require_permission("crm:read"))])
+@app.get("/api/contacts", response_model=list[ContactRead] | PaginatedResponse[ContactRead])
 def list_contacts(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
     q: str = "",
@@ -1412,6 +1448,7 @@ def list_contacts(
     status: str = "",
 ) -> list[Contact] | dict:
     contacts = session.exec(select(Contact).order_by(Contact.created_at.desc())).all()
+    contacts = filter_by_owner_scope(contacts, current_user)
     contacts = filter_records(
         contacts,
         q=q,
@@ -1422,8 +1459,13 @@ def list_contacts(
     return paginate_or_list(contacts, page=page, per_page=per_page)
 
 
-@app.post("/api/contacts", response_model=ContactRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
-def create_contact(payload: ContactCreate, session: SessionDep) -> Contact:
+@app.post("/api/contacts", response_model=ContactRead, status_code=201)
+def create_contact(
+    payload: ContactCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> Contact:
+    require_payload_owner_scope(current_user, payload.owner)
     contact = Contact(**payload.model_dump())
     session.add(contact)
     session.flush()
@@ -1441,12 +1483,20 @@ def create_contact(payload: ContactCreate, session: SessionDep) -> Contact:
     return contact
 
 
-@app.patch("/api/contacts/{contact_id}", response_model=ContactRead, dependencies=[Depends(require_permission("crm:write"))])
-def update_contact(contact_id: int, payload: ContactUpdate, session: SessionDep) -> Contact:
+@app.patch("/api/contacts/{contact_id}", response_model=ContactRead)
+def update_contact(
+    contact_id: int,
+    payload: ContactUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> Contact:
     contact = session.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="联系人不存在")
+    require_owner_scope(current_user, contact.owner)
     updates = patch_values(payload)
+    if "owner" in updates:
+        require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(contact, updates)
     session.add(contact)
     add_business_audit(
@@ -1463,11 +1513,16 @@ def update_contact(contact_id: int, payload: ContactUpdate, session: SessionDep)
     return contact
 
 
-@app.delete("/api/contacts/{contact_id}", dependencies=[Depends(require_permission("crm:write"))])
-def delete_contact(contact_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+@app.delete("/api/contacts/{contact_id}")
+def delete_contact(
+    contact_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> dict[str, bool | int | str]:
     contact = session.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="联系人不存在")
+    require_owner_scope(current_user, contact.owner)
     add_business_audit(
         session,
         action="delete",
@@ -1482,9 +1537,10 @@ def delete_contact(contact_id: int, session: SessionDep) -> dict[str, bool | int
     return delete_response("contact", contact_id)
 
 
-@app.get("/api/leads", response_model=list[LeadRead] | PaginatedResponse[LeadRead], dependencies=[Depends(require_permission("crm:read"))])
+@app.get("/api/leads", response_model=list[LeadRead] | PaginatedResponse[LeadRead])
 def list_leads(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
     q: str = "",
@@ -1494,6 +1550,7 @@ def list_leads(
     ai_assisted: bool | None = None,
 ) -> list[SalesLead] | dict:
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+    leads = filter_by_owner_scope(leads, current_user)
     leads = filter_records(
         leads,
         q=q,
@@ -1506,8 +1563,13 @@ def list_leads(
     return paginate_or_list(leads, page=page, per_page=per_page)
 
 
-@app.post("/api/leads", response_model=LeadRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
-def create_lead(payload: SalesLeadCreate, session: SessionDep) -> SalesLead:
+@app.post("/api/leads", response_model=LeadRead, status_code=201)
+def create_lead(
+    payload: SalesLeadCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> SalesLead:
+    require_payload_owner_scope(current_user, payload.owner)
     lead = SalesLead(**payload.model_dump())
     session.add(lead)
     session.flush()
@@ -1525,12 +1587,20 @@ def create_lead(payload: SalesLeadCreate, session: SessionDep) -> SalesLead:
     return lead
 
 
-@app.patch("/api/leads/{lead_id}", response_model=LeadRead, dependencies=[Depends(require_permission("crm:write"))])
-def update_lead(lead_id: int, payload: SalesLeadUpdate, session: SessionDep) -> SalesLead:
+@app.patch("/api/leads/{lead_id}", response_model=LeadRead)
+def update_lead(
+    lead_id: int,
+    payload: SalesLeadUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> SalesLead:
     lead = session.get(SalesLead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="商机不存在")
+    require_owner_scope(current_user, lead.owner)
     updates = patch_values(payload)
+    if "owner" in updates:
+        require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(lead, updates)
     session.add(lead)
     add_business_audit(
@@ -1547,11 +1617,16 @@ def update_lead(lead_id: int, payload: SalesLeadUpdate, session: SessionDep) -> 
     return lead
 
 
-@app.delete("/api/leads/{lead_id}", dependencies=[Depends(require_permission("crm:write"))])
-def delete_lead(lead_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+@app.delete("/api/leads/{lead_id}")
+def delete_lead(
+    lead_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> dict[str, bool | int | str]:
     lead = session.get(SalesLead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="商机不存在")
+    require_owner_scope(current_user, lead.owner)
     add_business_audit(
         session,
         action="delete",
@@ -1566,9 +1641,10 @@ def delete_lead(lead_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("lead", lead_id)
 
 
-@app.get("/api/cases", response_model=list[SupportCaseRead] | PaginatedResponse[SupportCaseRead], dependencies=[Depends(require_permission("crm:read"))])
+@app.get("/api/cases", response_model=list[SupportCaseRead] | PaginatedResponse[SupportCaseRead])
 def list_cases(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
     q: str = "",
@@ -1577,6 +1653,7 @@ def list_cases(
     status: str = "",
 ) -> list[SupportCase] | dict:
     cases = session.exec(select(SupportCase).order_by(SupportCase.due_date.asc())).all()
+    cases = filter_by_owner_scope(cases, current_user)
     cases = filter_records(
         cases,
         q=q,
@@ -1588,8 +1665,13 @@ def list_cases(
     return paginate_or_list(cases, page=page, per_page=per_page)
 
 
-@app.post("/api/cases", response_model=SupportCaseRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
-def create_case(payload: SupportCaseCreate, session: SessionDep) -> SupportCase:
+@app.post("/api/cases", response_model=SupportCaseRead, status_code=201)
+def create_case(
+    payload: SupportCaseCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> SupportCase:
+    require_payload_owner_scope(current_user, payload.owner)
     support_case = SupportCase(**payload.model_dump())
     session.add(support_case)
     session.flush()
@@ -1607,12 +1689,20 @@ def create_case(payload: SupportCaseCreate, session: SessionDep) -> SupportCase:
     return support_case
 
 
-@app.patch("/api/cases/{case_id}", response_model=SupportCaseRead, dependencies=[Depends(require_permission("crm:write"))])
-def update_case(case_id: int, payload: SupportCaseUpdate, session: SessionDep) -> SupportCase:
+@app.patch("/api/cases/{case_id}", response_model=SupportCaseRead)
+def update_case(
+    case_id: int,
+    payload: SupportCaseUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> SupportCase:
     support_case = session.get(SupportCase, case_id)
     if not support_case:
         raise HTTPException(status_code=404, detail="工单不存在")
+    require_owner_scope(current_user, support_case.owner)
     updates = patch_values(payload)
+    if "owner" in updates:
+        require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(support_case, updates)
     session.add(support_case)
     add_business_audit(
@@ -1629,11 +1719,16 @@ def update_case(case_id: int, payload: SupportCaseUpdate, session: SessionDep) -
     return support_case
 
 
-@app.delete("/api/cases/{case_id}", dependencies=[Depends(require_permission("crm:write"))])
-def delete_case(case_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+@app.delete("/api/cases/{case_id}")
+def delete_case(
+    case_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> dict[str, bool | int | str]:
     support_case = session.get(SupportCase, case_id)
     if not support_case:
         raise HTTPException(status_code=404, detail="工单不存在")
+    require_owner_scope(current_user, support_case.owner)
     add_business_audit(
         session,
         action="delete",
@@ -1648,9 +1743,10 @@ def delete_case(case_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("case", case_id)
 
 
-@app.get("/api/tasks", response_model=list[TaskItemRead] | PaginatedResponse[TaskItemRead], dependencies=[Depends(require_permission("crm:read"))])
+@app.get("/api/tasks", response_model=list[TaskItemRead] | PaginatedResponse[TaskItemRead])
 def list_tasks(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
     q: str = "",
@@ -1659,6 +1755,7 @@ def list_tasks(
     status: str = "",
 ) -> list[TaskItem] | dict:
     tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    tasks = filter_by_owner_scope(tasks, current_user)
     tasks = filter_records(
         tasks,
         q=q,
@@ -1670,8 +1767,13 @@ def list_tasks(
     return paginate_or_list(tasks, page=page, per_page=per_page)
 
 
-@app.post("/api/tasks", response_model=TaskItemRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
-def create_task(payload: TaskItemCreate, session: SessionDep) -> TaskItem:
+@app.post("/api/tasks", response_model=TaskItemRead, status_code=201)
+def create_task(
+    payload: TaskItemCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> TaskItem:
+    require_payload_owner_scope(current_user, payload.owner)
     task = TaskItem(**payload.model_dump())
     session.add(task)
     session.flush()
@@ -1689,12 +1791,20 @@ def create_task(payload: TaskItemCreate, session: SessionDep) -> TaskItem:
     return task
 
 
-@app.patch("/api/tasks/{task_id}", response_model=TaskItemRead, dependencies=[Depends(require_permission("crm:write"))])
-def update_task(task_id: int, payload: TaskItemUpdate, session: SessionDep) -> TaskItem:
+@app.patch("/api/tasks/{task_id}", response_model=TaskItemRead)
+def update_task(
+    task_id: int,
+    payload: TaskItemUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> TaskItem:
     task = session.get(TaskItem, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
+    require_owner_scope(current_user, task.owner)
     updates = patch_values(payload)
+    if "owner" in updates:
+        require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(task, updates)
     session.add(task)
     add_business_audit(
@@ -1711,11 +1821,16 @@ def update_task(task_id: int, payload: TaskItemUpdate, session: SessionDep) -> T
     return task
 
 
-@app.delete("/api/tasks/{task_id}", dependencies=[Depends(require_permission("crm:write"))])
-def delete_task(task_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+@app.delete("/api/tasks/{task_id}")
+def delete_task(
+    task_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> dict[str, bool | int | str]:
     task = session.get(TaskItem, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
+    require_owner_scope(current_user, task.owner)
     add_business_audit(
         session,
         action="delete",
@@ -1877,9 +1992,10 @@ def list_business_audit_logs(
     return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/orders", response_model=list[SalesOrderRead] | PaginatedResponse[SalesOrderRead], dependencies=[Depends(require_permission("order:manage"))])
+@app.get("/api/orders", response_model=list[SalesOrderRead] | PaginatedResponse[SalesOrderRead])
 def list_orders(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
     q: str = "",
@@ -1890,6 +2006,7 @@ def list_orders(
 ) -> list[SalesOrderRead] | dict:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
     serialized_orders = [serialize_order(order, session) for order in orders]
+    serialized_orders = filter_by_owner_scope(serialized_orders, current_user)
     serialized_orders = filter_records(
         serialized_orders,
         q=q,
@@ -1902,10 +2019,15 @@ def list_orders(
     return paginate_or_list(serialized_orders, page=page, per_page=per_page)
 
 
-@app.get("/api/orders/export.csv", dependencies=[Depends(require_permission("order:manage"))])
-def export_orders_csv(session: SessionDep) -> Response:
+@app.get("/api/orders/export.csv")
+def export_orders_csv(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
+) -> Response:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
-    csv_content = build_orders_csv([serialize_order(order, session) for order in orders])
+    serialized_orders = [serialize_order(order, session) for order in orders]
+    serialized_orders = filter_by_owner_scope(serialized_orders, current_user)
+    csv_content = build_orders_csv(serialized_orders)
     return Response(
         content=csv_content,
         media_type="text/csv; charset=utf-8",
@@ -1913,11 +2035,16 @@ def export_orders_csv(session: SessionDep) -> Response:
     )
 
 
-@app.get("/api/orders/{order_id}/inventory-movements", response_model=list[InventoryMovementRead], dependencies=[Depends(require_permission("order:manage"))])
-def get_order_inventory_movements(order_id: int, session: SessionDep) -> list[InventoryMovementRead]:
+@app.get("/api/orders/{order_id}/inventory-movements", response_model=list[InventoryMovementRead])
+def get_order_inventory_movements(
+    order_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
+) -> list[InventoryMovementRead]:
     order = session.get(SalesOrder, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在")
+    require_owner_scope(current_user, order.owner)
     order_marker = f"订单 #{order_id} "
     movements = session.exec(
         select(InventoryMovement)
@@ -1927,13 +2054,21 @@ def get_order_inventory_movements(order_id: int, session: SessionDep) -> list[In
     return [serialize_inventory_movement(movement, session) for movement in movements]
 
 
-@app.patch("/api/orders/{order_id}", response_model=SalesOrderRead, dependencies=[Depends(require_permission("order:manage"))])
-def update_order(order_id: int, payload: SalesOrderUpdate, session: SessionDep) -> SalesOrderRead:
+@app.patch("/api/orders/{order_id}", response_model=SalesOrderRead)
+def update_order(
+    order_id: int,
+    payload: SalesOrderUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
+) -> SalesOrderRead:
     order = session.get(SalesOrder, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在")
+    require_owner_scope(current_user, order.owner)
     before_total = order.total_amount
     updates = payload.model_dump(exclude_unset=True, exclude_none=True, exclude={"items"})
+    if "owner" in updates:
+        require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(order, updates)
     if payload.items is not None:
         replace_order_items(order, payload.items, session)
@@ -1955,8 +2090,13 @@ def update_order(order_id: int, payload: SalesOrderUpdate, session: SessionDep) 
     return serialize_order(order, session)
 
 
-@app.post("/api/orders", response_model=SalesOrderRead, status_code=201, dependencies=[Depends(require_permission("order:manage"))])
-def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRead:
+@app.post("/api/orders", response_model=SalesOrderRead, status_code=201)
+def create_order(
+    payload: SalesOrderCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
+) -> SalesOrderRead:
+    require_payload_owner_scope(current_user, payload.owner)
     customer = session.get(Customer, payload.customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
@@ -2051,10 +2191,14 @@ async def vision_extract(file: Annotated[UploadFile, File(...)], session: Sessio
     return result
 
 
-@app.get("/api/copilot/summary", response_model=CopilotSummaryResponse, dependencies=[Depends(require_permission("ai:use"))])
-async def copilot_summary(session: SessionDep) -> CopilotSummaryResponse:
+@app.get("/api/copilot/summary", response_model=CopilotSummaryResponse)
+async def copilot_summary(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+) -> CopilotSummaryResponse:
     start_time = perf_counter()
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+    leads = filter_by_owner_scope(leads, current_user)
     result = await copilot_service.summarize(leads)
     add_copilot_summary_history(session, result)
     save_ai_interaction(
@@ -2071,9 +2215,10 @@ async def copilot_summary(session: SessionDep) -> CopilotSummaryResponse:
     return result
 
 
-@app.get("/api/copilot/recommendations", response_model=list[CopilotRecommendationRead] | PaginatedResponse[CopilotRecommendationRead], dependencies=[Depends(require_permission("ai:use"))])
+@app.get("/api/copilot/recommendations", response_model=list[CopilotRecommendationRead] | PaginatedResponse[CopilotRecommendationRead])
 def list_copilot_recommendations(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
     limit: int = 30,
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
@@ -2087,9 +2232,10 @@ def list_copilot_recommendations(
     has_filter = bool(q.strip() or source.strip() or grade.strip() or stage.strip() or fallback_used is not None)
     query_limit = None if page is not None or per_page is not None or has_filter else safe_limit
     statement = select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())
-    if query_limit is not None:
+    if query_limit is not None and has_all_data_scope(current_user):
         statement = statement.limit(query_limit)
     recommendations = [serialize_copilot_recommendation(item) for item in session.exec(statement).all()]
+    recommendations = filter_by_owner_scope(recommendations, current_user)
     recommendations = filter_records(
         recommendations,
         q=q,
@@ -2110,6 +2256,8 @@ def list_copilot_recommendations(
         stage=stage,
     )
     recommendations = filter_bool(recommendations, "fallback_used", fallback_used)
+    if query_limit is not None and not has_all_data_scope(current_user):
+        recommendations = recommendations[:safe_limit]
     return paginate_or_list(recommendations, page=page, per_page=per_page)
 
 
@@ -2117,15 +2265,21 @@ def list_copilot_recommendations(
     "/api/copilot/recommendations/{recommendation_id}/task",
     response_model=TaskItemRead,
     status_code=201,
-    dependencies=[Depends(require_permission("ai:use")), Depends(require_permission("crm:write"))],
 )
-def create_task_from_copilot_recommendation(recommendation_id: int, session: SessionDep) -> TaskItem:
+def create_task_from_copilot_recommendation(
+    recommendation_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+    _ai_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+) -> TaskItem:
     recommendation = session.get(CopilotRecommendation, recommendation_id)
     if not recommendation:
         raise HTTPException(status_code=404, detail="Copilot 推荐不存在")
+    require_owner_scope(current_user, recommendation.owner)
 
     existing_task = find_task_for_copilot_recommendation(session, recommendation_id)
     if existing_task:
+        require_owner_scope(current_user, existing_task.owner)
         return existing_task
 
     task = build_copilot_task(recommendation)
@@ -2161,12 +2315,18 @@ def create_task_from_copilot_recommendation(recommendation_id: int, session: Ses
     return task
 
 
-@app.post("/api/copilot/follow-up", response_model=CopilotFollowUpResponse, dependencies=[Depends(require_permission("ai:use"))])
-async def copilot_follow_up(payload: CopilotFollowUpRequest, session: SessionDep) -> CopilotFollowUpResponse:
+@app.post("/api/copilot/follow-up", response_model=CopilotFollowUpResponse)
+async def copilot_follow_up(
+    payload: CopilotFollowUpRequest,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+) -> CopilotFollowUpResponse:
     start_time = perf_counter()
     lead = session.get(SalesLead, payload.lead_id) if payload.lead_id else None
     if payload.lead_id and not lead:
         raise HTTPException(status_code=404, detail="商机不存在")
+    if lead:
+        require_owner_scope(current_user, lead.owner)
     result = await copilot_service.follow_up(payload, lead)
     add_copilot_follow_up_history(session, payload, result, lead)
     save_ai_interaction(
@@ -2332,11 +2492,16 @@ def get_sales_performance_report(
     )
 
 
-@app.get("/api/dashboard", response_model=DashboardResponse, dependencies=[Depends(require_permission("dashboard:read"))])
-def get_dashboard(session: SessionDep) -> DashboardResponse:
+@app.get("/api/dashboard", response_model=DashboardResponse)
+def get_dashboard(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("dashboard:read"))],
+) -> DashboardResponse:
     orders = session.exec(select(SalesOrder)).all()
     leads = session.exec(select(SalesLead)).all()
     customers = session.exec(select(Customer)).all()
+    orders = filter_by_owner_scope(orders, current_user)
+    leads = filter_by_owner_scope(leads, current_user)
 
     total_revenue = sum(order.total_amount for order in orders)
     ai_orders = [order for order in orders if order.created_by_ai]
