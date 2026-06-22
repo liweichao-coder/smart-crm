@@ -1989,6 +1989,19 @@ body {
   background: rgba(148, 163, 184, 0.08);
 }
 
+.crm-copilot-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.crm-copilot-history-actions .crm-ghost-button,
+.crm-copilot-history-actions .crm-primary-button {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
 .crm-primary-button:disabled {
   cursor: not-allowed;
   opacity: 0.62;

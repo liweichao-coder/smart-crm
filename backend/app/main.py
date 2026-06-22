@@ -574,6 +574,44 @@ def add_copilot_follow_up_history(
     )
 
 
+def build_copilot_task(recommendation: CopilotRecommendation) -> TaskItem:
+    title_subject = recommendation.lead_title or recommendation.customer_name or "未命名商机"
+    title = summarize_text(f"跟进 {recommendation.customer_name or title_subject}：{title_subject}", limit=120)
+    reasons = "；".join(decode_score_reasons(recommendation.score_reasons_json))
+    message = recommendation.message_draft or recommendation.llm_summary
+    description_parts = [
+        f"来源：CopilotRecommendation#{recommendation.id}",
+        f"客户：{recommendation.customer_name or '未记录'}",
+        f"商机：{recommendation.lead_title or '未关联商机'}",
+        f"建议动作：{recommendation.next_best_action or '待销售确认下一步动作'}",
+    ]
+    if message:
+        description_parts.append(f"话术/摘要：{message}")
+    if reasons:
+        description_parts.append(f"评分原因：{reasons}")
+
+    grade = recommendation.grade.upper()
+    priority = "hot" if grade in {"A", "B"} else "warm" if grade == "C" else "cold"
+    status = "today" if grade == "A" else "week"
+    status_label = "今天" if status == "today" else "本周"
+    due_date = "今天 18:00" if grade == "A" else "明天 18:00" if grade == "B" else "本周五 18:00"
+    return TaskItem(
+        title=title,
+        description=summarize_text("\n".join(description_parts), limit=900),
+        owner=recommendation.owner or "李伟超",
+        due_date=due_date,
+        priority=priority,
+        status=status,
+        status_label=status_label,
+    )
+
+
+def find_task_for_copilot_recommendation(session: Session, recommendation_id: int) -> TaskItem | None:
+    marker = f"CopilotRecommendation#{recommendation_id}"
+    tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    return next((task for task in tasks if marker in task.description), None)
+
+
 def add_business_audit(
     session: Session,
     *,
@@ -1919,6 +1957,54 @@ def list_copilot_recommendations(
     )
     recommendations = filter_bool(recommendations, "fallback_used", fallback_used)
     return paginate_or_list(recommendations, page=page, per_page=per_page)
+
+
+@app.post(
+    "/api/copilot/recommendations/{recommendation_id}/task",
+    response_model=TaskItemRead,
+    status_code=201,
+    dependencies=[Depends(require_permission("ai:use")), Depends(require_permission("crm:write"))],
+)
+def create_task_from_copilot_recommendation(recommendation_id: int, session: SessionDep) -> TaskItem:
+    recommendation = session.get(CopilotRecommendation, recommendation_id)
+    if not recommendation:
+        raise HTTPException(status_code=404, detail="Copilot 推荐不存在")
+
+    existing_task = find_task_for_copilot_recommendation(session, recommendation_id)
+    if existing_task:
+        return existing_task
+
+    task = build_copilot_task(recommendation)
+    session.add(task)
+    session.flush()
+
+    lead = session.get(SalesLead, recommendation.lead_id) if recommendation.lead_id else None
+    if lead and recommendation.next_best_action:
+        lead.next_action = recommendation.next_best_action
+        lead.ai_assisted = True
+        session.add(lead)
+        add_business_audit(
+            session,
+            action="update",
+            entity_type="lead",
+            entity_id=lead.id,
+            operator=task.owner,
+            summary=f"同步 Copilot 下一步动作到商机 {lead.title}",
+            detail=f"来源 CopilotRecommendation #{recommendation_id}",
+        )
+
+    add_business_audit(
+        session,
+        action="convert",
+        entity_type="task",
+        entity_id=task.id,
+        operator=task.owner,
+        summary=f"Copilot 推荐转任务 {task.title}",
+        detail=f"来源 CopilotRecommendation #{recommendation_id}，客户 {recommendation.customer_name}",
+    )
+    session.commit()
+    session.refresh(task)
+    return task
 
 
 @app.post("/api/copilot/follow-up", response_model=CopilotFollowUpResponse, dependencies=[Depends(require_permission("ai:use"))])

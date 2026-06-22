@@ -913,6 +913,30 @@ def test_copilot_follow_up_by_lead(monkeypatch) -> None:
     assert all(item["source"] == "follow_up" for item in history)
 
 
+def test_copilot_recommendation_can_create_task(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    with TestClient(app) as client:
+        client.get("/api/copilot/summary")
+        recommendation = client.get("/api/copilot/recommendations?source=summary").json()[0]
+        response = client.post(f"/api/copilot/recommendations/{recommendation['id']}/task")
+        duplicate_response = client.post(f"/api/copilot/recommendations/{recommendation['id']}/task")
+        tasks = client.get("/api/tasks", params={"q": f"CopilotRecommendation#{recommendation['id']}"}).json()
+        lead = client.get("/api/leads", params={"q": recommendation["lead_title"]}).json()[0]
+        audit_logs = client.get("/api/business-audit-logs", params={"entity_type": "task"}).json()
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["title"].startswith("跟进")
+    assert f"CopilotRecommendation#{recommendation['id']}" in payload["description"]
+    assert payload["priority"] in {"hot", "warm", "cold"}
+    assert duplicate_response.status_code == 201
+    assert duplicate_response.json()["id"] == payload["id"]
+    assert len(tasks) == 1
+    assert lead["next_action"] == recommendation["next_best_action"]
+    assert lead["ai_assisted"] is True
+    assert any(log["action"] == "convert" and log["entity_id"] == payload["id"] for log in audit_logs)
+
+
 def test_copilot_order_draft(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:

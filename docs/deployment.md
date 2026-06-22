@@ -111,6 +111,12 @@ Invoke-WebRequest -UseBasicParsing -Headers @{ Authorization = "Bearer $($login.
 
 Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.token)" } `
   "http://127.0.0.1:8000/api/copilot/recommendations?source=summary&page=1&per_page=5"
+
+$recommendation = Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.token)" } `
+  "http://127.0.0.1:8000/api/copilot/recommendations?source=summary&limit=1"
+
+Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $($login.token)" } `
+  "http://127.0.0.1:8000/api/copilot/recommendations/$($recommendation[0].id)/task"
 ```
 
 If `SMART_CRM_LLM_API_KEY` is configured and valid, Copilot responses should report `fallback_used: false`. Without a key, the system still returns explainable rule-based recommendations with `fallback_used: true`.

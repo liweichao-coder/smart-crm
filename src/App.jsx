@@ -63,6 +63,7 @@ import {
   fetchCopilotRecommendations,
   fetchCopilotSummary,
   fetchCurrentUser,
+  convertCopilotRecommendationToTask,
   createCase,
   createContact,
   createCustomer,
@@ -1888,6 +1889,7 @@ function ReportBreakdownPanel({ title, rows, maxValue }) {
 }
 
 function CopilotPage() {
+  const navigate = useNavigate()
   const [summary, setSummary] = useState(null)
   const [historyRecords, setHistoryRecords] = useState([])
   const [selectedId, setSelectedId] = useState('')
@@ -1897,6 +1899,8 @@ function CopilotPage() {
   const [error, setError] = useState('')
   const [historyError, setHistoryError] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [convertingId, setConvertingId] = useState(null)
+  const [createdTasks, setCreatedTasks] = useState({})
 
   const refreshHistory = async () => {
     setHistoryLoading(true)
@@ -1959,6 +1963,23 @@ function CopilotPage() {
       setError(requestError.message || '生成跟进话术失败')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const handleCreateTask = async (record) => {
+    setConvertingId(record.id)
+    setHistoryError('')
+    try {
+      const task = await convertCopilotRecommendationToTask(record.id)
+      setCreatedTasks((currentTasks) => ({
+        ...currentTasks,
+        [record.id]: task,
+      }))
+      refreshHistory()
+    } catch (requestError) {
+      setHistoryError(requestError.message || '推荐转任务失败')
+    } finally {
+      setConvertingId(null)
     }
   }
 
@@ -2113,6 +2134,23 @@ function CopilotPage() {
                 <span>{record.customer_name || '未知客户'}</span>
                 <span>{record.stage || '未标记阶段'}</span>
                 <span>{record.fallback_used ? '规则兜底' : 'LLM 增强'}</span>
+              </div>
+              <div className="crm-copilot-history-actions">
+                <button
+                  className="crm-ghost-button"
+                  type="button"
+                  onClick={() => handleCreateTask(record)}
+                  disabled={convertingId === record.id}
+                >
+                  <CheckSquare size={15} />
+                  {convertingId === record.id ? '生成中' : createdTasks[record.id] ? `任务 #${createdTasks[record.id].id}` : '转为任务'}
+                </button>
+                {createdTasks[record.id] ? (
+                  <button className="crm-primary-button" type="button" onClick={() => navigate('/tasks')}>
+                    <ArrowRight size={15} />
+                    查看任务
+                  </button>
+                ) : null}
               </div>
             </article>
           ))}
