@@ -3,6 +3,7 @@ import {
   Activity,
   ArrowRight,
   Bell,
+  Bot,
   Briefcase,
   Building2,
   Calendar,
@@ -43,38 +44,44 @@ import {
 } from 'react-router-dom'
 import avatar from './assets/vendor/unnamed.png'
 import {
-  accounts,
   activities,
-  contacts,
   dashboardMetrics,
   dashboardStages,
   focusItems,
-  goals,
+  goals as demoGoals,
   hotLeads,
-  leads,
-  opportunities,
+  opportunities as demoOpportunities,
   orgs,
   pipelineCards,
-  supportCases,
   taskCards,
-  taskItems,
 } from './data/mockData.js'
+import {
+  fetchCases,
+  fetchContacts,
+  fetchCopilotSummary,
+  fetchCustomers,
+  fetchGoals,
+  fetchLeads,
+  fetchTasks,
+  generateFollowUp,
+} from './api.js'
 import { buildClientRecord, createDraftFromColumns } from './resourceUtils.js'
 
 const STORAGE_KEY = 'huahenuancrm:selected-org'
 
 const navItems = [
-  { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 花和暖 CRM' },
-  { path: '/leads', label: '线索', icon: Target, title: 'Leads | 花和暖 CRM' },
-  { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 花和暖 CRM' },
-  { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 花和暖 CRM' },
-  { path: '/opportunities', label: '商机', icon: Sparkles, title: 'Opportunities | 花和暖 CRM' },
-  { path: '/goals', label: '销售目标', icon: Trophy, title: 'Sales Goals | 花和暖 CRM' },
-  { path: '/cases', label: '工单', icon: Briefcase, title: 'Cases | 花和暖 CRM' },
-  { path: '/tasks', label: '任务', icon: CheckSquare, title: 'Tasks | 花和暖 CRM' },
+  { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM' },
+  { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM' },
+  { path: '/leads', label: '线索', icon: Target, title: 'Leads | 深大 AI CRM' },
+  { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 深大 AI CRM' },
+  { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 深大 AI CRM' },
+  { path: '/opportunities', label: '商机', icon: Sparkles, title: 'Opportunities | 深大 AI CRM' },
+  { path: '/goals', label: '销售目标', icon: Trophy, title: 'Sales Goals | 深大 AI CRM' },
+  { path: '/cases', label: '工单', icon: Briefcase, title: 'Cases | 深大 AI CRM' },
+  { path: '/tasks', label: '任务', icon: CheckSquare, title: 'Tasks | 深大 AI CRM' },
 ]
 
-const pageItems = [...navItems, { path: '/profile', label: '个人主页', title: 'Profile | 花和暖 CRM' }]
+const pageItems = [...navItems, { path: '/profile', label: '个人主页', title: 'Profile | 深大 AI CRM' }]
 
 const userProfile = {
   name: 'ZRC 673468472',
@@ -116,6 +123,137 @@ const boardToneMap = {
   Open: 'qualified',
   Pending: 'negotiation',
   Resolved: 'won',
+  Lost: 'neutral',
+}
+
+const stageLabelMap = {
+  new: 'New',
+  qualified: 'Qualified',
+  proposal: 'Proposal',
+  negotiation: 'Negotiation',
+  won: 'Won',
+  lost: 'Lost',
+}
+
+function mapStageLabel(stage) {
+  return stageLabelMap[stage] ?? stage
+}
+
+function mapCustomerRecord(customer) {
+  return {
+    id: customer.id,
+    name: customer.company,
+    industry: customer.industry,
+    owner: customer.contact_person,
+    revenue: customer.annual_revenue,
+    status: customer.status,
+  }
+}
+
+function mapContactRecord(contact) {
+  return {
+    id: contact.id,
+    name: contact.name,
+    company: contact.company,
+    role: contact.role,
+    email: contact.email,
+    status: contact.status,
+  }
+}
+
+function mapLeadRecord(lead) {
+  return {
+    id: lead.id,
+    name: lead.title,
+    company: lead.customer_name,
+    owner: lead.owner,
+    nextStep: lead.next_action,
+    rating: lead.stage === 'lost' ? 'cold' : lead.ai_assisted ? 'hot' : 'warm',
+    stage: mapStageLabel(lead.stage),
+  }
+}
+
+function mapOpportunityRecord(lead) {
+  return {
+    id: lead.id,
+    name: lead.title,
+    account: lead.customer_name,
+    owner: lead.owner,
+    amount: lead.expected_amount,
+    closeDate: lead.due_date,
+    stage: mapStageLabel(lead.stage),
+  }
+}
+
+function mapCaseRecord(supportCase) {
+  return {
+    id: supportCase.id,
+    title: supportCase.title,
+    account: supportCase.account,
+    owner: supportCase.owner,
+    priority: supportCase.priority,
+    status: supportCase.status,
+    statusLabel: supportCase.status_label,
+  }
+}
+
+function mapTaskRecord(task) {
+  return {
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    owner: task.owner,
+    dueDate: task.due_date,
+    priority: task.priority,
+    status: task.status,
+    statusLabel: task.status_label,
+  }
+}
+
+function mapGoalRecord(goal) {
+  return {
+    id: goal.id,
+    name: goal.name,
+    period: goal.period,
+    current: goal.current,
+    target: goal.target,
+    progress: goal.progress,
+    note: goal.note,
+  }
+}
+
+function useRemoteRecords(fetcher, mapper) {
+  const [records, setRecords] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+
+    fetcher()
+      .then((payload) => {
+        if (mounted) {
+          setRecords(payload.map(mapper))
+          setError('')
+        }
+      })
+      .catch((nextError) => {
+        if (mounted) {
+          setError(nextError.message || '后端数据同步失败')
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [fetcher, mapper])
+
+  return { records, loading, error }
 }
 
 function App() {
@@ -127,120 +265,146 @@ function App() {
       <Route path="/" element={<Navigate replace to="/login" />} />
       <Route element={<AppShell />}>
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/profile" element={<ProfilePage />} />
-        <Route
-          path="/accounts"
-          element={
-            <TableResourcePage
-              title="客户"
-              subtitle="企业档案、年度收入、客户负责人和状态概览。"
-              icon={Building}
-              records={accounts}
-              createLabel="新建客户"
-              columns={[
-                { key: 'name', label: '客户名称' },
-                { key: 'industry', label: '行业' },
-                { key: 'owner', label: '负责人' },
-                { key: 'revenue', label: '年度收入', format: 'currency' },
-                { key: 'status', label: '状态', type: 'badge' },
-              ]}
-              tabs={[
-                { key: 'all', label: '全部' },
-                { key: 'active', label: '活跃', predicate: (item) => item.status === 'active' },
-                { key: 'closed', label: '关闭', predicate: (item) => item.status === 'closed' },
-              ]}
-            />
-          }
-        />
-        <Route
-          path="/contacts"
-          element={
-            <TableResourcePage
-              title="联系人"
-              subtitle="跟踪关键联系人、角色、所属公司和最近互动。"
-              icon={Users}
-              records={contacts}
-              createLabel="新建联系人"
-              columns={[
-                { key: 'name', label: '姓名' },
-                { key: 'company', label: '所属客户' },
-                { key: 'role', label: '职位' },
-                { key: 'email', label: '邮箱' },
-                { key: 'status', label: '状态', type: 'badge' },
-              ]}
-              tabs={[
-                { key: 'all', label: '全部' },
-                { key: 'vip', label: '重点', predicate: (item) => item.status === 'active' },
-                { key: 'nurturing', label: '培育中', predicate: (item) => item.status === 'nurturing' },
-              ]}
-            />
-          }
-        />
-        <Route
-          path="/leads"
-          element={
-            <BoardResourcePage
-              title="线索"
-              subtitle="在列表和看板之间切换，快速管理线索评级与跟进进度。"
-              icon={Target}
-              records={leads}
-              createLabel="新建线索"
-              boardKey="stage"
-              columns={[
-                { key: 'name', label: '线索' },
-                { key: 'company', label: '公司' },
-                { key: 'owner', label: '负责人' },
-                { key: 'nextStep', label: '下一步' },
-                { key: 'rating', label: '评级', type: 'badge' },
-              ]}
-            />
-          }
-        />
-        <Route
-          path="/opportunities"
-          element={
-            <BoardResourcePage
-              title="商机"
-              subtitle="聚焦阶段、金额和预计成交时间，保持销售管道清晰。"
-              icon={Sparkles}
-              records={opportunities}
-              createLabel="新建商机"
-              boardKey="stage"
-              columns={[
-                { key: 'name', label: '商机' },
-                { key: 'account', label: '客户' },
-                { key: 'owner', label: '负责人' },
-                { key: 'amount', label: '金额', format: 'currency' },
-                { key: 'closeDate', label: '预计成交' },
-              ]}
-            />
-          }
-        />
-        <Route
-          path="/cases"
-          element={
-            <BoardResourcePage
-              title="工单"
-              subtitle="支持团队当前工作负载、优先级和处理 SLA 一览。"
-              icon={Briefcase}
-              records={supportCases}
-              createLabel="新建工单"
-              boardKey="statusLabel"
-              columns={[
-                { key: 'title', label: '工单标题' },
-                { key: 'account', label: '客户' },
-                { key: 'owner', label: '负责人' },
-                { key: 'priority', label: '优先级', type: 'badge' },
-                { key: 'status', label: '状态', type: 'badge' },
-              ]}
-            />
-          }
-        />
+        <Route path="/accounts" element={<AccountsPage />} />
+        <Route path="/contacts" element={<ContactsPage />} />
+        <Route path="/leads" element={<LeadsPage />} />
+        <Route path="/opportunities" element={<OpportunitiesPage />} />
+        <Route path="/cases" element={<CasesPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/goals" element={<GoalsPage />} />
       </Route>
       <Route path="*" element={<Navigate replace to="/login" />} />
     </Routes>
+  )
+}
+
+function AccountsPage() {
+  const { records, loading, error } = useRemoteRecords(fetchCustomers, mapCustomerRecord)
+
+  return (
+    <TableResourcePage
+      title="客户"
+      subtitle="企业档案、年度收入、客户负责人和状态概览。"
+      icon={Building}
+      records={records}
+      loading={loading}
+      error={error}
+      createLabel="新建客户"
+      columns={[
+        { key: 'name', label: '客户名称' },
+        { key: 'industry', label: '行业' },
+        { key: 'owner', label: '负责人' },
+        { key: 'revenue', label: '年度收入', format: 'currency' },
+        { key: 'status', label: '状态', type: 'badge' },
+      ]}
+      tabs={[
+        { key: 'all', label: '全部' },
+        { key: 'active', label: '活跃', predicate: (item) => item.status === 'active' },
+        { key: 'closed', label: '关闭', predicate: (item) => item.status === 'closed' },
+      ]}
+    />
+  )
+}
+
+function ContactsPage() {
+  const { records, loading, error } = useRemoteRecords(fetchContacts, mapContactRecord)
+
+  return (
+    <TableResourcePage
+      title="联系人"
+      subtitle="跟踪关键联系人、角色、所属公司和最近互动。"
+      icon={Users}
+      records={records}
+      loading={loading}
+      error={error}
+      createLabel="新建联系人"
+      columns={[
+        { key: 'name', label: '姓名' },
+        { key: 'company', label: '所属客户' },
+        { key: 'role', label: '职位' },
+        { key: 'email', label: '邮箱' },
+        { key: 'status', label: '状态', type: 'badge' },
+      ]}
+      tabs={[
+        { key: 'all', label: '全部' },
+        { key: 'vip', label: '重点', predicate: (item) => item.status === 'active' },
+        { key: 'nurturing', label: '培育中', predicate: (item) => item.status === 'nurturing' },
+      ]}
+    />
+  )
+}
+
+function LeadsPage() {
+  const { records, loading, error } = useRemoteRecords(fetchLeads, mapLeadRecord)
+
+  return (
+    <BoardResourcePage
+      title="线索"
+      subtitle="在列表和看板之间切换，快速管理线索评级与跟进进度。"
+      icon={Target}
+      records={records}
+      loading={loading}
+      error={error}
+      createLabel="新建线索"
+      boardKey="stage"
+      columns={[
+        { key: 'name', label: '线索' },
+        { key: 'company', label: '公司' },
+        { key: 'owner', label: '负责人' },
+        { key: 'nextStep', label: '下一步' },
+        { key: 'rating', label: '评级', type: 'badge' },
+      ]}
+    />
+  )
+}
+
+function OpportunitiesPage() {
+  const { records, loading, error } = useRemoteRecords(fetchLeads, mapOpportunityRecord)
+
+  return (
+    <BoardResourcePage
+      title="商机"
+      subtitle="聚焦阶段、金额和预计成交时间，保持销售管道清晰。"
+      icon={Sparkles}
+      records={records}
+      loading={loading}
+      error={error}
+      createLabel="新建商机"
+      boardKey="stage"
+      columns={[
+        { key: 'name', label: '商机' },
+        { key: 'account', label: '客户' },
+        { key: 'owner', label: '负责人' },
+        { key: 'amount', label: '金额', format: 'currency' },
+        { key: 'closeDate', label: '预计成交' },
+      ]}
+    />
+  )
+}
+
+function CasesPage() {
+  const { records, loading, error } = useRemoteRecords(fetchCases, mapCaseRecord)
+
+  return (
+    <BoardResourcePage
+      title="工单"
+      subtitle="支持团队当前工作负载、优先级和处理 SLA 一览。"
+      icon={Briefcase}
+      records={records}
+      loading={loading}
+      error={error}
+      createLabel="新建工单"
+      boardKey="statusLabel"
+      columns={[
+        { key: 'title', label: '工单标题' },
+        { key: 'account', label: '客户' },
+        { key: 'owner', label: '负责人' },
+        { key: 'priority', label: '优先级', type: 'badge' },
+        { key: 'status', label: '状态', type: 'badge' },
+      ]}
+    />
   )
 }
 
@@ -250,7 +414,7 @@ function LoginPage() {
   const [password, setPassword] = useState('')
 
   useEffect(() => {
-    document.title = '登录 | 花和暖 CRM'
+    document.title = '登录 | 深大 AI CRM'
   }, [])
 
   return (
@@ -261,9 +425,9 @@ function LoginPage() {
       <main className="crm-auth-shell">
         <section className="crm-auth-showcase">
           <div className="crm-auth-brand">
-            <div className="crm-brand-mark">花</div>
+            <div className="crm-brand-mark">深</div>
             <div>
-              <strong>花和暖 CRM</strong>
+              <strong>深大 AI CRM</strong>
               <span>销售、客户与任务协同平台</span>
             </div>
           </div>
@@ -345,7 +509,7 @@ function RegisterPage() {
   const [agreed, setAgreed] = useState(true)
 
   useEffect(() => {
-    document.title = '注册 | 花和暖 CRM'
+    document.title = '注册 | 深大 AI CRM'
   }, [])
 
   return (
@@ -356,9 +520,9 @@ function RegisterPage() {
       <main className="crm-auth-shell crm-auth-shell--compact">
         <section className="crm-auth-panel">
           <div className="crm-auth-brand crm-auth-brand--panel">
-            <div className="crm-brand-mark">花</div>
+            <div className="crm-brand-mark">深</div>
             <div>
-              <strong>花和暖 CRM</strong>
+              <strong>深大 AI CRM</strong>
               <span>管理员
                 注册</span>
             </div>
@@ -493,7 +657,7 @@ function AppShell() {
         <div className="crm-sidebar-inner">
           <div className="crm-sidebar-header">
             <button className="crm-brand" type="button" onClick={() => navigate('/org')}>
-              <div className="crm-brand-mark">瓶</div>
+              <div className="crm-brand-mark">深</div>
               <div className="crm-brand-copy">
                 <strong>{selectedOrg.name}</strong>
                 <span>CRM 平台</span>
@@ -576,15 +740,15 @@ function OrgSelectionPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    document.title = '选择组织 | 花和暖 CRM'
+    document.title = '选择组织 | 深大 AI CRM'
   }, [])
 
   return (
     <div className="crm-org-page">
       <header className="crm-org-header">
         <div className="crm-org-brand">
-          <div className="crm-brand-mark">花</div>
-          <strong>花和暖 CRM</strong>
+          <div className="crm-brand-mark">深</div>
+          <strong>深大 AI CRM</strong>
         </div>
         <button className="crm-ghost-button" type="button" onClick={() => navigate('/login')}>
           <LogOut size={16} />
@@ -754,7 +918,7 @@ function DashboardPage() {
         <div className="crm-panel">
           <PanelHeader title="我的商机" actionLabel="查看全部" />
           <div className="crm-list compact">
-            {opportunities.slice(0, 3).map((item) => (
+            {demoOpportunities.slice(0, 3).map((item) => (
               <article key={item.id} className="crm-list-item">
                 <div>
                   <strong>{item.name}</strong>
@@ -769,7 +933,7 @@ function DashboardPage() {
         <div className="crm-panel">
           <PanelHeader title="目标进展" actionLabel="查看全部" />
           <div className="crm-goal-mini-list">
-            {goals.map((goal) => (
+            {demoGoals.map((goal) => (
               <div key={goal.id} className="crm-goal-mini-item">
                 <div className="crm-goal-mini-head">
                   <strong>{goal.name}</strong>
@@ -805,7 +969,190 @@ function DashboardPage() {
   )
 }
 
-function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs, createLabel }) {
+function CopilotPage() {
+  const [summary, setSummary] = useState(null)
+  const [selectedId, setSelectedId] = useState('')
+  const [followUp, setFollowUp] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [generating, setGenerating] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    setLoading(true)
+    fetchCopilotSummary()
+      .then((payload) => {
+        if (!mounted) {
+          return
+        }
+        setSummary(payload)
+        setSelectedId(String(payload.top_opportunity?.id ?? payload.insights?.[0]?.id ?? ''))
+        setFollowUp(null)
+        setError('')
+      })
+      .catch((requestError) => {
+        if (mounted) {
+          setError(requestError.message || 'AI 副驾接口请求失败')
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const insights = summary?.insights ?? []
+  const selectedInsight = insights.find((item) => String(item.id) === selectedId) ?? insights[0]
+
+  const handleGenerateFollowUp = async () => {
+    if (!selectedInsight) {
+      return
+    }
+    setGenerating(true)
+    setError('')
+    try {
+      const payload = await generateFollowUp(selectedInsight.id)
+      setFollowUp(payload)
+    } catch (requestError) {
+      setError(requestError.message || '生成跟进话术失败')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel crm-copilot-hero">
+        <div>
+          <span className="crm-overline">AI Sales Copilot</span>
+          <h2>智能销售副驾</h2>
+          <p>基于商机阶段、金额、预计成交日期和客户上下文进行可解释评分，辅助销售人员判断优先级、风险和下一步动作。</p>
+        </div>
+        <div className="crm-copilot-summary">
+          <Sparkles size={18} />
+          <strong>{loading ? '正在从后端加载 AI 副驾建议...' : summary?.llm_summary ?? summary?.recommendation ?? '后端 Copilot 暂无建议。'}</strong>
+        </div>
+      </section>
+
+      {error ? (
+        <section className="crm-ai-alert">
+          <Shield size={16} />
+          <span>{error}</span>
+        </section>
+      ) : null}
+
+      <section className="crm-metric-grid">
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-won">
+            <Trophy size={18} />
+          </div>
+          <div>
+            <span>最高优先级商机</span>
+            <strong>{summary?.top_opportunity?.title ?? '暂无商机'}</strong>
+            <small>{summary?.top_opportunity ? `${summary.top_opportunity.grade} 级 / ${summary.top_opportunity.rule_score} 分` : '等待后端数据'}</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-proposal">
+            <TrendingUp size={18} />
+          </div>
+          <div>
+            <span>AI 预测金额</span>
+            <strong>{formatCurrency(summary?.forecast_amount ?? 0)}</strong>
+            <small>A/B 级商机预估可转化金额</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-new">
+            <Shield size={18} />
+          </div>
+          <div>
+            <span>风险商机</span>
+            <strong>{summary?.at_risk_count ?? 0}</strong>
+            <small>低分或信息缺口明显的商机</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-qualified">
+            <Bot size={18} />
+          </div>
+          <div>
+            <span>Copilot 模式</span>
+            <strong>{summary?.fallback_used ? '规则兜底已启用' : 'LLM 增强已启用'}</strong>
+            <small>后端 OpenAI 兼容接口 + 可解释评分</small>
+          </div>
+        </article>
+      </section>
+
+      <section className="crm-copilot-grid">
+        <div className="crm-panel">
+          <PanelHeader title="商机智能评分" actionLabel="查看评分规则" />
+          <div className="crm-copilot-list">
+            {loading ? <EmptyState icon={Bot} title="正在加载后端数据" subtitle="Copilot 将从 FastAPI 获取真实商机评分。" /> : null}
+            {!loading && !insights.length ? <EmptyState icon={Bot} title="暂无商机评分" subtitle="请先初始化演示数据库。" /> : null}
+            {insights.map((item) => (
+              <button
+                key={item.id}
+                className={`crm-copilot-item ${selectedInsight?.id === item.id ? 'is-active' : ''}`}
+                type="button"
+                onClick={() => {
+                  setSelectedId(String(item.id))
+                  setFollowUp(null)
+                }}
+              >
+                <div>
+                  <strong>{item.title}</strong>
+                  <span>{item.customer_name} · {item.stage} · {item.due_date}</span>
+                </div>
+                <div className="crm-score-pill">
+                  <span>{item.grade}</span>
+                  <strong>{item.rule_score}</strong>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="crm-panel crm-copilot-detail">
+          <PanelHeader title="下一步最佳动作" />
+          {selectedInsight ? (
+            <>
+              <div className="crm-copilot-selected">
+                <StatusBadge value={`${selectedInsight.grade} 级`} tone={selectedInsight.grade === 'A' ? 'success' : 'accent'} />
+                <h3>{selectedInsight.title}</h3>
+                <p>{selectedInsight.customer_name} 预计成交 {formatCurrency(selectedInsight.expected_amount)}，当前赢单概率 {formatPercent(selectedInsight.win_rate)}。</p>
+              </div>
+              <div className="crm-ai-note">
+                <Sparkles size={18} />
+                <span>{selectedInsight.next_best_action}</span>
+              </div>
+              <div className="crm-script-box">
+                <span>AI 跟进话术草稿</span>
+                <p>{followUp?.message_draft ?? '点击下方按钮，后端将根据真实商机上下文调用 OpenAI 兼容接口生成话术；未配置密钥时返回规则兜底文案。'}</p>
+                <button className="crm-primary-button" type="button" onClick={handleGenerateFollowUp} disabled={generating}>
+                  <Bot size={16} />
+                  {generating ? '生成中...' : followUp ? '重新生成话术' : '生成跟进话术'}
+                </button>
+                {followUp ? (
+                  <small>{followUp.fallback_used ? '当前使用规则兜底，配置 SMART_CRM_LLM_API_KEY 后可启用真实 LLM。' : followUp.llm_summary}</small>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <EmptyState icon={Bot} title="暂无 Copilot 建议" subtitle="接入真实商机数据后将自动生成。" />
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs, createLabel, loading = false, error = '' }) {
   const [rows, setRows] = useState(records)
   const [activeTab, setActiveTab] = useState(tabs[0].key)
   const [query, setQuery] = useState('')
@@ -854,6 +1201,7 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
         onTabChange={setActiveTab}
         onCreate={handleOpenCreate}
       />
+      <ResourceSyncState loading={loading} error={error} />
       <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} />
       <div className="crm-panel">
         <div className="crm-table-wrap">
@@ -877,6 +1225,7 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
           </table>
         </div>
       </div>
+      {!loading && !error && !visibleRecords.length ? <EmptyState icon={Icon} title={`暂无${title}数据`} subtitle="后端演示数据同步后会显示在这里。" /> : null}
       <CreateRecordModal
         open={createOpen}
         title={createLabel}
@@ -890,7 +1239,7 @@ function TableResourcePage({ title, subtitle, icon: Icon, records, columns, tabs
   )
 }
 
-function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, createLabel, boardKey }) {
+function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, createLabel, boardKey, loading = false, error = '' }) {
   const [rows, setRows] = useState(records)
   const [view, setView] = useState('list')
   const [query, setQuery] = useState('')
@@ -937,6 +1286,7 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
   return (
     <div className="crm-page-stack">
       <ResourceHeader title={title} subtitle={subtitle} icon={Icon} createLabel={createLabel} onCreate={handleOpenCreate} />
+      <ResourceSyncState loading={loading} error={error} />
       <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length}>
         <div className="crm-view-toggle">
           <button className={view === 'list' ? 'is-active' : ''} type="button" onClick={() => setView('list')}>
@@ -999,6 +1349,7 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
           ))}
         </div>
       )}
+      {!loading && !error && !visibleRecords.length ? <EmptyState icon={Icon} title={`暂无${title}数据`} subtitle="后端演示数据同步后会显示在这里。" /> : null}
       <CreateRecordModal
         open={createOpen}
         title={createLabel}
@@ -1014,6 +1365,7 @@ function BoardResourcePage({ title, subtitle, icon: Icon, records, columns, crea
 }
 
 function TasksPage() {
+  const { records: tasks, loading, error } = useRemoteRecords(fetchTasks, mapTaskRecord)
   const tabs = [
     { key: 'all', label: '全部' },
     { key: 'overdue', label: '逾期', predicate: (item) => item.status === 'overdue' },
@@ -1023,8 +1375,8 @@ function TasksPage() {
 
   const [activeTab, setActiveTab] = useState('all')
   const visibleTasks = tabs.find((tab) => tab.key === activeTab)?.predicate
-    ? taskItems.filter(tabs.find((tab) => tab.key === activeTab).predicate)
-    : taskItems
+    ? tasks.filter(tabs.find((tab) => tab.key === activeTab).predicate)
+    : tasks
 
   return (
     <div className="crm-page-stack">
@@ -1037,6 +1389,7 @@ function TasksPage() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />
+      <ResourceSyncState loading={loading} error={error} />
 
       <section className="crm-task-grid">
         {visibleTasks.map((task) => (
@@ -1054,14 +1407,18 @@ function TasksPage() {
           </article>
         ))}
       </section>
+      {!loading && !error && !visibleTasks.length ? <EmptyState icon={CheckSquare} title="暂无任务" subtitle="后端任务数据同步后会显示在这里。" /> : null}
     </div>
   )
 }
 
 function GoalsPage() {
+  const { records: goals, loading, error } = useRemoteRecords(fetchGoals, mapGoalRecord)
+
   return (
     <div className="crm-page-stack">
       <ResourceHeader title="销售目标" subtitle="季度目标、完成进度和预测结果一屏查看。" icon={Trophy} createLabel="新建目标" />
+      <ResourceSyncState loading={loading} error={error} />
 
       <section className="crm-goal-grid">
         {goals.map((goal) => (
@@ -1084,6 +1441,7 @@ function GoalsPage() {
           </article>
         ))}
       </section>
+      {!loading && !error && !goals.length ? <EmptyState icon={Trophy} title="暂无销售目标" subtitle="后端目标数据同步后会显示在这里。" /> : null}
     </div>
   )
 }
@@ -1330,6 +1688,19 @@ function EmptyState({ icon: Icon, title, subtitle }) {
   )
 }
 
+function ResourceSyncState({ loading, error }) {
+  if (!loading && !error) {
+    return null
+  }
+
+  return (
+    <div className={`crm-sync-state ${error ? 'is-error' : ''}`}>
+      {error ? <Shield size={16} /> : <Activity size={16} />}
+      <span>{error || '正在同步后端演示数据'}</span>
+    </div>
+  )
+}
+
 function StatusBadge({ value, tone = 'neutral', isNumeric = false }) {
   return <span className={`crm-badge tone-${tone} ${isNumeric ? 'is-numeric' : ''}`}>{value}</span>
 }
@@ -1348,6 +1719,13 @@ function formatCurrency(value) {
   return new Intl.NumberFormat('zh-CN', {
     style: 'currency',
     currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
+function formatPercent(value) {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'percent',
     maximumFractionDigits: 0,
   }).format(value)
 }

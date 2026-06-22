@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from sqlmodel import Session, select
 
-from .models import Customer, LeadStage, OrderItem, OrderStatus, Product, SalesLead, SalesOrder
+from .models import Contact, Customer, LeadStage, OrderItem, OrderStatus, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 
 
 def seed_data(session: Session) -> None:
@@ -12,127 +12,179 @@ def seed_data(session: Session) -> None:
     if existing_customer:
         return
 
+    today = date.today()
+
     customers = [
-        Customer(
-            name="李强",
-            company="星海装备",
-            industry="工业制造",
-            city="上海",
-            contact_person="李强",
-            phone="13800001111",
-            email="liqiang@xinghai.com",
-            source="展会",
-            level="A",
-        ),
-        Customer(
-            name="陈敏",
-            company="云川医疗",
-            industry="医疗器械",
-            city="杭州",
-            contact_person="陈敏",
-            phone="13900002222",
-            email="chenmin@yunchuan.com",
-            source="老客户转介绍",
-            level="S",
-        ),
-        Customer(
-            name="王凯",
-            company="北辰教育科技",
-            industry="教育信息化",
-            city="深圳",
-            contact_person="王凯",
-            phone="13700003333",
-            email="wangkai@beichen.com",
-            source="官网咨询",
-            level="B",
-        ),
+        Customer(name="李强", company="星海装备", industry="工业制造", city="上海", contact_person="李强", phone="13800001111", email="liqiang@xinghai.com", source="展会", level="A"),
+        Customer(name="陈敏", company="云川医疗", industry="医疗器械", city="杭州", contact_person="陈敏", phone="13900002222", email="chenmin@yunchuan.com", source="老客户转介绍", level="S"),
+        Customer(name="王凯", company="北辰教育科技", industry="教育信息化", city="深圳", contact_person="王凯", phone="13700003333", email="wangkai@beichen.com", source="官网咨询", level="B"),
+        Customer(name="孙伊", company="峰值数据", industry="软件服务", city="深圳", contact_person="孙伊", phone="13600004444", email="sunyi@fengzhi.cn", source="线上活动", level="A"),
+        Customer(name="赵可", company="拓海医疗", industry="医疗健康", city="广州", contact_person="赵可", phone="13500005555", email="zhaoke@tuohai.com", source="行业会议", level="A"),
+        Customer(name="吴青", company="永酌公司", industry="消费制造", city="佛山", contact_person="吴青", phone="13400006666", email="wuqing@yongzhuo.com", source="渠道伙伴", level="S"),
+        Customer(name="韩澈", company="辰星物流", industry="供应链物流", city="东莞", contact_person="韩澈", phone="13300007777", email="hanche@chenxing.io", source="客户转介绍", level="B"),
+        Customer(name="周宁", company="南山科技", industry="人工智能", city="深圳", contact_person="周宁", phone="13200008888", email="zhouning@nanshan.ai", source="校企合作", level="S"),
+        Customer(name="林渡", company="星火教育", industry="教育培训", city="长沙", contact_person="林渡", phone="13100009999", email="lindu@xinghuo.edu", source="官网咨询", level="B"),
+        Customer(name="沈听澜", company="北极星资本", industry="金融服务", city="北京", contact_person="沈听澜", phone="13000001010", email="shen@polaris.vc", source="投资生态", level="A"),
+        Customer(name="韩知意", company="北宸制造", industry="智能制造", city="苏州", contact_person="韩知意", phone="13900001122", email="hanzhiyi@beichenmfg.com", source="展会", level="B"),
+        Customer(name="许川", company="云舟智能", industry="人工智能", city="深圳", contact_person="许川", phone="13800002233", email="xuchuan@yunzhou.ai", source="老客户增购", level="S"),
     ]
+    customer_metrics = {
+        "星海装备": (860000, "active"),
+        "云川医疗": (1180000, "active"),
+        "北辰教育科技": (520000, "nurturing"),
+        "峰值数据": (530000, "active"),
+        "拓海医疗": (960000, "proposal"),
+        "永酌公司": (1420000, "active"),
+        "辰星物流": (420000, "nurturing"),
+        "南山科技": (1680000, "active"),
+        "星火教育": (360000, "closed"),
+        "北极星资本": (980000, "active"),
+        "北宸制造": (640000, "proposal"),
+        "云舟智能": (1880000, "active"),
+    }
+    for customer in customers:
+        customer.annual_revenue, customer.status = customer_metrics[customer.company]
     session.add_all(customers)
     session.flush()
 
+    contacts = [
+        Contact(name="李强", company="星海装备", role="数字化负责人", email="liqiang@xinghai.com", phone="13800001111", owner="李伟超", status="active"),
+        Contact(name="陈敏", company="云川医疗", role="采购经理", email="chenmin@yunchuan.com", phone="13900002222", owner="王晨", status="active"),
+        Contact(name="王凯", company="北辰教育科技", role="信息中心主任", email="wangkai@beichen.com", phone="13700003333", owner="李伟超", status="nurturing"),
+        Contact(name="孙伊", company="峰值数据", role="CEO", email="sunyi@fengzhi.cn", phone="13600004444", owner="陈卓", status="active"),
+        Contact(name="赵可", company="拓海医疗", role="运营负责人", email="zhaoke@tuohai.com", phone="13500005555", owner="赵可", status="active"),
+        Contact(name="吴青", company="永酌公司", role="行政负责人", email="wuqing@yongzhuo.com", phone="13400006666", owner="刘涵", status="active"),
+        Contact(name="韩澈", company="辰星物流", role="IT 经理", email="hanche@chenxing.io", phone="13300007777", owner="赵可", status="nurturing"),
+        Contact(name="周宁", company="南山科技", role="增长负责人", email="zhouning@nanshan.ai", phone="13200008888", owner="李伟超", status="active"),
+        Contact(name="林渡", company="星火教育", role="校区负责人", email="lindu@xinghuo.edu", phone="13100009999", owner="陈卓", status="closed"),
+        Contact(name="沈听澜", company="北极星资本", role="投后运营", email="shen@polaris.vc", phone="13000001010", owner="王蕾", status="active"),
+        Contact(name="韩知意", company="北宸制造", role="采购主管", email="hanzhiyi@beichenmfg.com", phone="13900001122", owner="刘涵", status="active"),
+        Contact(name="许川", company="云舟智能", role="采购总监", email="xuchuan@yunzhou.ai", phone="13800002233", owner="王蕾", status="active"),
+    ]
+    session.add_all(contacts)
+    session.flush()
+
     products = [
-        Product(name="智能巡检终端", sku="AI-DEVICE-001", category="硬件", unit_price=16800, stock=42),
-        Product(name="销售分析大屏授权", sku="SAAS-LIC-008", category="软件", unit_price=6800, stock=999),
-        Product(name="客户数据接入服务", sku="SERV-API-003", category="服务", unit_price=4200, stock=200),
-        Product(name="移动录单套件", sku="MOBILE-KIT-011", category="硬件", unit_price=9800, stock=35),
+        Product(name="智能巡检终端", sku="AI-DEVICE-001", category="硬件", unit_price=16800, stock=80),
+        Product(name="销售分析大屏授权", sku="SAAS-LIC-008", category="软件", unit_price=6800, stock=1200),
+        Product(name="客户数据接入服务", sku="SERV-API-003", category="服务", unit_price=4200, stock=500),
+        Product(name="移动录单套件", sku="MOBILE-KIT-011", category="硬件", unit_price=9800, stock=60),
+        Product(name="AI 商机评分模块", sku="AI-COPILOT-021", category="软件", unit_price=12800, stock=300),
+        Product(name="私有化部署服务", sku="SERV-DEPLOY-018", category="服务", unit_price=26000, stock=80),
+        Product(name="工单协同席位", sku="SUPPORT-SEAT-006", category="软件", unit_price=1800, stock=2000),
+        Product(name="客户画像增强包", sku="DATA-PROFILE-013", category="软件", unit_price=9600, stock=360),
+        Product(name="销售流程咨询包", sku="CONSULT-SALES-016", category="服务", unit_price=18800, stock=60),
+        Product(name="多组织权限模块", sku="AUTH-ORG-009", category="软件", unit_price=7200, stock=520),
     ]
     session.add_all(products)
     session.flush()
 
-    today = date.today()
     leads = [
-        SalesLead(
-            title="校企合作采购项目",
-            customer_name="北辰教育科技",
-            owner="李伟超",
-            region="华南",
-            expected_amount=120000,
-            stage=LeadStage.proposal,
-            next_action="提交最终报价单",
-            due_date=today + timedelta(days=2),
-            ai_assisted=True,
-        ),
-        SalesLead(
-            title="医院智能终端补货",
-            customer_name="云川医疗",
-            owner="王晨",
-            region="华东",
-            expected_amount=86000,
-            stage=LeadStage.negotiation,
-            next_action="确认交付周期",
-            due_date=today + timedelta(days=1),
-            ai_assisted=False,
-        ),
-        SalesLead(
-            title="工业现场改造一期",
-            customer_name="星海装备",
-            owner="李伟超",
-            region="华东",
-            expected_amount=152000,
-            stage=LeadStage.qualified,
-            next_action="安排现场勘查",
-            due_date=today + timedelta(days=4),
-            ai_assisted=True,
-        ),
+        SalesLead(title="云舟年度 CRM 升级", customer_name="云舟智能", owner="王蕾", region="华南", expected_amount=198000, stage=LeadStage.negotiation, next_action="推动采购审批并确认合同条款", due_date=today + timedelta(days=1), ai_assisted=True),
+        SalesLead(title="拓海销售自动化", customer_name="拓海医疗", owner="赵可", region="华南", expected_amount=154000, stage=LeadStage.proposal, next_action="发送 ROI 测算和试点计划", due_date=today + timedelta(days=3), ai_assisted=True),
+        SalesLead(title="峰值客户数据治理", customer_name="峰值数据", owner="陈卓", region="华南", expected_amount=83000, stage=LeadStage.qualified, next_action="确认数据源范围", due_date=today + timedelta(days=5), ai_assisted=False),
+        SalesLead(title="永酌流程整合项目", customer_name="永酌公司", owner="刘涵", region="华南", expected_amount=126000, stage=LeadStage.negotiation, next_action="准备让步边界", due_date=today + timedelta(days=2), ai_assisted=True),
+        SalesLead(title="北辰校企合作采购", customer_name="北辰教育科技", owner="李伟超", region="华南", expected_amount=120000, stage=LeadStage.proposal, next_action="提交最终报价单", due_date=today + timedelta(days=2), ai_assisted=True),
+        SalesLead(title="云川智能终端补货", customer_name="云川医疗", owner="王晨", region="华东", expected_amount=86000, stage=LeadStage.negotiation, next_action="确认交付周期", due_date=today + timedelta(days=1), ai_assisted=False),
+        SalesLead(title="星海工业现场改造一期", customer_name="星海装备", owner="李伟超", region="华东", expected_amount=152000, stage=LeadStage.qualified, next_action="安排现场勘查", due_date=today + timedelta(days=4), ai_assisted=True),
+        SalesLead(title="辰星仓配看板", customer_name="辰星物流", owner="赵可", region="华南", expected_amount=71000, stage=LeadStage.proposal, next_action="补充 SLA 报表字段", due_date=today + timedelta(days=7), ai_assisted=False),
+        SalesLead(title="南山智能增长包", customer_name="南山科技", owner="李伟超", region="华南", expected_amount=238000, stage=LeadStage.new, next_action="确认预算和决策人", due_date=today + timedelta(days=10), ai_assisted=True),
+        SalesLead(title="北极星投后 CRM 标准化", customer_name="北极星资本", owner="王蕾", region="华北", expected_amount=176000, stage=LeadStage.qualified, next_action="整理投后企业模板", due_date=today + timedelta(days=8), ai_assisted=True),
+        SalesLead(title="星火续费与工单协同", customer_name="星火教育", owner="陈卓", region="华中", expected_amount=62000, stage=LeadStage.new, next_action="确认续费窗口", due_date=today + timedelta(days=12), ai_assisted=False),
+        SalesLead(title="北宸制造售后系统", customer_name="北宸制造", owner="刘涵", region="华东", expected_amount=64000, stage=LeadStage.proposal, next_action="发送工单协同方案", due_date=today + timedelta(days=6), ai_assisted=False),
+        SalesLead(title="云舟二期客户画像", customer_name="云舟智能", owner="王蕾", region="华南", expected_amount=98000, stage=LeadStage.won, next_action="沉淀赢单复盘", due_date=today - timedelta(days=2), ai_assisted=True),
+        SalesLead(title="物流移动录单试点", customer_name="辰星物流", owner="赵可", region="华南", expected_amount=45000, stage=LeadStage.lost, next_action="记录丢单原因", due_date=today - timedelta(days=5), ai_assisted=False),
+        SalesLead(title="云川数据接入服务", customer_name="云川医疗", owner="李伟超", region="华东", expected_amount=58000, stage=LeadStage.qualified, next_action="补充接口清单", due_date=today + timedelta(days=9), ai_assisted=True),
     ]
     session.add_all(leads)
     session.flush()
 
-    orders = [
-        SalesOrder(
-            customer_id=customers[1].id,
-            owner="李伟超",
-            region="华东",
-            currency="CNY",
-            status=OrderStatus.confirmed,
-            order_date=today - timedelta(days=6),
-            due_date=today + timedelta(days=6),
-            notes="由 AI 从微信截图辅助生成，人工复核后提交。",
-            created_by_ai=True,
-            ai_confidence_score=0.93,
-            total_amount=40400,
-        ),
-        SalesOrder(
-            customer_id=customers[0].id,
-            owner="王晨",
-            region="华东",
-            currency="CNY",
-            status=OrderStatus.fulfilled,
-            order_date=today - timedelta(days=15),
-            due_date=today - timedelta(days=1),
-            notes="传统手工录入订单。",
-            created_by_ai=False,
-            ai_confidence_score=0.0,
-            total_amount=16800,
-        ),
+    cases = [
+        SupportCase(title="导入联系人失败", account="峰值数据", owner="徐柠", priority="hot", status="open", status_label="Open", due_date=today + timedelta(days=1)),
+        SupportCase(title="移动端表格显示错位", account="拓海医疗", owner="顾川", priority="warm", status="working", status_label="Pending", due_date=today + timedelta(days=2)),
+        SupportCase(title="审批流通知延迟", account="永酌公司", owner="陆远", priority="hot", status="working", status_label="Pending", due_date=today),
+        SupportCase(title="权限组配置咨询", account="云舟智能", owner="徐柠", priority="cold", status="closed", status_label="Resolved", due_date=today - timedelta(days=2)),
+        SupportCase(title="工单 SLA 报表校对", account="辰星物流", owner="顾川", priority="warm", status="open", status_label="Open", due_date=today + timedelta(days=4)),
+        SupportCase(title="DeepSeek 话术接口超时复盘", account="南山科技", owner="李伟超", priority="hot", status="open", status_label="Open", due_date=today + timedelta(days=1)),
+        SupportCase(title="订单库存扣减核对", account="北宸制造", owner="刘涵", priority="warm", status="working", status_label="Pending", due_date=today + timedelta(days=3)),
+        SupportCase(title="演示数据库重置指导", account="北极星资本", owner="陈卓", priority="cold", status="closed", status_label="Resolved", due_date=today - timedelta(days=1)),
     ]
-    session.add_all(orders)
+    session.add_all(cases)
+
+    tasks = [
+        TaskItem(title="回访云舟智能采购团队", description="确认六月采购窗口与预算审批节奏。", owner="王蕾", due_date="今天 18:00", priority="hot", status="today", status_label="今天"),
+        TaskItem(title="补充拓海医疗实施排期", description="将实施节点同步到销售计划与商机详情。", owner="赵可", due_date="明天 10:00", priority="warm", status="week", status_label="本周"),
+        TaskItem(title="整理峰值数据合同附件", description="核对法务意见并更新签署版本。", owner="陈卓", due_date="昨天 15:00", priority="hot", status="overdue", status_label="逾期"),
+        TaskItem(title="检查辰星物流工单报表", description="修正筛选条件并补充导出字段。", owner="刘涵", due_date="周四 11:00", priority="cold", status="week", status_label="本周"),
+        TaskItem(title="安排永酌公司需求研讨会", description="同步销售、产品和实施的关键问题。", owner="王蕾", due_date="今天 14:30", priority="warm", status="today", status_label="今天"),
+        TaskItem(title="复盘 DeepSeek Copilot 生成质量", description="挑选 3 条真实商机话术作为答辩截图。", owner="李伟超", due_date="周五 17:00", priority="hot", status="week", status_label="本周"),
+        TaskItem(title="更新部署文档截图", description="补充 reset-db、pytest、Copilot 接口返回截图。", owner="孙梦琪", due_date="本周日 20:00", priority="warm", status="week", status_label="本周"),
+        TaskItem(title="绘制 L2C 流程图", description="使用 Draw.io 输出可放入 Word/PPT 的流程图。", owner="周博文", due_date="明天 21:00", priority="warm", status="today", status_label="今天"),
+    ]
+    session.add_all(tasks)
+
+    goals = [
+        SalesGoal(name="Q2 新签 ARR", period="2026 Q2", current=388000, target=520000, progress=75, note="距离季度目标还差 132K，重点依赖 3 个谈判中商机。"),
+        SalesGoal(name="大客户续约率", period="2026 Q2", current=84, target=92, progress=91, note="高于历史同期，需重点盯住 2 个高风险续约客户。"),
+        SalesGoal(name="线索转商机率", period="2026 Q2", current=31, target=40, progress=77, note="优化首轮跟进模板后，本月已连续两周提升。"),
+        SalesGoal(name="AI 辅助订单占比", period="2026 Q2", current=58, target=70, progress=83, note="DeepSeek Copilot 接入后，优先推动高价值商机使用 AI 草稿。"),
+    ]
+    session.add_all(goals)
     session.flush()
 
-    items = [
-        OrderItem(order_id=orders[0].id, product_id=products[0].id, quantity=2, unit_price=16800, line_total=33600),
-        OrderItem(order_id=orders[0].id, product_id=products[2].id, quantity=1, unit_price=6800, line_total=6800),
-        OrderItem(order_id=orders[1].id, product_id=products[0].id, quantity=1, unit_price=16800, line_total=16800),
+    product_by_sku = {product.sku: product for product in products}
+    customer_by_company = {customer.company: customer for customer in customers}
+
+    order_specs = [
+        ("云川医疗", "李伟超", "华东", OrderStatus.confirmed, True, 0.93, today - timedelta(days=6), today + timedelta(days=6), [("AI-DEVICE-001", 2), ("SERV-API-003", 1)]),
+        ("星海装备", "王晨", "华东", OrderStatus.fulfilled, False, 0.0, today - timedelta(days=15), today - timedelta(days=1), [("AI-DEVICE-001", 1)]),
+        ("云舟智能", "王蕾", "华南", OrderStatus.confirmed, True, 0.88, today - timedelta(days=4), today + timedelta(days=12), [("AI-COPILOT-021", 4), ("DATA-PROFILE-013", 2)]),
+        ("永酌公司", "刘涵", "华南", OrderStatus.draft, True, 0.81, today - timedelta(days=2), today + timedelta(days=16), [("SAAS-LIC-008", 5), ("AUTH-ORG-009", 3)]),
+        ("北辰教育科技", "李伟超", "华南", OrderStatus.confirmed, True, 0.9, today - timedelta(days=8), today + timedelta(days=10), [("MOBILE-KIT-011", 3), ("SUPPORT-SEAT-006", 20)]),
+        ("峰值数据", "陈卓", "华南", OrderStatus.fulfilled, False, 0.0, today - timedelta(days=24), today - timedelta(days=8), [("DATA-PROFILE-013", 3), ("SERV-API-003", 2)]),
+        ("拓海医疗", "赵可", "华南", OrderStatus.draft, True, 0.79, today - timedelta(days=1), today + timedelta(days=20), [("SAAS-LIC-008", 8), ("AI-COPILOT-021", 2)]),
+        ("辰星物流", "赵可", "华南", OrderStatus.confirmed, False, 0.0, today - timedelta(days=12), today + timedelta(days=3), [("MOBILE-KIT-011", 2), ("SUPPORT-SEAT-006", 15)]),
+        ("南山科技", "李伟超", "华南", OrderStatus.draft, True, 0.86, today, today + timedelta(days=21), [("AI-COPILOT-021", 6), ("SERV-DEPLOY-018", 1)]),
+        ("北极星资本", "王蕾", "华北", OrderStatus.confirmed, False, 0.0, today - timedelta(days=18), today + timedelta(days=2), [("CONSULT-SALES-016", 1), ("AUTH-ORG-009", 5)]),
+        ("星火教育", "陈卓", "华中", OrderStatus.fulfilled, False, 0.0, today - timedelta(days=30), today - timedelta(days=12), [("SUPPORT-SEAT-006", 30)]),
+        ("北宸制造", "刘涵", "华东", OrderStatus.confirmed, True, 0.84, today - timedelta(days=9), today + timedelta(days=9), [("AI-DEVICE-001", 2), ("CONSULT-SALES-016", 1)]),
     ]
-    session.add_all(items)
+
+    orders: list[SalesOrder] = []
+    pending_items: list[tuple[SalesOrder, Product, int]] = []
+    for company, owner, region, status, by_ai, confidence, order_date, due_date, lines in order_specs:
+        order = SalesOrder(
+            customer_id=customer_by_company[company].id,
+            owner=owner,
+            region=region,
+            currency="CNY",
+            status=status,
+            order_date=order_date,
+            due_date=due_date,
+            notes="AI Copilot 演示数据：用于验证订单、库存与仪表盘联动。" if by_ai else "历史手工订单演示数据。",
+            created_by_ai=by_ai,
+            ai_confidence_score=confidence,
+        )
+        session.add(order)
+        orders.append(order)
+        for sku, quantity in lines:
+            pending_items.append((order, product_by_sku[sku], quantity))
+    session.flush()
+
+    for order, product, quantity in pending_items:
+        line_total = product.unit_price * quantity
+        order.total_amount += line_total
+        product.stock = max(product.stock - quantity, 0)
+        session.add(
+            OrderItem(
+                order_id=order.id,
+                product_id=product.id,
+                quantity=quantity,
+                unit_price=product.unit_price,
+                line_total=line_total,
+            )
+        )
+        session.add(product)
+        session.add(order)
+
     session.commit()

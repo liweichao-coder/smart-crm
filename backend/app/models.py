@@ -32,6 +32,8 @@ class CustomerBase(SQLModel):
     email: str
     source: str
     level: str
+    annual_revenue: float = 0
+    status: str = "active"
 
 
 class Customer(CustomerBase, table=True):
@@ -52,6 +54,21 @@ class Product(ProductBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class ContactBase(SQLModel):
+    name: str = Field(index=True)
+    company: str = Field(index=True)
+    role: str
+    email: str
+    phone: str
+    owner: str
+    status: str = "active"
+
+
+class Contact(ContactBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class SalesLeadBase(SQLModel):
     title: str
     customer_name: str
@@ -65,6 +82,50 @@ class SalesLeadBase(SQLModel):
 
 
 class SalesLead(SalesLeadBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class SupportCaseBase(SQLModel):
+    title: str
+    account: str = Field(index=True)
+    owner: str
+    priority: str
+    status: str
+    status_label: str
+    due_date: date
+
+
+class SupportCase(SupportCaseBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class TaskItemBase(SQLModel):
+    title: str
+    description: str
+    owner: str
+    due_date: str
+    priority: str
+    status: str
+    status_label: str
+
+
+class TaskItem(TaskItemBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class SalesGoalBase(SQLModel):
+    name: str
+    period: str
+    current: float
+    target: float
+    progress: int
+    note: str
+
+
+class SalesGoal(SalesGoalBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 

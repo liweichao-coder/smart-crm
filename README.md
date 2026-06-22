@@ -2,7 +2,7 @@
 
 一个用于课程设计演示的智能销售管理系统。目前仓库同时包含：
 
-- 根目录 React + Vite 前端管理台，来自 `origin/yanda` 的花和暖 CRM 页面重构
+- 根目录 React + Vite 前端管理台，已包装为深大 AI CRM 风格
 - `backend/` FastAPI + SQLite 后端 API
 - 本地可运行的 AI 智能录单演示流程
 
@@ -17,13 +17,15 @@
 - Cases 工单页
 - Tasks 任务页
 - Sales Goals 目标页
-- 后端健康检查、商品、客户、商机、订单和 AI 订单草稿接口
+- 后端健康检查、商品、客户、联系人、商机、工单、任务、目标、订单和 AI 订单草稿接口
+- AI Sales Copilot：商机评分、预测金额、风险摘要、跟进话术、订单草稿建议
 
 ## 当前实现边界
 
-- 根目录前端页面当前主要使用 mock 数据驱动，尚未接入后端 API。
-- `backend/` 已保留原 FastAPI API、数据库、订单创建、库存扣减和测试。
-- AI 录单流程在后端已打通，但视觉识别仍是本地模拟逻辑，不是真实大模型。
+- 客户、联系人、线索、商机、工单、任务、目标页面已接入真实 FastAPI 资源接口。
+- 仪表盘仍保留部分演示型摘要组件，后续可继续完全接入 `/api/dashboard`。
+- `backend/` 已实现 FastAPI API、SQLite 数据库、订单创建、库存扣减、资源列表、Copilot 摘要和测试。
+- AI 录单流程在后端已打通，视觉识别当前仍是本地模拟逻辑；AI 副驾已支持 OpenAI 兼容 LLM，未配置 Key 时自动规则兜底。
 - 登录鉴权、完整 CRUD、复杂报表、前后端统一鉴权仍未完成。
 
 ## 环境要求
@@ -52,7 +54,9 @@ http://127.0.0.1:5173
 
 ```powershell
 cd D:\LwcCode\personal-project\smart-crm\backend
+Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m app.manage reset-db
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -80,10 +84,11 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 
 ## 下一步建议
 
-- 将前端 mock 数据逐步替换为真实 API 数据。
+- 将仪表盘摘要组件继续替换为真实 `/api/dashboard` 数据。
 - 将通用卡片、表格、看板拆为独立组件。
 - 把筛选、分页、列显示等状态同步到 URL 参数。
-- 补齐登录鉴权、客户/商机/订单 CRUD 和端到端冒烟测试。
+- 补齐登录鉴权、客户/商机/订单 CRUD 和更完整的端到端冒烟测试。
+- 详见 `docs/deployment.md` 和 `docs/dev-log/`。
 
 ## 目录结构
 

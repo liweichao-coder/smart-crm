@@ -20,6 +20,8 @@ class CustomerRead(BaseModel):
     email: str
     source: str
     level: str
+    annual_revenue: float
+    status: str
     created_at: datetime
 
 
@@ -32,6 +34,20 @@ class ProductRead(BaseModel):
     category: str
     unit_price: float
     stock: int
+
+
+class ContactRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    company: str
+    role: str
+    email: str
+    phone: str
+    owner: str
+    status: str
+    created_at: datetime
 
 
 class LeadRead(BaseModel):
@@ -47,6 +63,47 @@ class LeadRead(BaseModel):
     next_action: str
     due_date: date
     ai_assisted: bool
+    created_at: datetime
+
+
+class SupportCaseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    account: str
+    owner: str
+    priority: str
+    status: str
+    status_label: str
+    due_date: date
+    created_at: datetime
+
+
+class TaskItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    description: str
+    owner: str
+    due_date: str
+    priority: str
+    status: str
+    status_label: str
+    created_at: datetime
+
+
+class SalesGoalRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    period: str
+    current: float
+    target: float
+    progress: int
+    note: str
     created_at: datetime
 
 
@@ -134,3 +191,69 @@ class VisionExtractResponse(BaseModel):
     summary: str
     items: list[VisionExtractItem]
     suggested_notes: str
+
+
+class CopilotOpportunityInsight(BaseModel):
+    id: int
+    title: str
+    customer_name: str
+    owner: str
+    region: str
+    expected_amount: float
+    stage: str
+    due_date: date
+    rule_score: int = Field(ge=0, le=100)
+    grade: str
+    win_rate: float = Field(ge=0, le=1)
+    next_best_action: str
+    score_reasons: list[str]
+
+
+class CopilotSummaryResponse(BaseModel):
+    forecast_amount: float
+    at_risk_count: int
+    top_opportunity: CopilotOpportunityInsight | None
+    recommendation: str
+    llm_summary: str
+    fallback_used: bool
+    insights: list[CopilotOpportunityInsight]
+
+
+class CopilotFollowUpRequest(BaseModel):
+    lead_id: int | None = None
+    customer_name: str = ""
+    opportunity_title: str = ""
+    stage: str = ""
+    pain_points: list[str] = Field(default_factory=list)
+    expected_amount: float = 0
+
+
+class CopilotFollowUpResponse(BaseModel):
+    rule_score: int = Field(ge=0, le=100)
+    grade: str
+    llm_summary: str
+    message_draft: str
+    next_best_action: str
+    fallback_used: bool
+
+
+class CopilotOrderDraftRequest(BaseModel):
+    customer_id: int
+    product_ids: list[int] = Field(default_factory=list)
+    business_goal: str = ""
+
+
+class CopilotOrderDraftItem(BaseModel):
+    product_id: int
+    product_name: str
+    quantity: int = Field(ge=1)
+    unit_price: float = Field(gt=0)
+
+
+class CopilotOrderDraftResponse(BaseModel):
+    customer_id: int
+    customer_name: str
+    items: list[CopilotOrderDraftItem]
+    suggested_notes: str
+    llm_summary: str
+    fallback_used: bool

@@ -17,6 +17,7 @@ frontend/dist/
 
 # Backend
 backend/.venv/
+backend/.env
 backend/__pycache__/
 backend/.pytest_cache/
 backend/smart_crm.db

@@ -10,8 +10,14 @@ from sqlmodel import Session, select
 
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import Customer, OrderItem, Product, SalesLead, SalesOrder
+from .models import Contact, Customer, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
+    ContactRead,
+    CopilotFollowUpRequest,
+    CopilotFollowUpResponse,
+    CopilotOrderDraftRequest,
+    CopilotOrderDraftResponse,
+    CopilotSummaryResponse,
     CustomerRead,
     DashboardMetric,
     DashboardResponse,
@@ -19,15 +25,19 @@ from .schemas import (
     OrderItemRead,
     ProductRead,
     RevenuePoint,
+    SalesGoalRead,
     SalesOrderCreate,
     SalesOrderRead,
+    SupportCaseRead,
+    TaskItemRead,
     VisionExtractResponse,
 )
 from .seed import seed_data
-from .services import VisionExtractionService
+from .services import CopilotService, VisionExtractionService
 
 
 vision_service = VisionExtractionService()
+copilot_service = CopilotService()
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
@@ -100,9 +110,29 @@ def list_products(session: SessionDep) -> list[Product]:
     return session.exec(select(Product).order_by(Product.created_at.desc())).all()
 
 
+@app.get("/api/contacts", response_model=list[ContactRead])
+def list_contacts(session: SessionDep) -> list[Contact]:
+    return session.exec(select(Contact).order_by(Contact.created_at.desc())).all()
+
+
 @app.get("/api/leads", response_model=list[LeadRead])
 def list_leads(session: SessionDep) -> list[SalesLead]:
     return session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+
+
+@app.get("/api/cases", response_model=list[SupportCaseRead])
+def list_cases(session: SessionDep) -> list[SupportCase]:
+    return session.exec(select(SupportCase).order_by(SupportCase.due_date.asc())).all()
+
+
+@app.get("/api/tasks", response_model=list[TaskItemRead])
+def list_tasks(session: SessionDep) -> list[TaskItem]:
+    return session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+
+
+@app.get("/api/goals", response_model=list[SalesGoalRead])
+def list_goals(session: SessionDep) -> list[SalesGoal]:
+    return session.exec(select(SalesGoal).order_by(SalesGoal.created_at.desc())).all()
 
 
 @app.get("/api/orders", response_model=list[SalesOrderRead])
@@ -164,6 +194,39 @@ def create_order(payload: SalesOrderCreate, session: SessionDep) -> SalesOrderRe
 @app.post("/api/vision-extract", response_model=VisionExtractResponse)
 async def vision_extract(file: Annotated[UploadFile, File(...)]) -> VisionExtractResponse:
     return await vision_service.extract(file)
+
+
+@app.get("/api/copilot/summary", response_model=CopilotSummaryResponse)
+async def copilot_summary(session: SessionDep) -> CopilotSummaryResponse:
+    leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+    return await copilot_service.summarize(leads)
+
+
+@app.post("/api/copilot/follow-up", response_model=CopilotFollowUpResponse)
+async def copilot_follow_up(payload: CopilotFollowUpRequest, session: SessionDep) -> CopilotFollowUpResponse:
+    lead = session.get(SalesLead, payload.lead_id) if payload.lead_id else None
+    if payload.lead_id and not lead:
+        raise HTTPException(status_code=404, detail="商机不存在")
+    return await copilot_service.follow_up(payload, lead)
+
+
+@app.post("/api/copilot/order-draft", response_model=CopilotOrderDraftResponse)
+async def copilot_order_draft(payload: CopilotOrderDraftRequest, session: SessionDep) -> CopilotOrderDraftResponse:
+    customer = session.get(Customer, payload.customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+
+    if payload.product_ids:
+        products = session.exec(select(Product).where(Product.id.in_(payload.product_ids))).all()
+        if len(products) != len(set(payload.product_ids)):
+            raise HTTPException(status_code=400, detail="存在无效商品")
+    else:
+        products = session.exec(select(Product).order_by(Product.created_at.desc())).all()
+
+    if not products:
+        raise HTTPException(status_code=400, detail="没有可用于生成草稿的商品")
+
+    return await copilot_service.order_draft(customer, products, payload.business_goal)
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)
