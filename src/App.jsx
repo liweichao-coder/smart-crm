@@ -432,6 +432,12 @@ function buildOrderDraft(order) {
     status: order?.status ?? 'draft',
     dueDate: order?.due_date ?? new Date().toISOString().slice(0, 10),
     notes: order?.notes ?? '',
+    items: (order?.items ?? []).map((item, index) => ({
+      draftId: `existing-${item.id ?? index}`,
+      productId: String(item.product_id ?? ''),
+      quantity: String(item.quantity ?? 1),
+      unitPrice: String(item.unit_price ?? 1),
+    })),
   }
 }
 
@@ -442,7 +448,25 @@ function buildOrderUpdatePayload(draft) {
     status: toDraftText(draft.status, 'draft'),
     due_date: toDraftText(draft.dueDate, new Date().toISOString().slice(0, 10)),
     notes: toDraftText(draft.notes, '订单状态已更新。'),
+    items: (draft.items ?? []).map((item) => ({
+      product_id: Math.round(toDraftNumber(item.productId, 0)),
+      quantity: Math.max(1, Math.round(toDraftNumber(item.quantity, 1))),
+      unit_price: Math.max(0.01, toDraftNumber(item.unitPrice, 1)),
+    })),
   }
+}
+
+function buildOrderLineDraft(product) {
+  return {
+    draftId: `new-${product?.id ?? 'product'}-${Date.now()}`,
+    productId: String(product?.id ?? ''),
+    quantity: '1',
+    unitPrice: String(product?.unit_price ?? 1),
+  }
+}
+
+function calculateOrderLineTotal(item) {
+  return Math.max(1, Math.round(toDraftNumber(item.quantity, 1))) * Math.max(0.01, toDraftNumber(item.unitPrice, 1))
 }
 
 function buildDraftFromRecord(columns, record, workflowField) {
@@ -2017,7 +2041,11 @@ function OrdersPage() {
     if (!selectedOrder) {
       return
     }
-    setOrderDraft(buildOrderDraft(selectedOrder))
+    const nextDraft = buildOrderDraft(selectedOrder)
+    if (!nextDraft.items.length && products[0]) {
+      nextDraft.items = [buildOrderLineDraft(products[0])]
+    }
+    setOrderDraft(nextDraft)
     setError('')
     setOrderEditOpen(true)
   }
@@ -2033,6 +2061,7 @@ function OrdersPage() {
       const updatedOrder = await updateOrder(selectedOrder.id, buildOrderUpdatePayload(orderDraft))
       setOrders((currentOrders) => currentOrders.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)))
       setSelectedOrderId(updatedOrder.id)
+      await refreshInventoryState()
       setOrderEditOpen(false)
     } catch (nextError) {
       setError(nextError.message || '订单更新失败')
@@ -2063,6 +2092,50 @@ function OrdersPage() {
     options: ['draft', 'confirmed', 'fulfilled'],
     optionLabels: orderStatusLabelMap,
   }), [])
+  const productOptionMap = useMemo(() => new Map(products.map((product) => [String(product.id), product])), [products])
+  const orderDraftItems = useMemo(() => orderDraft.items ?? [], [orderDraft.items])
+  const orderDraftTotal = useMemo(() => {
+    return orderDraftItems.reduce((total, item) => total + calculateOrderLineTotal(item), 0)
+  }, [orderDraftItems])
+
+  const handleAddOrderItem = () => {
+    if (!products.length) {
+      return
+    }
+    setOrderDraft((currentDraft) => ({
+      ...currentDraft,
+      items: [...(currentDraft.items ?? []), buildOrderLineDraft(products[0])],
+    }))
+  }
+
+  const handleRemoveOrderItem = (draftId) => {
+    setOrderDraft((currentDraft) => {
+      const remainingItems = (currentDraft.items ?? []).filter((item) => item.draftId !== draftId)
+      return {
+        ...currentDraft,
+        items: remainingItems.length ? remainingItems : currentDraft.items,
+      }
+    })
+  }
+
+  const handleOrderItemChange = (draftId, key, value) => {
+    setOrderDraft((currentDraft) => ({
+      ...currentDraft,
+      items: (currentDraft.items ?? []).map((item) => {
+        if (item.draftId !== draftId) {
+          return item
+        }
+        const nextItem = { ...item, [key]: value }
+        if (key === 'productId') {
+          const product = productOptionMap.get(String(value))
+          if (product) {
+            nextItem.unitPrice = String(product.unit_price)
+          }
+        }
+        return nextItem
+      }),
+    }))
+  }
 
   return (
     <div className="crm-page-stack">
@@ -2223,7 +2296,16 @@ function OrdersPage() {
         onClose={() => setOrderEditOpen(false)}
         onSubmit={handleSubmitOrderEdit}
         submitting={orderSaving}
-      />
+      >
+        <OrderItemsEditor
+          products={products}
+          items={orderDraftItems}
+          totalAmount={orderDraftTotal}
+          onAddItem={handleAddOrderItem}
+          onRemoveItem={handleRemoveOrderItem}
+          onItemChange={handleOrderItemChange}
+        />
+      </CreateRecordModal>
 
       <section className="crm-panel">
         <PanelHeader title="库存补货建议" />
@@ -3112,7 +3194,92 @@ function ResourceHeader({ title, subtitle, icon: Icon, createLabel, tabs = [], a
   )
 }
 
-function CreateRecordModal({ open, title, columns, workflowField, draft, onDraftChange, onClose, onSubmit, submitting = false }) {
+function OrderItemsEditor({ products, items, totalAmount, onAddItem, onRemoveItem, onItemChange }) {
+  return (
+    <div className="crm-order-lines-editor">
+      <div className="crm-order-lines-head">
+        <div>
+          <strong>订单商品明细</strong>
+          <small>保存后自动重算订单金额，并按净差额扣减或回补库存。</small>
+        </div>
+        <button className="crm-ghost-button" type="button" onClick={onAddItem} disabled={!products.length}>
+          <Plus size={16} />
+          添加明细
+        </button>
+      </div>
+
+      <div className="crm-table-wrap">
+        <table className="crm-table crm-order-lines-table">
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>数量</th>
+              <th>单价</th>
+              <th>小计</th>
+              <th className="crm-table-actions-cell">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.draftId}>
+                <td>
+                  <select
+                    className="crm-order-line-control"
+                    value={item.productId}
+                    onChange={(event) => onItemChange(item.draftId, 'productId', event.target.value)}
+                    required
+                  >
+                    <option value="">选择商品</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name} / {product.sku}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <input
+                    className="crm-order-line-control is-number"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={item.quantity}
+                    onChange={(event) => onItemChange(item.draftId, 'quantity', event.target.value)}
+                    required
+                  />
+                </td>
+                <td>
+                  <input
+                    className="crm-order-line-control is-number"
+                    type="number"
+                    min="0.01"
+                    step="100"
+                    value={item.unitPrice}
+                    onChange={(event) => onItemChange(item.draftId, 'unitPrice', event.target.value)}
+                    required
+                  />
+                </td>
+                <td>{formatCurrency(calculateOrderLineTotal(item))}</td>
+                <td className="crm-table-actions-cell">
+                  <button className="crm-icon-button crm-icon-button--danger" type="button" aria-label="删除订单明细" title="删除" onClick={() => onRemoveItem(item.draftId)} disabled={items.length <= 1}>
+                    <Trash2 size={15} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="crm-order-lines-total">
+        <span>重算订单总额</span>
+        <strong>{formatCurrency(totalAmount)}</strong>
+      </div>
+    </div>
+  )
+}
+
+function CreateRecordModal({ open, title, columns, workflowField, draft, onDraftChange, onClose, onSubmit, submitting = false, children }) {
   if (!open) {
     return null
   }
@@ -3162,6 +3329,8 @@ function CreateRecordModal({ open, title, columns, workflowField, draft, onDraft
             </label>
           ))}
         </div>
+
+        {children ? <div className="crm-modal-extra">{children}</div> : null}
 
         <div className="crm-modal-actions">
           <button className="crm-ghost-button" type="button" onClick={onClose}>

@@ -1559,6 +1559,70 @@ body {
   border-color: var(--accent);
 }
 
+.crm-modal-extra {
+  margin: 4px 0 22px;
+}
+
+.crm-order-lines-editor {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface-muted);
+}
+
+.crm-order-lines-head,
+.crm-order-lines-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.crm-order-lines-head strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.crm-order-lines-head small,
+.crm-order-lines-total span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.crm-order-lines-table th,
+.crm-order-lines-table td {
+  vertical-align: middle;
+}
+
+.crm-order-line-control {
+  width: 100%;
+  min-width: 150px;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.crm-order-line-control.is-number {
+  min-width: 92px;
+}
+
+.crm-order-lines-total {
+  justify-self: end;
+  min-width: 220px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.crm-order-lines-total strong {
+  font-size: 18px;
+}
+
 .crm-copilot-hero {
   align-items: flex-start;
   justify-content: space-between;
@@ -1857,5 +1921,20 @@ body {
   .crm-modal-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .crm-order-lines-head,
+  .crm-order-lines-total {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .crm-order-line-control {
+    min-width: 120px;
+  }
+
+  .crm-order-lines-total {
+    justify-self: stretch;
+    min-width: 0;
   }
 }

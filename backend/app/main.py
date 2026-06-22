@@ -209,6 +209,77 @@ def serialize_order(order: SalesOrder, session: Session) -> SalesOrderRead:
     )
 
 
+def replace_order_items(order: SalesOrder, payload_items, session: Session) -> None:
+    if not payload_items:
+        raise HTTPException(status_code=400, detail="订单明细不能为空")
+
+    existing_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
+    old_quantities = Counter()
+    new_quantities = Counter()
+    for item in existing_items:
+        old_quantities[item.product_id] += item.quantity
+    for item in payload_items:
+        new_quantities[item.product_id] += item.quantity
+
+    new_product_ids = set(new_quantities)
+    all_product_ids = sorted(set(old_quantities) | new_product_ids)
+    products = session.exec(select(Product).where(Product.id.in_(all_product_ids))).all() if all_product_ids else []
+    product_map = {product.id: product for product in products}
+    if not new_product_ids <= set(product_map):
+        raise HTTPException(status_code=400, detail="存在无效商品")
+    if not set(old_quantities) <= set(product_map):
+        raise HTTPException(status_code=400, detail="订单包含无效历史商品")
+
+    for product_id in all_product_ids:
+        delta = new_quantities[product_id] - old_quantities[product_id]
+        if delta <= 0:
+            continue
+        product = product_map[product_id]
+        if delta > product.stock:
+            raise HTTPException(status_code=400, detail=f"{product.name} 库存不足，当前仅剩 {product.stock} 件，无法增加 {delta} 件")
+
+    for product_id in all_product_ids:
+        delta = new_quantities[product_id] - old_quantities[product_id]
+        if delta == 0:
+            continue
+        product = product_map[product_id]
+        before_stock = product.stock
+        product.stock = product.stock - delta
+        session.add(product)
+        session.add(
+            InventoryMovement(
+                product_id=product.id,
+                change_quantity=-delta,
+                before_stock=before_stock,
+                after_stock=product.stock,
+                reason=f"订单 #{order.id} 明细调整：{product.name} 净变化 {delta:+d} 件",
+                operator=order.owner,
+                source="order_adjustment",
+            )
+        )
+
+    for item in existing_items:
+        session.delete(item)
+    session.flush()
+
+    total_amount = 0.0
+    for item in payload_items:
+        line_total = item.quantity * item.unit_price
+        total_amount += line_total
+        session.add(
+            OrderItem(
+                order_id=order.id,
+                product_id=item.product_id,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                line_total=line_total,
+            )
+        )
+
+    order.total_amount = total_amount
+    session.add(order)
+
+
 def build_orders_csv(orders: list[SalesOrderRead]) -> str:
     output = io.StringIO()
     writer = csv.writer(output)
@@ -668,7 +739,9 @@ def update_order(order_id: int, payload: SalesOrderUpdate, session: SessionDep) 
     order = session.get(SalesOrder, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在")
-    apply_updates(order, patch_values(payload))
+    apply_updates(order, payload.model_dump(exclude_unset=True, exclude_none=True, exclude={"items"}))
+    if payload.items is not None:
+        replace_order_items(order, payload.items, session)
     session.add(order)
     session.commit()
     session.refresh(order)

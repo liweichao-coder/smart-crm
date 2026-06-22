@@ -339,6 +339,7 @@ class SalesOrderUpdate(BaseModel):
     status: OrderStatus | None = None
     due_date: date | None = None
     notes: str | None = None
+    items: list[OrderItemPayload] | None = None
 
 
 class OrderItemRead(BaseModel):

@@ -1,3 +1,5 @@
+from collections import Counter
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -305,6 +307,85 @@ def test_update_order_lifecycle_fields() -> None:
     assert payload["due_date"] == "2026-07-08"
     assert payload["notes"] == "订单状态已由运营复核更新。"
     assert payload["items"]
+
+
+def test_update_order_items_reprices_and_adjusts_inventory() -> None:
+    with TestClient(app) as client:
+        order = next(item for item in client.get("/api/orders").json() if len(item["items"]) >= 2)
+        temp_product = client.post(
+            "/api/products",
+            json={
+                "name": "订单调整测试商品",
+                "sku": "ORDER-EDIT-SMOKE-001",
+                "category": "软件",
+                "unit_price": 1200,
+                "stock": 20,
+            },
+        ).json()
+        products_before = {product["id"]: product for product in client.get("/api/products").json()}
+        old_quantities = Counter()
+        for item in order["items"]:
+            old_quantities[item["product_id"]] += item["quantity"]
+        response = client.patch(
+            f"/api/orders/{order['id']}",
+            json={
+                "items": [
+                    {
+                        "product_id": temp_product["id"],
+                        "quantity": 3,
+                        "unit_price": 1350,
+                    }
+                ],
+            },
+        )
+        products_after = {product["id"]: product for product in client.get("/api/products").json()}
+        movements = client.get("/api/inventory/movements?limit=80").json()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["product_id"] == temp_product["id"]
+    assert payload["items"][0]["quantity"] == 3
+    assert payload["items"][0]["line_total"] == 4050
+    assert payload["total_amount"] == 4050
+    assert products_after[temp_product["id"]]["stock"] == products_before[temp_product["id"]]["stock"] - 3
+    for product_id, quantity in old_quantities.items():
+        assert products_after[product_id]["stock"] == products_before[product_id]["stock"] + quantity
+    adjustment_product_ids = {movement["product_id"] for movement in movements if movement["source"] == "order_adjustment"}
+    assert temp_product["id"] in adjustment_product_ids
+    assert set(old_quantities) <= adjustment_product_ids
+
+
+def test_update_order_items_rejects_insufficient_stock() -> None:
+    with TestClient(app) as client:
+        order = client.get("/api/orders").json()[0]
+        temp_product = client.post(
+            "/api/products",
+            json={
+                "name": "低库存订单调整商品",
+                "sku": "ORDER-EDIT-LOW-STOCK-001",
+                "category": "硬件",
+                "unit_price": 8800,
+                "stock": 1,
+            },
+        ).json()
+        response = client.patch(
+            f"/api/orders/{order['id']}",
+            json={
+                "items": [
+                    {
+                        "product_id": temp_product["id"],
+                        "quantity": 2,
+                        "unit_price": 8800,
+                    }
+                ],
+            },
+        )
+        product_after = next(product for product in client.get("/api/products").json() if product["id"] == temp_product["id"])
+
+    assert response.status_code == 400
+    assert "库存不足" in response.json()["detail"]
+    assert product_after["stock"] == 1
 
 
 def test_create_order_rejects_insufficient_stock() -> None:
