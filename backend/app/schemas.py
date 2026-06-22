@@ -924,6 +924,45 @@ class DashboardMetric(BaseModel):
     hint: str
 
 
+class AIQualityOperationBreakdown(BaseModel):
+    operation: str
+    label: str
+    total_count: int
+    llm_count: int
+    fallback_count: int
+    fallback_rate: float
+    average_latency_ms: int
+
+
+class AIQualityModelBreakdown(BaseModel):
+    model: str
+    total_count: int
+    llm_count: int
+    fallback_count: int
+    fallback_rate: float
+    average_latency_ms: int
+
+
+class AIQualityRecommendationSignal(BaseModel):
+    total_recommendations: int
+    average_rule_score: float
+    average_win_rate: float
+    fallback_count: int
+    fallback_rate: float
+    converted_task_count: int
+    conversion_rate: float
+
+
+class AIQualityReportResponse(BaseModel):
+    generated_at: datetime
+    metrics: list[DashboardMetric]
+    operation_breakdown: list[AIQualityOperationBreakdown]
+    model_breakdown: list[AIQualityModelBreakdown]
+    recommendation_signal: AIQualityRecommendationSignal
+    recent_fallbacks: list[AIInteractionLogRead]
+    applied_filters: dict[str, str]
+
+
 class RevenuePoint(BaseModel):
     month: str
     revenue: float

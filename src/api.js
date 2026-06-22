@@ -119,6 +119,10 @@ export function fetchAiAuditLogs(params) {
   return request(`/api/ai-audit-logs${buildQueryString(params)}`)
 }
 
+export function fetchAiQualityReport(params) {
+  return request(`/api/reports/ai-quality${buildQueryString(params)}`)
+}
+
 export function fetchBusinessAuditLogs(params) {
   return request(`/api/business-audit-logs${buildQueryString(params)}`)
 }

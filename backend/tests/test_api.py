@@ -662,6 +662,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
             headers=headers,
         )
         denied_audit = client.get("/api/business-audit-logs", headers=headers)
+        denied_ai_quality = client.get("/api/reports/ai-quality", headers=headers)
         denied_consistency = client.get("/api/system/consistency-checks", headers=headers)
         denied_report = client.get("/api/reports/sales-performance", headers=headers)
         denied_approval_report = client.get("/api/reports/approval-performance", headers=headers)
@@ -713,6 +714,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert denied_recommendation_task.status_code == 403
     assert denied_product.status_code == 403
     assert denied_audit.status_code == 403
+    assert denied_ai_quality.status_code == 403
     assert denied_consistency.status_code == 403
     assert denied_report.status_code == 403
     assert denied_approval_report.status_code == 403
@@ -1600,6 +1602,50 @@ def test_ai_audit_logs_record_runtime_actions(monkeypatch) -> None:
     assert all(log["fallback_used"] is True for log in logs)
     assert all(log["latency_ms"] >= 0 for log in logs)
     assert all("sk-" not in log["request_summary"] for log in logs)
+
+
+def test_ai_quality_report_uses_real_audit_and_recommendation_logs(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    order_text = "客户：云川医疗 联系人：陈敏\n智能巡检终端 x1"
+
+    with TestClient(app) as client:
+        lead = client.get("/api/leads").json()[0]
+        customer = client.get("/api/customers").json()[0]
+        product = client.get("/api/products").json()[0]
+
+        client.get("/api/copilot/summary")
+        client.post("/api/copilot/follow-up", json={"lead_id": lead["id"]})
+        recommendations = client.get("/api/copilot/recommendations").json()
+        assert recommendations
+        client.post(f"/api/copilot/recommendations/{recommendations[0]['id']}/task")
+        client.post(
+            "/api/copilot/order-draft",
+            json={
+                "customer_id": customer["id"],
+                "product_ids": [product["id"]],
+                "business_goal": "验证 AI 质量评估",
+            },
+        )
+        client.post(
+            "/api/vision-extract",
+            files={"file": ("order.txt", order_text.encode("utf-8"), "text/plain")},
+        )
+        response = client.get("/api/reports/ai-quality")
+        invalid_range = client.get("/api/reports/ai-quality?date_from=2026-07-01&date_to=2026-06-01")
+
+    assert response.status_code == 200
+    payload = response.json()
+    metric_labels = {metric["label"] for metric in payload["metrics"]}
+    assert {"AI 调用总量", "LLM 成功率", "兜底率", "平均耗时", "场景覆盖", "推荐转任务率"} <= metric_labels
+    assert {item["operation"] for item in payload["operation_breakdown"]} >= {"copilot_summary", "copilot_follow_up", "copilot_order_draft", "vision_extract"}
+    assert payload["model_breakdown"]
+    assert payload["recommendation_signal"]["total_recommendations"] >= 1
+    assert payload["recommendation_signal"]["converted_task_count"] >= 1
+    assert payload["recent_fallbacks"]
+    assert payload["applied_filters"]["operation"] == ""
+
+    assert invalid_range.status_code == 400
+    assert "开始日期" in invalid_range.json()["detail"]
 
 
 def test_business_audit_logs_record_core_write_actions() -> None:

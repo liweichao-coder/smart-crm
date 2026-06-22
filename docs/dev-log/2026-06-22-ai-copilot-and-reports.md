@@ -177,8 +177,10 @@ The course exam requires a full software engineering process package, not only c
 - Environment doctor now includes the same consistency payload and reports `consistency: ok / issues 0` on the demo database, so teammates can catch broken order totals, inventory movements, product stock, or approval references before a presentation.
 - Added approval-performance BI: `/api/reports/approval-performance` aggregates real `OrderApprovalRequest` records into approval volume, pending/overdue counts, high-risk approvals, approval rate, average resolution time, SLA distribution, risk distribution, reviewer workload, and recent approvals. The Sales Reports page now loads this alongside revenue/funnel BI with the same owner/region/date filters.
 - Targeted approval BI regression succeeded: the new endpoint returns six metrics, risk/SLA/status distributions, reviewer workload, recent approvals, invalid date-range rejection, and sales-role 403 through the existing `reports:read` permission.
+- Added AI quality evaluation: `/api/reports/ai-quality` aggregates real `AIInteractionLog`, `CopilotRecommendation`, and converted-task markers into LLM success rate, fallback rate, average latency, operation/model breakdowns, recent fallbacks, recommendation score, win-rate, and recommendation-to-task conversion rate. The AI Audit page now shows this quality panel above the raw log table.
+- Targeted AI quality regression succeeded: the test triggers real Copilot summary/follow-up/order-draft/vision calls, converts a persisted recommendation to a task, and verifies quality metrics, operation breakdown, model breakdown, recent fallbacks, invalid date-range rejection, and sales-role 403.
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, saved view preferences, and model-quality evaluation.
+- Add fuller end-to-end browser smoke coverage, saved view preferences, and more operating BI dimensions.
 - Capture screenshots and export Word/PPT final materials.

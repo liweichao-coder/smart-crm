@@ -58,6 +58,7 @@ import {
   askCopilot,
   fetchCases,
   fetchAiAuditLogs,
+  fetchAiQualityReport,
   fetchApprovalPerformanceReport,
   fetchBusinessAuditLogs,
   fetchContacts,
@@ -266,6 +267,12 @@ const dashboardMetricMeta = {
   审批通过率: { icon: CheckSquare, tone: 'won' },
   平均处理时长: { icon: Activity, tone: 'accent' },
   'SLA 逾期率': { icon: Flame, tone: 'danger' },
+  'AI 调用总量': { icon: Activity, tone: 'accent' },
+  'LLM 成功率': { icon: Sparkles, tone: 'won' },
+  兜底率: { icon: Shield, tone: 'warning' },
+  平均耗时: { icon: Flame, tone: 'qualified' },
+  场景覆盖: { icon: Bot, tone: 'proposal' },
+  推荐转任务率: { icon: CheckSquare, tone: 'won' },
 }
 
 const orderStatusLabelMap = {
@@ -3219,15 +3226,17 @@ function CopilotPage() {
 
 function AiAuditPage() {
   const [logs, setLogs] = useState([])
+  const [qualityReport, setQualityReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let mounted = true
-    fetchAiAuditLogs()
-      .then((payload) => {
+    Promise.all([fetchAiAuditLogs(), fetchAiQualityReport()])
+      .then(([payload, report]) => {
         if (mounted) {
           setLogs(payload)
+          setQualityReport(report)
           setError('')
         }
       })
@@ -3247,14 +3256,10 @@ function AiAuditPage() {
     }
   }, [])
 
-  const summary = useMemo(() => {
-    const llmCount = logs.filter((log) => !log.fallback_used).length
-    const fallbackCount = logs.filter((log) => log.fallback_used).length
-    const avgLatency = logs.length
-      ? Math.round(logs.reduce((total, log) => total + Number(log.latency_ms ?? 0), 0) / logs.length)
-      : 0
-    return { llmCount, fallbackCount, avgLatency }
-  }, [logs])
+  const qualityMetrics = useMemo(() => buildDashboardMetrics(qualityReport), [qualityReport])
+  const operationBreakdown = qualityReport?.operation_breakdown ?? []
+  const modelBreakdown = qualityReport?.model_breakdown ?? []
+  const recommendationSignal = qualityReport?.recommendation_signal
 
   return (
     <div className="crm-page-stack">
@@ -3262,57 +3267,104 @@ function AiAuditPage() {
         <div>
           <span className="crm-overline">AI Audit</span>
           <h2>AI 调用审计</h2>
-          <p>记录 Copilot、智能录单和订单草稿生成的运行状态、模型、耗时、兜底情况和关联对象，便于答辩时证明 AI 能力可追踪。</p>
+          <p>记录 Copilot、智能录单和订单草稿生成的运行状态、模型、耗时、兜底情况和关联对象，并用真实日志计算模型质量指标。</p>
         </div>
         <div className="crm-copilot-summary">
           <Shield size={18} />
-          <strong>{logs.length ? `已记录 ${logs.length} 次 AI 行为，最近一次为 ${aiOperationLabelMap[logs[0].operation] ?? logs[0].operation}。` : '调用 AI 副驾或智能录单后会自动写入审计记录。'}</strong>
+          <strong>{qualityReport ? `已评估 ${qualityReport.metrics[0]?.value ?? 0} 次 AI 行为，最近一次为 ${logs[0] ? aiOperationLabelMap[logs[0].operation] ?? logs[0].operation : '暂无调用'}。` : '调用 AI 副驾或智能录单后会自动写入审计记录。'}</strong>
         </div>
       </section>
 
       <ResourceSyncState loading={loading} error={error} />
 
       <section className="crm-metric-grid">
-        <article className="crm-panel crm-metric-card">
-          <div className="crm-metric-icon tone-accent">
-            <Activity size={18} />
+        {qualityMetrics.map((metric) => (
+          <article key={metric.label} className="crm-panel crm-metric-card">
+            <div className={`crm-metric-icon tone-${metric.tone}`}>
+              <metric.icon size={18} />
+            </div>
+            <div>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              <small>{metric.hint}</small>
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <section className="crm-dashboard-grid">
+        <div className="crm-panel">
+          <PanelHeader title="AI 场景质量" subtitle={qualityReport?.generated_at ? `生成时间 ${formatDateTime(qualityReport.generated_at)}` : '按真实 AI 审计日志聚合'} />
+          <div className="crm-progress-list">
+            {operationBreakdown.map((item) => (
+              <div key={item.operation} className="crm-progress-row">
+                <div className="crm-progress-meta">
+                  <div className={`crm-dot tone-${item.fallback_rate >= 0.5 ? 'danger' : item.fallback_rate > 0 ? 'warning' : 'success'}`} />
+                  <span>{item.label}</span>
+                  <strong>{item.total_count} 次 / 兜底 {formatPercent(item.fallback_rate)}</strong>
+                </div>
+                <div className="crm-progress-track">
+                  <div className={`crm-progress-bar tone-${item.fallback_rate >= 0.5 ? 'danger' : item.fallback_rate > 0 ? 'warning' : 'success'}`} style={{ width: `${Math.max(4, (1 - item.fallback_rate) * 100)}%` }} />
+                </div>
+                <small>LLM {item.llm_count} 次，平均耗时 {item.average_latency_ms}ms</small>
+              </div>
+            ))}
+            {!loading && !error && !operationBreakdown.length ? <EmptyState icon={Bot} title="暂无场景质量数据" subtitle="触发 AI 副驾、智能录单或客户经营计划后会显示。" /> : null}
           </div>
-          <div>
-            <span>审计记录</span>
-            <strong>{logs.length}</strong>
-            <small>来自 SQLite 的真实运行日志</small>
+        </div>
+
+        <div className="crm-panel">
+          <PanelHeader title="模型与推荐质量" actionLabel="日志 + 推荐历史" />
+          <div className="crm-ai-impact">
+            <div>
+              <span>平均评分</span>
+              <strong>{recommendationSignal?.average_rule_score ?? 0}</strong>
+            </div>
+            <div>
+              <span>平均赢单率</span>
+              <strong>{formatPercent(recommendationSignal?.average_win_rate ?? 0)}</strong>
+            </div>
+            <div>
+              <span>推荐总数</span>
+              <strong>{recommendationSignal?.total_recommendations ?? 0}</strong>
+            </div>
+            <div>
+              <span>已转任务</span>
+              <strong>{recommendationSignal?.converted_task_count ?? 0}</strong>
+            </div>
+            <div className="crm-progress-track">
+              <div className="crm-progress-bar tone-won" style={{ width: `${Math.max(4, (recommendationSignal?.conversion_rate ?? 0) * 100)}%` }} />
+            </div>
+            <small>推荐转任务率 {formatPercent(recommendationSignal?.conversion_rate ?? 0)}，推荐兜底率 {formatPercent(recommendationSignal?.fallback_rate ?? 0)}</small>
           </div>
-        </article>
-        <article className="crm-panel crm-metric-card">
-          <div className="crm-metric-icon tone-won">
-            <Sparkles size={18} />
+          <div className="crm-list compact">
+            {modelBreakdown.map((item) => (
+              <article key={item.model} className="crm-list-item">
+                <div>
+                  <strong>{item.model}</strong>
+                  <span>{item.total_count} 次调用 / 平均 {item.average_latency_ms}ms</span>
+                </div>
+                <StatusBadge value={`兜底 ${formatPercent(item.fallback_rate)}`} tone={item.fallback_rate > 0 ? 'warning' : 'success'} />
+              </article>
+            ))}
           </div>
-          <div>
-            <span>LLM 成功</span>
-            <strong>{summary.llmCount}</strong>
-            <small>模型返回有效内容</small>
-          </div>
-        </article>
-        <article className="crm-panel crm-metric-card">
-          <div className="crm-metric-icon tone-proposal">
-            <Shield size={18} />
-          </div>
-          <div>
-            <span>兜底次数</span>
-            <strong>{summary.fallbackCount}</strong>
-            <small>API Key 缺失或模型失败时保留可用结果</small>
-          </div>
-        </article>
-        <article className="crm-panel crm-metric-card">
-          <div className="crm-metric-icon tone-qualified">
-            <Flame size={18} />
-          </div>
-          <div>
-            <span>平均耗时</span>
-            <strong>{summary.avgLatency}ms</strong>
-            <small>端点级运行时间</small>
-          </div>
-        </article>
+        </div>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="最近兜底记录" subtitle="用于定位模型不可用、超时或配置缺失场景" />
+        <div className="crm-list compact">
+          {(qualityReport?.recent_fallbacks ?? []).map((log) => (
+            <article key={log.id} className="crm-list-item">
+              <div>
+                <strong>{aiOperationLabelMap[log.operation] ?? log.operation}</strong>
+                <span>{log.model || '未配置'} / {log.request_summary}</span>
+              </div>
+              <StatusBadge value={`${log.latency_ms}ms`} tone="warning" />
+            </article>
+          ))}
+          {!loading && !error && !(qualityReport?.recent_fallbacks ?? []).length ? <EmptyState icon={Shield} title="暂无兜底记录" subtitle="当前 AI 调用均未触发规则兜底。" /> : null}
+        </div>
       </section>
 
       <section className="crm-panel">

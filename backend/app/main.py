@@ -22,6 +22,10 @@ from .database import create_db_and_tables, engine, get_session
 from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
+    AIQualityModelBreakdown,
+    AIQualityOperationBreakdown,
+    AIQualityRecommendationSignal,
+    AIQualityReportResponse,
     AuthAuditLogRead,
     AuthLoginRequest,
     AuthLogoutResponse,
@@ -210,6 +214,14 @@ APPROVAL_SLA_LABELS = {
     "on_track": "正常推进",
     "closed": "已关闭",
     "unset": "未设置",
+}
+AI_OPERATION_LABELS = {
+    "copilot_summary": "副驾摘要",
+    "copilot_follow_up": "跟进话术",
+    "copilot_ask": "经营问答",
+    "copilot_order_draft": "订单草稿",
+    "vision_extract": "智能录单",
+    "customer_account_plan": "客户经营计划",
 }
 CATEGORY_TARGET_STOCK = {
     "硬件": 600,
@@ -2808,6 +2820,126 @@ def list_ai_audit_logs(
     )
     logs = filter_bool(logs, "fallback_used", fallback_used)
     return paginate_or_list(logs, page=page, per_page=per_page)
+
+
+def matches_ai_quality_filters(
+    log: AIInteractionLog,
+    date_from: date | None,
+    date_to: date | None,
+    operation: str,
+    model: str,
+) -> bool:
+    log_date = log.created_at.date()
+    if date_from and log_date < date_from:
+        return False
+    if date_to and log_date > date_to:
+        return False
+    if operation and log.operation != operation:
+        return False
+    if model and log.model != model:
+        return False
+    return True
+
+
+def average_latency(logs: list[AIInteractionLog]) -> int:
+    return round(sum(log.latency_ms for log in logs) / len(logs)) if logs else 0
+
+
+@app.get("/api/reports/ai-quality", response_model=AIQualityReportResponse, dependencies=[Depends(require_permission("audit:read"))])
+def get_ai_quality_report(
+    session: SessionDep,
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    operation: str = "",
+    model: str = "",
+) -> AIQualityReportResponse:
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    all_logs = session.exec(select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc())).all()
+    logs = [log for log in all_logs if matches_ai_quality_filters(log, date_from, date_to, operation, model)]
+    total_count = len(logs)
+    llm_logs = [log for log in logs if not log.fallback_used]
+    fallback_logs = [log for log in logs if log.fallback_used]
+
+    recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
+    converted_task_count = len([
+        recommendation
+        for recommendation in recommendations
+        if recommendation.id is not None and find_task_for_copilot_recommendation(session, recommendation.id)
+    ])
+    recommendation_count = len(recommendations)
+    recommendation_fallback_count = len([recommendation for recommendation in recommendations if recommendation.fallback_used])
+    recommendation_signal = AIQualityRecommendationSignal(
+        total_recommendations=recommendation_count,
+        average_rule_score=round(sum(recommendation.rule_score for recommendation in recommendations) / recommendation_count, 1) if recommendation_count else 0,
+        average_win_rate=round(sum(recommendation.win_rate for recommendation in recommendations) / recommendation_count, 2) if recommendation_count else 0,
+        fallback_count=recommendation_fallback_count,
+        fallback_rate=round(recommendation_fallback_count / recommendation_count, 2) if recommendation_count else 0,
+        converted_task_count=converted_task_count,
+        conversion_rate=round(converted_task_count / recommendation_count, 2) if recommendation_count else 0,
+    )
+
+    operation_names = sorted({log.operation for log in logs})
+    operation_breakdown = []
+    for operation_name in operation_names:
+        operation_logs = [log for log in logs if log.operation == operation_name]
+        operation_fallback_count = len([log for log in operation_logs if log.fallback_used])
+        operation_breakdown.append(
+            AIQualityOperationBreakdown(
+                operation=operation_name,
+                label=AI_OPERATION_LABELS.get(operation_name, operation_name),
+                total_count=len(operation_logs),
+                llm_count=len(operation_logs) - operation_fallback_count,
+                fallback_count=operation_fallback_count,
+                fallback_rate=round(operation_fallback_count / len(operation_logs), 2) if operation_logs else 0,
+                average_latency_ms=average_latency(operation_logs),
+            )
+        )
+    operation_breakdown = sorted(operation_breakdown, key=lambda item: (item.fallback_rate, item.total_count), reverse=True)
+
+    model_names = sorted({log.model or "未配置" for log in logs})
+    model_breakdown = []
+    for model_name in model_names:
+        model_logs = [log for log in logs if (log.model or "未配置") == model_name]
+        model_fallback_count = len([log for log in model_logs if log.fallback_used])
+        model_breakdown.append(
+            AIQualityModelBreakdown(
+                model=model_name,
+                total_count=len(model_logs),
+                llm_count=len(model_logs) - model_fallback_count,
+                fallback_count=model_fallback_count,
+                fallback_rate=round(model_fallback_count / len(model_logs), 2) if model_logs else 0,
+                average_latency_ms=average_latency(model_logs),
+            )
+        )
+    model_breakdown = sorted(model_breakdown, key=lambda item: (item.fallback_rate, item.total_count), reverse=True)
+
+    metrics = [
+        DashboardMetric(label="AI 调用总量", value=str(total_count), hint="按 AIInteractionLog 实时统计"),
+        DashboardMetric(label="LLM 成功率", value=f"{round(len(llm_logs) / total_count * 100) if total_count else 0}%", hint=f"{len(llm_logs)} 次模型增强"),
+        DashboardMetric(label="兜底率", value=f"{round(len(fallback_logs) / total_count * 100) if total_count else 0}%", hint=f"{len(fallback_logs)} 次规则兜底"),
+        DashboardMetric(label="平均耗时", value=f"{average_latency(logs)}ms", hint="端点级平均耗时"),
+        DashboardMetric(label="场景覆盖", value=str(len(operation_names)), hint="已记录 AI 操作类型"),
+        DashboardMetric(label="推荐转任务率", value=f"{round(recommendation_signal.conversion_rate * 100)}%", hint=f"{converted_task_count}/{recommendation_count} 条推荐"),
+    ]
+
+    applied_filters = {
+        "date_from": date_from.isoformat() if date_from else "",
+        "date_to": date_to.isoformat() if date_to else "",
+        "operation": operation,
+        "model": model,
+    }
+
+    return AIQualityReportResponse(
+        generated_at=datetime.utcnow(),
+        metrics=metrics,
+        operation_breakdown=operation_breakdown,
+        model_breakdown=model_breakdown,
+        recommendation_signal=recommendation_signal,
+        recent_fallbacks=fallback_logs[:6],
+        applied_filters=applied_filters,
+    )
 
 
 @app.get("/api/business-audit-logs", response_model=list[BusinessAuditLogRead] | PaginatedResponse[BusinessAuditLogRead], dependencies=[Depends(require_permission("audit:read"))])
