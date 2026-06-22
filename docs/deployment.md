@@ -46,7 +46,17 @@ Root `.env` is used by Vite. Keep it aligned with the backend port:
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-## 3. Reset Demo Database
+## 3. Migrate, Reset, and Snapshot Demo Data
+
+When pulling a teammate's code update, run the migration command first if you want to keep the current local data:
+
+```powershell
+cd D:\LwcCode\personal-project\smart-crm\backend
+.\.venv\Scripts\python.exe -m app.manage migrate
+.\.venv\Scripts\python.exe -m app.manage doctor
+```
+
+`migrate` creates missing tables and runs the lightweight SQLite migrations used by the app, without dropping existing records.
 
 Use this command whenever the local database needs to be rebuilt:
 
@@ -62,6 +72,21 @@ Run the environment doctor after resetting or receiving a teammate's checkout:
 ```
 
 The doctor checks database tables, demo-data scale, LLM configuration state, and cross-table consistency. It exits with a non-zero code when the database is empty, below the classroom-demo target, or has order-total, inventory-movement, order-item, product-stock, or approval-reference consistency issues, so teammates can quickly know when to run `reset-db` or inspect Operation Audit.
+
+Before handing the demo database to another teammate, create a SQLite snapshot:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.manage backup-db .\backups
+```
+
+Restore a received snapshot, then re-run the doctor:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.manage restore-db .\backups\smart_crm_backup_YYYYMMDD-HHMMSS.db
+.\.venv\Scripts\python.exe -m app.manage doctor
+```
+
+`backend/backups/` is ignored by Git, so local snapshots are not pushed by accident.
 
 Current demo dataset scale:
 

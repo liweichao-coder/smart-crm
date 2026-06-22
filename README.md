@@ -129,6 +129,24 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 
 `doctor` 会同时检查数据库表、演示数据规模、LLM 配置和跨表一致性；发现订单金额、库存流水或审批记录异常时会返回非零状态，便于答辩前快速排查。
 
+### 数据库迁移与快照
+
+保留现有数据升级表结构时，使用显式迁移命令：
+
+```powershell
+cd D:\LwcCode\personal-project\smart-crm\backend
+.\.venv\Scripts\python.exe -m app.manage migrate
+.\.venv\Scripts\python.exe -m app.manage doctor
+```
+
+交接演示数据前可导出 SQLite 快照，恢复后再运行 `doctor` 检查：
+
+```powershell
+.\.venv\Scripts\python.exe -m app.manage backup-db .\backups
+.\.venv\Scripts\python.exe -m app.manage restore-db .\backups\smart_crm_backup_YYYYMMDD-HHMMSS.db
+.\.venv\Scripts\python.exe -m app.manage doctor
+```
+
 ## 后续增强
 
 - 补端到端冒烟测试、更细粒度权限审计和更多经营 BI 维度。

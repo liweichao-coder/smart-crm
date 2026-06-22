@@ -191,6 +191,8 @@ The course exam requires a full software engineering process package, not only c
 - Frontend utility regression now covers 31 tests, adding bulk-edit patch generation and numeric normalization.
 - Replaced the temporary text brand mark with a local Shenzhen University inspired SVG emblem, updated the favicon and browser title, and reused the emblem across login, registration, organization selection, loading, and sidebar brand surfaces.
 - Added a root `.env.example` and clarified deployment docs so teammates keep `VITE_API_BASE_URL` aligned with the backend port and `SMART_CRM_CORS_ORIGINS` aligned with the frontend port. Browser smoke on clean ports verified login, organization selection, and dashboard sidebar rendering with the SVG emblem.
+- Added explicit database lifecycle commands: `python -m app.manage migrate` preserves existing data while applying lightweight SQLite migrations, `backup-db` exports a file-backed SQLite snapshot, and `restore-db` restores a teammate/demo snapshot before running `doctor`.
+- Targeted management regression succeeded: a real SQLite demo database was seeded, backed up to a snapshot directory, deliberately reduced from 12 to 11 customers, then restored back to the 12-customer demo target.
 
 ## Next Steps
 
