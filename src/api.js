@@ -151,6 +151,10 @@ export function fetchSalesPerformanceReport(params) {
   return request(`/api/reports/sales-performance${buildQueryString(params)}`)
 }
 
+export function fetchApprovalPerformanceReport(params) {
+  return request(`/api/reports/approval-performance${buildQueryString(params)}`)
+}
+
 export function fetchPermissionMatrix() {
   return request('/api/admin/permission-matrix')
 }

@@ -229,6 +229,32 @@ def test_sales_performance_report_payload_and_filters() -> None:
     assert "开始日期" in invalid_range.json()["detail"]
 
 
+def test_approval_performance_report_payload_and_filters() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/reports/approval-performance")
+        filtered = client.get("/api/reports/approval-performance?owner=李伟超&region=华南")
+        invalid_range = client.get("/api/reports/approval-performance?date_from=2026-07-01&date_to=2026-06-01")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["metrics"]) == 6
+    metric_labels = {metric["label"] for metric in payload["metrics"]}
+    assert {"审批总量", "待审批", "高风险审批", "审批通过率", "平均处理时长", "SLA 逾期率"} <= metric_labels
+    assert {item["key"] for item in payload["risk_distribution"]} == {"critical", "high", "medium", "low"}
+    assert {item["key"] for item in payload["sla_distribution"]} == {"overdue", "due_soon", "on_track", "closed", "unset"}
+    assert {item["key"] for item in payload["status_distribution"]} == {"pending", "approved", "rejected"}
+    assert payload["reviewer_workload"]
+    assert payload["recent_approvals"]
+
+    assert filtered.status_code == 200
+    filtered_payload = filtered.json()
+    assert filtered_payload["applied_filters"]["owner"] == "李伟超"
+    assert filtered_payload["applied_filters"]["region"] == "华南"
+
+    assert invalid_range.status_code == 400
+    assert "开始日期" in invalid_range.json()["detail"]
+
+
 def test_permission_matrix_payload() -> None:
     with TestClient(app) as client:
         response = client.get("/api/admin/permission-matrix")
@@ -638,6 +664,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
         denied_audit = client.get("/api/business-audit-logs", headers=headers)
         denied_consistency = client.get("/api/system/consistency-checks", headers=headers)
         denied_report = client.get("/api/reports/sales-performance", headers=headers)
+        denied_approval_report = client.get("/api/reports/approval-performance", headers=headers)
         denied_matrix = client.get("/api/admin/permission-matrix", headers=headers)
         denied_team = client.get("/api/admin/users", headers=headers)
 
@@ -688,6 +715,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert denied_audit.status_code == 403
     assert denied_consistency.status_code == 403
     assert denied_report.status_code == 403
+    assert denied_approval_report.status_code == 403
     assert denied_matrix.status_code == 403
     assert denied_team.status_code == 403
 

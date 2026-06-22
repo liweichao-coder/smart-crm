@@ -30,6 +30,9 @@ from .schemas import (
     AuthRegisterRequest,
     AuthSessionResponse,
     AuthUserRead,
+    ApprovalPerformanceReportResponse,
+    ApprovalReportDistributionItem,
+    ApprovalReviewerWorkload,
     BusinessAuditLogRead,
     ContactCreate,
     ContactRead,
@@ -194,6 +197,19 @@ REPORT_STAGE_LABELS = {
     "negotiation": "商务谈判",
     "won": "已成交",
     "lost": "已丢单",
+}
+
+APPROVAL_STATUS_LABELS = {
+    "pending": "待审批",
+    "approved": "已通过",
+    "rejected": "已驳回",
+}
+APPROVAL_SLA_LABELS = {
+    "overdue": "已逾期",
+    "due_soon": "临近截止",
+    "on_track": "正常推进",
+    "closed": "已关闭",
+    "unset": "未设置",
 }
 CATEGORY_TARGET_STOCK = {
     "硬件": 600,
@@ -3507,6 +3523,148 @@ def build_sales_breakdown(orders: list[SalesOrder], leads: list[SalesLead], grou
             )
         )
     return sorted(breakdowns, key=lambda item: (item.revenue, item.pipeline_amount), reverse=True)
+
+
+def matches_approval_report_filters(
+    approval: OrderApprovalRequest,
+    orders_by_id: dict[int, SalesOrder],
+    date_from: date | None,
+    date_to: date | None,
+    owner: str,
+    region: str,
+) -> bool:
+    approval_date = approval.created_at.date()
+    if date_from and approval_date < date_from:
+        return False
+    if date_to and approval_date > date_to:
+        return False
+    if owner and approval.owner != owner:
+        return False
+    if region:
+        order = orders_by_id.get(approval.order_id)
+        if not order or order.region != region:
+            return False
+    return True
+
+
+@app.get("/api/reports/approval-performance", response_model=ApprovalPerformanceReportResponse, dependencies=[Depends(require_permission("reports:read"))])
+def get_approval_performance_report(
+    session: SessionDep,
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    owner: str = "",
+    region: str = "",
+) -> ApprovalPerformanceReportResponse:
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    orders_by_id = {order.id: order for order in session.exec(select(SalesOrder)).all() if order.id is not None}
+    all_approvals = session.exec(select(OrderApprovalRequest).order_by(OrderApprovalRequest.created_at.desc())).all()
+    approvals = [
+        approval
+        for approval in all_approvals
+        if matches_approval_report_filters(approval, orders_by_id, date_from, date_to, owner, region)
+    ]
+
+    now = datetime.utcnow()
+    total_count = len(approvals)
+    pending_approvals = [approval for approval in approvals if approval.status == OrderApprovalStatus.pending]
+    approved_approvals = [approval for approval in approvals if approval.status == OrderApprovalStatus.approved]
+    rejected_approvals = [approval for approval in approvals if approval.status == OrderApprovalStatus.rejected]
+    overdue_approvals = [approval for approval in pending_approvals if get_order_approval_sla_details(approval, now)[0] == "overdue"]
+    high_risk_approvals = [approval for approval in approvals if normalize_order_approval_risk_level(approval.risk_level) in {"critical", "high"}]
+
+    decided_approvals = [approval for approval in approvals if approval.decided_at]
+    resolution_hours = [
+        max((approval.decided_at - approval.created_at).total_seconds() / 3600, 0)
+        for approval in decided_approvals
+        if approval.decided_at is not None
+    ]
+    decision_count = len(approved_approvals) + len(rejected_approvals)
+    approval_rate = round(len(approved_approvals) / decision_count * 100) if decision_count else 0
+    average_resolution_hours = round(sum(resolution_hours) / len(resolution_hours), 1) if resolution_hours else 0
+
+    metrics = [
+        DashboardMetric(label="审批总量", value=str(total_count), hint="按提交时间和筛选条件统计"),
+        DashboardMetric(label="待审批", value=str(len(pending_approvals)), hint=f"逾期 {len(overdue_approvals)} 条"),
+        DashboardMetric(label="高风险审批", value=str(len(high_risk_approvals)), hint="critical/high 风险等级"),
+        DashboardMetric(label="审批通过率", value=f"{approval_rate}%", hint=f"已决策 {decision_count} 条"),
+        DashboardMetric(label="平均处理时长", value=f"{average_resolution_hours}h", hint="按已审批记录计算"),
+        DashboardMetric(label="SLA 逾期率", value=f"{round(len(overdue_approvals) / len(pending_approvals) * 100) if pending_approvals else 0}%", hint="仅统计待审批记录"),
+    ]
+
+    risk_rows = [(key, ORDER_APPROVAL_RISK_LABELS[key]) for key in ("critical", "high", "medium", "low")]
+    risk_counts = Counter(normalize_order_approval_risk_level(approval.risk_level) for approval in approvals)
+    risk_distribution = [
+        ApprovalReportDistributionItem(
+            key=key,
+            label=label,
+            count=risk_counts.get(key, 0),
+            share=round(risk_counts.get(key, 0) / total_count, 2) if total_count else 0,
+        )
+        for key, label in risk_rows
+    ]
+
+    sla_counts = Counter(get_order_approval_sla_details(approval, now)[0] for approval in approvals)
+    sla_distribution = [
+        ApprovalReportDistributionItem(
+            key=key,
+            label=APPROVAL_SLA_LABELS[key],
+            count=sla_counts.get(key, 0),
+            share=round(sla_counts.get(key, 0) / total_count, 2) if total_count else 0,
+        )
+        for key in ("overdue", "due_soon", "on_track", "closed", "unset")
+    ]
+
+    status_counts = Counter(approval.status.value for approval in approvals)
+    status_distribution = [
+        ApprovalReportDistributionItem(
+            key=status.value,
+            label=APPROVAL_STATUS_LABELS[status.value],
+            count=status_counts.get(status.value, 0),
+            share=round(status_counts.get(status.value, 0) / total_count, 2) if total_count else 0,
+        )
+        for status in OrderApprovalStatus
+    ]
+
+    reviewer_names = sorted({approval.reviewer or "未指定审批人" for approval in approvals})
+    reviewer_workload: list[ApprovalReviewerWorkload] = []
+    for reviewer in reviewer_names:
+        reviewer_approvals = [approval for approval in approvals if (approval.reviewer or "未指定审批人") == reviewer]
+        reviewer_resolution_hours = [
+            max((approval.decided_at - approval.created_at).total_seconds() / 3600, 0)
+            for approval in reviewer_approvals
+            if approval.decided_at is not None
+        ]
+        reviewer_workload.append(
+            ApprovalReviewerWorkload(
+                name=reviewer,
+                pending_count=len([approval for approval in reviewer_approvals if approval.status == OrderApprovalStatus.pending]),
+                approved_count=len([approval for approval in reviewer_approvals if approval.status == OrderApprovalStatus.approved]),
+                rejected_count=len([approval for approval in reviewer_approvals if approval.status == OrderApprovalStatus.rejected]),
+                overdue_count=len([approval for approval in reviewer_approvals if get_order_approval_sla_details(approval, now)[0] == "overdue"]),
+                average_resolution_hours=round(sum(reviewer_resolution_hours) / len(reviewer_resolution_hours), 1) if reviewer_resolution_hours else 0,
+            )
+        )
+    reviewer_workload = sorted(reviewer_workload, key=lambda item: (item.overdue_count, item.pending_count, item.approved_count + item.rejected_count), reverse=True)
+
+    applied_filters = {
+        "date_from": date_from.isoformat() if date_from else "",
+        "date_to": date_to.isoformat() if date_to else "",
+        "owner": owner,
+        "region": region,
+    }
+
+    return ApprovalPerformanceReportResponse(
+        generated_at=datetime.utcnow(),
+        metrics=metrics,
+        risk_distribution=risk_distribution,
+        sla_distribution=sla_distribution,
+        status_distribution=status_distribution,
+        reviewer_workload=reviewer_workload,
+        recent_approvals=[serialize_order_approval(approval, session) for approval in approvals[:6]],
+        applied_filters=applied_filters,
+    )
 
 
 @app.get("/api/reports/sales-performance", response_model=SalesPerformanceReportResponse, dependencies=[Depends(require_permission("reports:read"))])

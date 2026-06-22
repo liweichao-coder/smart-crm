@@ -977,6 +977,33 @@ class SalesPerformanceReportResponse(BaseModel):
     applied_filters: dict[str, str]
 
 
+class ApprovalReportDistributionItem(BaseModel):
+    key: str
+    label: str
+    count: int
+    share: float
+
+
+class ApprovalReviewerWorkload(BaseModel):
+    name: str
+    pending_count: int
+    approved_count: int
+    rejected_count: int
+    overdue_count: int
+    average_resolution_hours: float
+
+
+class ApprovalPerformanceReportResponse(BaseModel):
+    generated_at: datetime
+    metrics: list[DashboardMetric]
+    risk_distribution: list[ApprovalReportDistributionItem]
+    sla_distribution: list[ApprovalReportDistributionItem]
+    status_distribution: list[ApprovalReportDistributionItem]
+    reviewer_workload: list[ApprovalReviewerWorkload]
+    recent_approvals: list[OrderApprovalRead]
+    applied_filters: dict[str, str]
+
+
 class VisionExtractItem(BaseModel):
     product_name: str
     quantity: int

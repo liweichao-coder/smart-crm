@@ -769,6 +769,13 @@ p {
   font-size: 12px;
 }
 
+.crm-status-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .crm-permission-role-card {
   align-content: start;
 }

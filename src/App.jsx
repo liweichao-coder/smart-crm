@@ -58,6 +58,7 @@ import {
   askCopilot,
   fetchCases,
   fetchAiAuditLogs,
+  fetchApprovalPerformanceReport,
   fetchBusinessAuditLogs,
   fetchContacts,
   fetchConsistencyChecks,
@@ -259,6 +260,12 @@ const dashboardMetricMeta = {
   在管商机额: { icon: Target, tone: 'negotiation' },
   赢单商机额: { icon: Trophy, tone: 'won' },
   库存风险: { icon: Package, tone: 'warning' },
+  审批总量: { icon: ClipboardList, tone: 'qualified' },
+  待审批: { icon: Calendar, tone: 'warning' },
+  高风险审批: { icon: Shield, tone: 'danger' },
+  审批通过率: { icon: CheckSquare, tone: 'won' },
+  平均处理时长: { icon: Activity, tone: 'accent' },
+  'SLA 逾期率': { icon: Flame, tone: 'danger' },
 }
 
 const orderStatusLabelMap = {
@@ -2538,16 +2545,17 @@ function ReportsPage() {
   const [appliedFilters, setAppliedFilters] = useState(emptyFilters)
   const [reportState, setReportState] = useState({
     report: null,
+    approvalReport: null,
     loading: true,
     error: '',
   })
 
   useEffect(() => {
     let mounted = true
-    fetchSalesPerformanceReport(appliedFilters)
-      .then((report) => {
+    Promise.all([fetchSalesPerformanceReport(appliedFilters), fetchApprovalPerformanceReport(appliedFilters)])
+      .then(([report, approvalReport]) => {
         if (mounted) {
-          setReportState({ report, loading: false, error: '' })
+          setReportState({ report, approvalReport, loading: false, error: '' })
         }
       })
       .catch((error) => {
@@ -2565,12 +2573,16 @@ function ReportsPage() {
     }
   }, [appliedFilters])
 
-  const { report, loading, error } = reportState
+  const { report, approvalReport, loading, error } = reportState
   const metricCards = useMemo(() => buildDashboardMetrics(report), [report])
+  const approvalMetricCards = useMemo(() => buildDashboardMetrics(approvalReport), [approvalReport])
   const revenueTrend = report?.revenue_trend ?? []
   const ownerRows = report?.owner_performance ?? []
   const regionRows = report?.region_performance ?? []
   const funnelRows = report?.funnel ?? []
+  const approvalRiskRows = approvalReport?.risk_distribution ?? []
+  const approvalSlaRows = approvalReport?.sla_distribution ?? []
+  const approvalReviewerRows = approvalReport?.reviewer_workload ?? []
   const maxTrendRevenue = Math.max(...revenueTrend.map((item) => item.revenue), 1)
   const maxOwnerValue = Math.max(...ownerRows.map((item) => Math.max(item.revenue, item.pipeline_amount)), 1)
 
@@ -2644,6 +2656,72 @@ function ReportsPage() {
             </div>
           </article>
         ))}
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="审批 SLA 分析" subtitle={approvalReport?.generated_at ? `生成时间 ${formatDateTime(approvalReport.generated_at)}` : '按真实订单审批记录聚合'} />
+        <div className="crm-metric-grid crm-report-metric-grid">
+          {approvalMetricCards.map((metric) => (
+            <article key={metric.label} className="crm-metric-card compact">
+              <div className={`crm-metric-icon tone-${metric.tone}`}>
+                <metric.icon size={18} />
+              </div>
+              <div>
+                <span>{metric.label}</span>
+                <strong>{metric.value}</strong>
+                <small>{metric.hint}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="crm-dashboard-grid">
+        <ApprovalDistributionPanel title="风险等级分布" rows={approvalRiskRows} toneMap={approvalRiskToneMap} emptyTitle="暂无审批风险数据" />
+        <ApprovalDistributionPanel title="SLA 状态分布" rows={approvalSlaRows} toneMap={approvalSlaToneMap} emptyTitle="暂无审批 SLA 数据" />
+      </section>
+
+      <section className="crm-dashboard-grid">
+        <div className="crm-panel">
+          <PanelHeader title="审批人工作量" actionLabel="待审 / 已决策 / 逾期" />
+          <div className="crm-report-breakdown-list">
+            {approvalReviewerRows.map((row) => (
+              <article key={row.name} className="crm-report-breakdown-item">
+                <div className="crm-report-breakdown-head">
+                  <div>
+                    <strong>{row.name}</strong>
+                    <span>待审 {row.pending_count} / 通过 {row.approved_count} / 驳回 {row.rejected_count}</span>
+                  </div>
+                  <StatusBadge value={`${row.overdue_count} 逾期`} tone={row.overdue_count ? 'danger' : 'success'} />
+                </div>
+                <div className="crm-report-breakdown-foot">
+                  <span>平均处理 {row.average_resolution_hours}h</span>
+                  <span>合计 {row.pending_count + row.approved_count + row.rejected_count} 条</span>
+                </div>
+              </article>
+            ))}
+            {!loading && !error && !approvalReviewerRows.length ? <EmptyState icon={ClipboardList} title="暂无审批人工作量" subtitle="提交订单审批后会在这里聚合。" /> : null}
+          </div>
+        </div>
+
+        <div className="crm-panel">
+          <PanelHeader title="最近审批记录" actionLabel="订单审批真实流转" />
+          <div className="crm-list compact">
+            {(approvalReport?.recent_approvals ?? []).map((approval) => (
+              <article key={approval.id} className="crm-list-item">
+                <div>
+                  <strong>订单 #{approval.order_id} · {approval.customer_name}</strong>
+                  <span>{approval.owner} 提交给 {approval.reviewer || '销售经理'} / {formatApprovalSla(approval)}</span>
+                </div>
+                <div className="crm-status-cluster">
+                  <StatusBadge value={approvalRiskLabelMap[approval.risk_level] ?? '中风险'} tone={approvalRiskToneMap[approval.risk_level] ?? 'info'} />
+                  <StatusBadge value={approvalStatusLabelMap[approval.status] ?? approval.status} tone={approval.status === 'pending' ? 'warning' : approval.status === 'approved' ? 'success' : 'danger'} />
+                </div>
+              </article>
+            ))}
+            {!loading && !error && !(approvalReport?.recent_approvals ?? []).length ? <EmptyState icon={ClipboardList} title="暂无最近审批记录" subtitle="订单提交经理复核后会显示在这里。" /> : null}
+          </div>
+        </div>
       </section>
 
       <section className="crm-dashboard-grid">
@@ -2726,6 +2804,32 @@ function ReportsPage() {
         <ReportBreakdownPanel title="负责人绩效" rows={ownerRows} maxValue={maxOwnerValue} />
         <ReportBreakdownPanel title="区域绩效" rows={regionRows} maxValue={Math.max(...regionRows.map((item) => Math.max(item.revenue, item.pipeline_amount)), 1)} />
       </section>
+    </div>
+  )
+}
+
+function ApprovalDistributionPanel({ title, rows, toneMap, emptyTitle }) {
+  return (
+    <div className="crm-panel">
+      <PanelHeader title={title} actionLabel="按真实审批记录聚合" />
+      <div className="crm-progress-list">
+        {rows.map((row) => {
+          const tone = toneMap[row.key] ?? 'neutral'
+          return (
+            <div key={row.key} className="crm-progress-row">
+              <div className="crm-progress-meta">
+                <div className={`crm-dot tone-${tone}`} />
+                <span>{row.label}</span>
+                <strong>{row.count} 条 / {formatPercent(row.share)}</strong>
+              </div>
+              <div className="crm-progress-track">
+                <div className={`crm-progress-bar tone-${tone}`} style={{ width: `${Math.max(4, row.share * 100)}%` }} />
+              </div>
+            </div>
+          )
+        })}
+        {!rows.some((row) => row.count > 0) ? <EmptyState icon={ClipboardList} title={emptyTitle} subtitle="提交订单审批后会在这里形成分析。" /> : null}
+      </div>
     </div>
   )
 }
