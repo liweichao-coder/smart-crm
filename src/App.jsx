@@ -63,6 +63,7 @@ import {
   fetchCopilotRecommendations,
   fetchCopilotSummary,
   fetchCurrentUser,
+  fetchNotifications,
   convertCopilotRecommendationToTask,
   createCase,
   createContact,
@@ -1254,12 +1255,16 @@ function AppShell({ authSession, onLogout }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedOrg, setSelectedOrg] = useState(loadStoredOrg())
+  const [notifications, setNotifications] = useState([])
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const [notificationError, setNotificationError] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
   const allowedNavItems = navItems.filter((item) => hasClientPermission(authSession, item.permission))
   const currentPage = pageItems.find((item) => location.pathname.startsWith(item.path)) ?? navItems[0]
   const isProfilePage = location.pathname.startsWith('/profile')
   const activeProfile = buildUserProfile(authSession?.user)
+  const urgentNotificationCount = notifications.filter((item) => item.severity !== 'info').length
 
   useEffect(() => {
     document.title = currentPage.title
@@ -1268,6 +1273,34 @@ function AppShell({ authSession, onLogout }) {
   useEffect(() => {
     persistOrg(selectedOrg)
   }, [selectedOrg])
+
+  useEffect(() => {
+    let mounted = true
+    if (!authSession?.token || !hasClientPermission(authSession, 'dashboard:read')) {
+      return undefined
+    }
+    fetchNotifications({ limit: 12 })
+      .then((payload) => {
+        if (mounted) {
+          setNotifications(payload ?? [])
+          setNotificationError('')
+        }
+      })
+      .catch((requestError) => {
+        if (mounted) {
+          setNotificationError(requestError.message || '通知加载失败')
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [authSession, location.pathname])
+
+  const handleNotificationNavigate = (href) => {
+    setNotificationOpen(false)
+    navigate(href)
+  }
 
   return (
     <div className="crm-shell">
@@ -1337,9 +1370,49 @@ function AppShell({ authSession, onLogout }) {
             </div>
           </div>
           <div className="crm-topbar-actions">
-            <button className="crm-icon-button" type="button" aria-label="通知">
-              <Bell size={18} />
-            </button>
+            <div className="crm-notification-wrap">
+              <button
+                className={`crm-icon-button crm-notification-button ${notificationOpen ? 'is-active' : ''}`}
+                type="button"
+                aria-label="通知"
+                onClick={() => setNotificationOpen((value) => !value)}
+              >
+                <Bell size={18} />
+                {urgentNotificationCount ? <span className="crm-notification-badge">{urgentNotificationCount}</span> : null}
+              </button>
+              {notificationOpen ? (
+                <div className="crm-notification-panel">
+                  <div className="crm-notification-head">
+                    <div>
+                      <strong>通知中心</strong>
+                      <span>{`${notifications.length} 条业务提醒`}</span>
+                    </div>
+                    <button className="crm-link-button" type="button" onClick={() => handleNotificationNavigate('/dashboard')}>
+                      仪表盘
+                    </button>
+                  </div>
+                  {notificationError ? <div className="crm-notification-error">{notificationError}</div> : null}
+                  <div className="crm-notification-list">
+                    {notifications.map((item) => (
+                      <button
+                        key={item.id}
+                        className={`crm-notification-item tone-${item.severity}`}
+                        type="button"
+                        onClick={() => handleNotificationNavigate(item.href)}
+                      >
+                        <span>{item.category}</span>
+                        <strong>{item.title}</strong>
+                        <small>{item.message}</small>
+                        <em>{item.action_label} · {formatDateTime(item.created_at)}</em>
+                      </button>
+                    ))}
+                  </div>
+                  {!notificationError && !notifications.length ? (
+                    <div className="crm-notification-empty">暂无新的业务提醒</div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             <button className="crm-ghost-button" type="button" onClick={() => navigate('/org')}>
               <LogOut size={16} />
               切换组织

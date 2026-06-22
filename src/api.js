@@ -98,6 +98,10 @@ export function fetchCurrentUser() {
   return request('/api/auth/me')
 }
 
+export function fetchNotifications(params) {
+  return request(`/api/notifications${buildQueryString(params)}`)
+}
+
 export function logout() {
   return request('/api/auth/logout', {
     method: 'POST',

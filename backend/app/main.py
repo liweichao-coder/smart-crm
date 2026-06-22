@@ -48,6 +48,7 @@ from .schemas import (
     InventoryRestockAlertRead,
     LeadRead,
     OrderItemRead,
+    NotificationRead,
     PaginatedResponse,
     ModulePermissionRead,
     PermissionCatalogItem,
@@ -612,6 +613,151 @@ def find_task_for_copilot_recommendation(session: Session, recommendation_id: in
     return next((task for task in tasks if marker in task.description), None)
 
 
+def make_notification(
+    *,
+    notification_id: str,
+    category: str,
+    severity: str,
+    title: str,
+    message: str,
+    href: str,
+    action_label: str,
+    entity_type: str,
+    entity_id: int | None,
+    created_at: datetime,
+) -> NotificationRead:
+    return NotificationRead(
+        id=notification_id,
+        category=category,
+        severity=severity,
+        title=summarize_text(title, limit=120),
+        message=summarize_text(message, limit=260),
+        href=href,
+        action_label=action_label,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        created_at=created_at,
+    )
+
+
+def collect_notifications(session: Session, limit: int = 20) -> list[NotificationRead]:
+    notifications: list[NotificationRead] = []
+    today = date.today()
+
+    tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    for task in tasks:
+        if task.status == "overdue":
+            notifications.append(
+                make_notification(
+                    notification_id=f"task-overdue-{task.id}",
+                    category="任务",
+                    severity="critical",
+                    title=f"逾期任务：{task.title}",
+                    message=f"{task.owner} 负责，原计划 {task.due_date} 完成。",
+                    href="/tasks",
+                    action_label="查看任务",
+                    entity_type="task",
+                    entity_id=task.id,
+                    created_at=task.created_at,
+                )
+            )
+        elif task.status == "today" and task.priority in {"hot", "warm"}:
+            notifications.append(
+                make_notification(
+                    notification_id=f"task-today-{task.id}",
+                    category="任务",
+                    severity="warning" if task.priority == "hot" else "info",
+                    title=f"今日待办：{task.title}",
+                    message=f"{task.owner} 负责，截止 {task.due_date}。",
+                    href="/tasks",
+                    action_label="查看任务",
+                    entity_type="task",
+                    entity_id=task.id,
+                    created_at=task.created_at,
+                )
+            )
+
+    for alert in list_restock_alerts(session)[:5]:
+        notifications.append(
+            make_notification(
+                notification_id=f"stock-{alert.product_id}",
+                category="库存",
+                severity="critical" if alert.priority == "critical" else "warning",
+                title=f"库存预警：{alert.name}",
+                message=f"当前库存 {alert.current_stock} 件，建议补货 {alert.recommended_restock} 件。",
+                href="/orders",
+                action_label="处理补货",
+                entity_type="product",
+                entity_id=alert.product_id,
+                created_at=datetime.utcnow(),
+            )
+        )
+
+    leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc(), SalesLead.expected_amount.desc())).all()
+    for lead in leads:
+        stage = normalize_stage_value(lead.stage)
+        if stage in {"won", "lost"}:
+            continue
+        days_left = (lead.due_date - today).days
+        if lead.expected_amount < 100000 and days_left > 3:
+            continue
+        severity = "critical" if days_left < 0 else "warning" if days_left <= 2 else "info"
+        notifications.append(
+            make_notification(
+                notification_id=f"lead-{lead.id}",
+                category="商机",
+                severity=severity,
+                title=f"重点商机：{lead.title}",
+                message=f"{lead.customer_name} / {stage} / {lead.expected_amount:.0f} 元，预计 {lead.due_date} 截止。",
+                href="/opportunities",
+                action_label="查看商机",
+                entity_type="lead",
+                entity_id=lead.id,
+                created_at=datetime.combine(lead.due_date, datetime.min.time()),
+            )
+        )
+
+    recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc()).limit(8)).all()
+    for recommendation in recommendations:
+        if recommendation.id and find_task_for_copilot_recommendation(session, recommendation.id):
+            continue
+        notifications.append(
+            make_notification(
+                notification_id=f"copilot-{recommendation.id}",
+                category="AI",
+                severity="info" if recommendation.grade not in {"A", "B"} else "warning",
+                title=f"Copilot 建议待执行：{recommendation.lead_title or recommendation.customer_name}",
+                message=recommendation.next_best_action or recommendation.llm_summary or "请查看 AI 副驾推荐历史。",
+                href="/copilot",
+                action_label="转为任务",
+                entity_type="copilot_recommendation",
+                entity_id=recommendation.id,
+                created_at=recommendation.created_at,
+            )
+        )
+
+    fallback_logs = session.exec(select(AIInteractionLog).where(AIInteractionLog.fallback_used == True).order_by(AIInteractionLog.created_at.desc()).limit(3)).all()  # noqa: E712
+    for log in fallback_logs:
+        notifications.append(
+            make_notification(
+                notification_id=f"ai-fallback-{log.id}",
+                category="AI",
+                severity="warning",
+                title=f"AI 兜底调用：{log.operation}",
+                message=f"模型 {log.model or '未配置'} 使用兜底结果，耗时 {log.latency_ms} ms。",
+                href="/ai-audit",
+                action_label="查看审计",
+                entity_type="ai_interaction",
+                entity_id=log.id,
+                created_at=log.created_at,
+            )
+        )
+
+    severity_rank = {"critical": 0, "warning": 1, "info": 2}
+    notifications.sort(key=lambda item: (severity_rank.get(item.severity, 9), -item.created_at.timestamp(), item.id))
+    return notifications[: max(1, min(limit, 50))]
+
+
 def add_business_audit(
     session: Session,
     *,
@@ -976,6 +1122,14 @@ def get_permission_matrix(
         roles=roles,
         modules=modules,
     )
+
+
+@app.get("/api/notifications", response_model=list[NotificationRead], dependencies=[Depends(require_permission("dashboard:read"))])
+def list_notifications(
+    session: SessionDep,
+    limit: int = Query(default=20, ge=1, le=50),
+) -> list[NotificationRead]:
+    return collect_notifications(session, limit=limit)
 
 
 @app.get(

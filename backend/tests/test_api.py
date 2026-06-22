@@ -65,6 +65,27 @@ def test_dashboard_payload() -> None:
     assert "ai_orders_ratio" in payload
 
 
+def test_notifications_are_data_driven(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    with TestClient(app) as client:
+        response = client.get("/api/notifications")
+        client.get("/api/copilot/summary")
+        copilot_response = client.get("/api/notifications?limit=50")
+
+    assert response.status_code == 200
+    notifications = response.json()
+    assert notifications
+    categories = {item["category"] for item in notifications}
+    assert {"任务", "库存", "商机"} <= categories
+    assert all(item["href"].startswith("/") for item in notifications)
+    assert any(item["severity"] == "critical" for item in notifications)
+
+    assert copilot_response.status_code == 200
+    copilot_notifications = copilot_response.json()
+    assert any(item["entity_type"] == "copilot_recommendation" for item in copilot_notifications)
+    assert any(item["entity_type"] == "ai_interaction" and item["severity"] == "warning" for item in copilot_notifications)
+
+
 def test_sales_performance_report_payload_and_filters() -> None:
     with TestClient(app) as client:
         response = client.get("/api/reports/sales-performance")

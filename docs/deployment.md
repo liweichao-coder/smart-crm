@@ -101,6 +101,9 @@ $login = Invoke-RestMethod -Method Post -ContentType "application/json" `
 
 Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.token)" } `
   http://127.0.0.1:8000/api/auth/me
+
+Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.token)" } `
+  "http://127.0.0.1:8000/api/notifications?limit=10"
 ```
 
 Manual API smoke:

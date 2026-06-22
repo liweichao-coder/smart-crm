@@ -336,6 +336,134 @@ p {
   padding: 18px 24px;
 }
 
+.crm-notification-wrap {
+  position: relative;
+}
+
+.crm-notification-button.is-active {
+  border-color: var(--border-default);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.crm-notification-badge {
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 2px solid rgba(12, 17, 27, 0.92);
+  border-radius: 999px;
+  background: #ff7a59;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.crm-notification-panel {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 30;
+  width: min(390px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 140px));
+  overflow: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(13, 18, 28, 0.98);
+  box-shadow: var(--shadow-lg);
+}
+
+.crm-notification-head,
+.crm-notification-item {
+  display: flex;
+}
+
+.crm-notification-head {
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 4px 4px 12px;
+}
+
+.crm-notification-head div,
+.crm-notification-list,
+.crm-notification-item {
+  display: grid;
+}
+
+.crm-notification-head div,
+.crm-notification-list,
+.crm-notification-item {
+  gap: 6px;
+}
+
+.crm-notification-head strong {
+  color: var(--text-primary);
+}
+
+.crm-notification-head span,
+.crm-notification-item span,
+.crm-notification-item small,
+.crm-notification-item em,
+.crm-notification-empty,
+.crm-notification-error {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.crm-notification-list {
+  gap: 10px;
+}
+
+.crm-notification-item {
+  width: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: inherit;
+  text-align: left;
+}
+
+.crm-notification-item:hover {
+  border-color: rgba(255, 122, 89, 0.42);
+  background: rgba(255, 122, 89, 0.08);
+}
+
+.crm-notification-item strong {
+  color: var(--text-primary);
+}
+
+.crm-notification-item em {
+  font-style: normal;
+}
+
+.crm-notification-item.tone-critical {
+  border-color: rgba(248, 113, 113, 0.36);
+}
+
+.crm-notification-item.tone-warning {
+  border-color: rgba(251, 191, 36, 0.34);
+}
+
+.crm-notification-error {
+  margin-bottom: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(248, 113, 113, 0.08);
+  color: #fecaca;
+}
+
+.crm-notification-empty {
+  padding: 18px 8px 6px;
+  text-align: center;
+}
+
 .crm-page-heading {
   align-items: flex-start;
   gap: 4px;

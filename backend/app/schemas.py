@@ -209,6 +209,19 @@ class InventoryRestockAlertRead(BaseModel):
     reason: str
 
 
+class NotificationRead(BaseModel):
+    id: str
+    category: str
+    severity: str
+    title: str
+    message: str
+    href: str
+    action_label: str
+    entity_type: str
+    entity_id: int | None = None
+    created_at: datetime
+
+
 class ProductRestockRequest(BaseModel):
     quantity: int = Field(ge=1, le=100000)
     reason: str = "低库存补货"
