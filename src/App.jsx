@@ -51,14 +51,17 @@ import {
   fetchCases,
   fetchContacts,
   fetchCopilotSummary,
+  createOrder,
   fetchCustomers,
   fetchDashboard,
   fetchGoals,
   fetchLeads,
+  fetchProducts,
   fetchTasks,
   extractOrderFromFile,
   generateFollowUp,
 } from './api.js'
+import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { buildClientRecord, createDraftFromColumns } from './resourceUtils.js'
 
 const STORAGE_KEY = 'huahenuancrm:selected-org'
@@ -1327,8 +1330,29 @@ function CopilotPage() {
 function CapturePage() {
   const [file, setFile] = useState(null)
   const [result, setResult] = useState(null)
+  const [catalog, setCatalog] = useState({ customers: [], products: [] })
+  const [submittedOrder, setSubmittedOrder] = useState(null)
   const [extracting, setExtracting] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    Promise.all([fetchCustomers(), fetchProducts()])
+      .then(([customers, products]) => {
+        if (mounted) {
+          setCatalog({ customers, products })
+        }
+      })
+      .catch((nextError) => {
+        if (mounted) {
+          setError(nextError.message || '客户/商品目录加载失败')
+        }
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const totalAmount = useMemo(() => {
     if (!result?.items?.length) {
@@ -1349,6 +1373,7 @@ function CapturePage() {
     extractOrderFromFile(file)
       .then((payload) => {
         setResult(payload)
+        setSubmittedOrder(null)
       })
       .catch((nextError) => {
         setError(nextError.message || '智能录单失败')
@@ -1356,6 +1381,29 @@ function CapturePage() {
       .finally(() => {
         setExtracting(false)
       })
+  }
+
+  const handleCreateOrder = async () => {
+    if (!result) {
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    try {
+      const payload = buildOrderPayloadFromCapture({
+        captureResult: result,
+        customers: catalog.customers,
+        products: catalog.products,
+        owner: userProfile.name,
+        region: '华南',
+      })
+      const order = await createOrder(payload)
+      setSubmittedOrder(order)
+    } catch (nextError) {
+      setError(nextError.message || '订单提交失败')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -1372,7 +1420,7 @@ function CapturePage() {
         </div>
       </section>
 
-      <ResourceSyncState loading={extracting} error={error} />
+      <ResourceSyncState loading={extracting || submitting} error={error} />
 
       <section className="crm-dashboard-grid">
         <form className="crm-panel" onSubmit={handleSubmit}>
@@ -1391,6 +1439,7 @@ function CapturePage() {
             <UploadCloud size={16} />
             {extracting ? '生成中' : '生成草稿'}
           </button>
+          <small>已加载 {catalog.customers.length} 个客户、{catalog.products.length} 个商品用于自动匹配。</small>
         </form>
 
         <div className="crm-panel">
@@ -1411,6 +1460,15 @@ function CapturePage() {
                 </div>
                 <div className="crm-list-value">{formatCurrency(totalAmount)}</div>
               </div>
+              {submittedOrder ? (
+                <div className="crm-list-item">
+                  <div>
+                    <strong>订单 #{submittedOrder.id}</strong>
+                    <span>{submittedOrder.customer_name} · {submittedOrder.items.length} 个条目</span>
+                  </div>
+                  <StatusBadge value={submittedOrder.status} tone="success" />
+                </div>
+              ) : null}
               <p>{result.summary}</p>
             </div>
           ) : (
@@ -1445,6 +1503,13 @@ function CapturePage() {
             </table>
           </div>
           <p>{result.suggested_notes}</p>
+          <div className="crm-toolbar-actions">
+            <button className="crm-primary-button" type="button" onClick={handleCreateOrder} disabled={submitting || Boolean(submittedOrder)}>
+              <CheckSquare size={16} />
+              {submittedOrder ? '已提交订单' : submitting ? '提交中' : '复核并提交订单'}
+            </button>
+            {submittedOrder ? <span className="crm-list-value">{formatCurrency(submittedOrder.total_amount)}</span> : null}
+          </div>
           {result.raw_text_excerpt ? <small>{result.raw_text_excerpt}</small> : null}
         </section>
       ) : null}

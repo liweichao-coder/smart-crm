@@ -50,6 +50,10 @@ export function fetchCustomers() {
   return request('/api/customers')
 }
 
+export function fetchProducts() {
+  return request('/api/products')
+}
+
 export function fetchContacts() {
   return request('/api/contacts')
 }
@@ -68,4 +72,11 @@ export function fetchTasks() {
 
 export function fetchGoals() {
   return request('/api/goals')
+}
+
+export function createOrder(payload) {
+  return request('/api/orders', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
