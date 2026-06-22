@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildClientRecord, buildCsvContent, createCsvFilename, createDraftFromColumns, normalizeDraftValue } from './resourceUtils.js'
+import {
+  buildClientRecord,
+  buildCsvContent,
+  createCsvFilename,
+  createDraftFromColumns,
+  normalizeDraftValue,
+  parseListSearchState,
+  patchListSearchParams,
+} from './resourceUtils.js'
 
 test('createDraftFromColumns builds sensible defaults for resource forms', () => {
   const draft = createDraftFromColumns(
@@ -66,4 +74,51 @@ test('buildCsvContent exports visible records with escaped values', () => {
 
 test('createCsvFilename builds a safe dated file name', () => {
   assert.equal(createCsvFilename('客户 / 线索', '2026-06-23'), '客户-线索-2026-06-23.csv')
+})
+
+test('parseListSearchState normalizes resource list URL state', () => {
+  const state = parseListSearchState('q=%E5%8C%BB%E7%96%97&tab=active&view=board&order=12', {
+    tabKeys: ['all', 'active'],
+    defaultTab: 'all',
+    viewKeys: ['list', 'board'],
+    defaultView: 'list',
+    selectedKey: 'order',
+  })
+
+  assert.deepEqual(state, {
+    query: '医疗',
+    tab: 'active',
+    view: 'board',
+    selectedId: '12',
+  })
+})
+
+test('parseListSearchState falls back from invalid tab and view values', () => {
+  const state = parseListSearchState('tab=archived&view=calendar', {
+    tabKeys: ['all', 'active'],
+    defaultTab: 'all',
+    viewKeys: ['list', 'board'],
+    defaultView: 'list',
+  })
+
+  assert.deepEqual(state, {
+    query: '',
+    tab: 'all',
+    view: 'list',
+    selectedId: '',
+  })
+})
+
+test('patchListSearchParams updates list URL state while preserving unrelated params', () => {
+  const params = patchListSearchParams('page=2&q=old&tab=all', {
+    q: '  医疗  ',
+    tab: 'active',
+    view: 'list',
+  }, {
+    q: '',
+    tab: 'all',
+    view: 'list',
+  })
+
+  assert.equal(params.toString(), 'page=2&q=%E5%8C%BB%E7%96%97&tab=active')
 })

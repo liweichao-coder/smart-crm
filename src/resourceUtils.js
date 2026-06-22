@@ -87,3 +87,44 @@ export function createCsvFilename(title, date = new Date()) {
     .toLowerCase()
   return `${safeTitle || 'resource'}-${datePart}.csv`
 }
+
+function toSearchParams(searchParams) {
+  return searchParams instanceof URLSearchParams ? searchParams : new URLSearchParams(searchParams)
+}
+
+function normalizeOption(value, allowedValues, fallback) {
+  const text = String(value ?? '').trim()
+  return allowedValues.includes(text) ? text : fallback
+}
+
+export function parseListSearchState(searchParams, options = {}) {
+  const params = toSearchParams(searchParams)
+  const tabKeys = options.tabKeys ?? []
+  const viewKeys = options.viewKeys ?? []
+  const selectedKey = options.selectedKey ?? ''
+  const defaultTab = options.defaultTab ?? tabKeys[0] ?? ''
+  const defaultView = options.defaultView ?? viewKeys[0] ?? ''
+
+  return {
+    query: params.get('q') ?? '',
+    tab: tabKeys.length ? normalizeOption(params.get('tab'), tabKeys, defaultTab) : defaultTab,
+    view: viewKeys.length ? normalizeOption(params.get('view'), viewKeys, defaultView) : defaultView,
+    selectedId: selectedKey ? (params.get(selectedKey) ?? '') : '',
+  }
+}
+
+export function patchListSearchParams(searchParams, updates = {}, defaults = {}) {
+  const nextParams = new URLSearchParams(toSearchParams(searchParams))
+
+  for (const [key, value] of Object.entries(updates)) {
+    const text = String(value ?? '').trim()
+    const defaultText = String(defaults[key] ?? '').trim()
+    if (!text || text === defaultText) {
+      nextParams.delete(key)
+    } else {
+      nextParams.set(key, text)
+    }
+  }
+
+  return nextParams
+}

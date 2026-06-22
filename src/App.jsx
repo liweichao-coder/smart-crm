@@ -49,6 +49,7 @@ import {
   useNavigate,
   useOutletContext,
   useParams,
+  useSearchParams,
 } from 'react-router-dom'
 import avatar from './assets/vendor/unnamed.png'
 import {
@@ -118,7 +119,7 @@ import {
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { toDraftOwner } from './ownerUtils.js'
-import { buildClientRecord, buildCsvContent, createCsvFilename, createDraftFromColumns } from './resourceUtils.js'
+import { buildClientRecord, buildCsvContent, createCsvFilename, createDraftFromColumns, parseListSearchState, patchListSearchParams } from './resourceUtils.js'
 import { getSessionOrganizations, resolveSelectedOrg } from './sessionUtils.js'
 
 const STORAGE_KEY = 'huahenuancrm:selected-org'
@@ -779,6 +780,45 @@ function useRemoteRecords(fetcher, mapper) {
   return { records, loading, error }
 }
 
+function useResourceUrlState({
+  tabKeys = [],
+  defaultTab = tabKeys[0] ?? '',
+  viewKeys = [],
+  defaultView = viewKeys[0] ?? '',
+  selectedKey = '',
+} = {}) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const state = parseListSearchState(searchParams, {
+    tabKeys,
+    defaultTab,
+    viewKeys,
+    defaultView,
+    selectedKey,
+  })
+
+  const updateUrlState = (updates) => {
+    setSearchParams(
+      (currentParams) => patchListSearchParams(currentParams, updates, {
+        q: '',
+        tab: defaultTab,
+        view: defaultView,
+      }),
+      { replace: true },
+    )
+  }
+
+  return {
+    query: state.query,
+    activeTab: state.tab,
+    view: state.view,
+    selectedId: state.selectedId,
+    setQuery: (query) => updateUrlState({ q: query }),
+    setActiveTab: (tab) => updateUrlState({ tab }),
+    setView: (view) => updateUrlState({ view }),
+    setSelectedId: (id) => updateUrlState(selectedKey ? { [selectedKey]: id } : {}),
+  }
+}
+
 function RequireAuth({ authSession, children }) {
   if (!authSession?.token) {
     return <Navigate replace to="/login" />
@@ -953,8 +993,6 @@ function TeamMembersPage() {
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [query, setQuery] = useState('')
-  const [activeTab, setActiveTab] = useState('all')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingMember, setEditingMember] = useState(null)
   const [draft, setDraft] = useState(() => createTeamMemberDraft())
@@ -986,6 +1024,10 @@ function TeamMembersPage() {
     { key: 'manager', label: '管理角色', predicate: (member) => ['管理员', '销售经理'].includes(member.role) },
     { key: 'sales', label: '销售', predicate: (member) => member.role === '销售' },
   ], [])
+  const { query, setQuery, activeTab, setActiveTab } = useResourceUrlState({
+    tabKeys: tabs.map((tab) => tab.key),
+    defaultTab: 'all',
+  })
 
   const visibleMembers = useMemo(() => {
     const tab = tabs.find((item) => item.key === activeTab)
@@ -3706,8 +3748,6 @@ function OrdersPage() {
   const [restockAlerts, setRestockAlerts] = useState([])
   const [inventoryMovements, setInventoryMovements] = useState([])
   const [selectedOrderMovements, setSelectedOrderMovements] = useState([])
-  const [activeTab, setActiveTab] = useState('all')
-  const [selectedOrderId, setSelectedOrderId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [restockSavingId, setRestockSavingId] = useState(null)
   const [exportSaving, setExportSaving] = useState(false)
@@ -3717,6 +3757,11 @@ function OrdersPage() {
   const [approvalDecisionId, setApprovalDecisionId] = useState(null)
   const [orderDraft, setOrderDraft] = useState(() => buildOrderDraft(null, activeProfile.name))
   const [error, setError] = useState('')
+  const { activeTab, setActiveTab, selectedId: selectedOrderId, setSelectedId: setSelectedOrderId } = useResourceUrlState({
+    tabKeys: ORDER_FILTERS.map((filter) => filter.key),
+    defaultTab: 'all',
+    selectedKey: 'order',
+  })
 
   useEffect(() => {
     let mounted = true
@@ -3728,7 +3773,6 @@ function OrdersPage() {
           setProducts(nextProducts)
           setRestockAlerts(nextRestockAlerts)
           setInventoryMovements(nextInventoryMovements)
-          setSelectedOrderId(nextOrders[0]?.id ?? null)
           setError('')
         }
       })
@@ -3892,7 +3936,7 @@ function OrdersPage() {
   const summary = useMemo(() => summarizeOrders(orders), [orders])
   const visibleOrders = useMemo(() => filterOrders(orders, activeTab), [activeTab, orders])
   const selectedOrder = useMemo(() => {
-    return visibleOrders.find((order) => order.id === selectedOrderId) ?? visibleOrders[0] ?? orders[0] ?? null
+    return visibleOrders.find((order) => String(order.id) === String(selectedOrderId)) ?? visibleOrders[0] ?? orders[0] ?? null
   }, [orders, selectedOrderId, visibleOrders])
 
   useEffect(() => {
@@ -4319,8 +4363,6 @@ function TableResourcePage({
   openRecordLabel = '打开详情',
 }) {
   const [rows, setRows] = useState(records)
-  const [activeTab, setActiveTab] = useState(tabs[0].key)
-  const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
   const [deleteSaving, setDeleteSaving] = useState(false)
@@ -4333,6 +4375,10 @@ function TableResourcePage({
   const [draft, setDraft] = useState(createInitialDraft)
   const searchInputRef = useRef(null)
   const hasActions = Boolean(getRecordHref || onUpdateRecord || onDeleteRecord)
+  const { query, setQuery, activeTab, setActiveTab } = useResourceUrlState({
+    tabKeys: tabs.map((tab) => tab.key),
+    defaultTab: tabs[0].key,
+  })
 
   useEffect(() => {
     setRows(records)
@@ -4514,8 +4560,6 @@ function BoardResourcePage({
   onDeleteRecord,
 }) {
   const [rows, setRows] = useState(records)
-  const [view, setView] = useState('list')
-  const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
   const [deleteSaving, setDeleteSaving] = useState(false)
@@ -4523,6 +4567,10 @@ function BoardResourcePage({
   const [createError, setCreateError] = useState('')
   const searchInputRef = useRef(null)
   const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
+  const { query, setQuery, view, setView } = useResourceUrlState({
+    viewKeys: ['list', 'board'],
+    defaultView: 'list',
+  })
   const boardValues = useMemo(() => [...new Set(rows.map((record) => record[boardKey]))], [boardKey, rows])
   const workflowField = useMemo(
     () => ({ key: boardKey, label: '阶段', value: boardValues[0] ?? 'New', options: boardValues.length ? boardValues : ['New'] }),
@@ -4784,7 +4832,10 @@ function TasksPage() {
     { key: 'week', label: '本周', predicate: (item) => item.status === 'week' },
   ]
 
-  const [activeTab, setActiveTab] = useState('all')
+  const { activeTab, setActiveTab } = useResourceUrlState({
+    tabKeys: tabs.map((tab) => tab.key),
+    defaultTab: 'all',
+  })
   const visibleTasks = tabs.find((tab) => tab.key === activeTab)?.predicate
     ? tasks.filter(tabs.find((tab) => tab.key === activeTab).predicate)
     : tasks

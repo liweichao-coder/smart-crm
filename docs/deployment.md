@@ -108,6 +108,14 @@ Open:
 http://127.0.0.1:5173
 ```
 
+Shareable demo URLs:
+
+```text
+http://127.0.0.1:5173/leads?view=board&q=医疗
+http://127.0.0.1:5173/team?tab=manager
+http://127.0.0.1:5173/orders?tab=ai&order=12
+```
+
 ## 5. Verify Auth and Copilot
 
 ```powershell

@@ -116,8 +116,9 @@ The course exam requires a full software engineering process package, not only c
 - After CRM Skill Q&A upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 38 passed; `npm test -- --run`: 24 passed; `npm run lint`: passed; `npm run build`: passed.
 - CRM Skill real LLM smoke succeeded with the configured DeepSeek-compatible key: `/api/copilot/ask` returned `fallback_used=false`, a non-empty answer, 3 evidence items, and 5 next actions.
 - After team member management upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 39 passed; `npm test -- --run`: 24 passed; `npm run lint`: passed; `npm run build`: passed. Coverage includes permission matrix exposure, member create/update, disabled-account login rejection, self role/status protection, sales manager administrator-guard, and sales-role access denial.
+- Added URL-synced list state for table, board, team, task, and order views. `q`, `tab`, `view`, and `order` now preserve search terms, tabs, board/list mode, and selected order detail across refreshes or shared demo links.
 - `npm run lint`: passed.
-- `npm test`: 24 passed.
+- `npm test`: 27 passed.
 - `npm run build`: passed.
 - Demo database seed and doctor succeeded with 1 organization, 5 role-based users, 12 customers, 10 products, 12 contacts, 16 customer activities, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, 22 order items, 22 inventory movements, and 2 order approval records.
 - DeepSeek OpenAI-compatible smoke succeeded: summary and follow-up returned `fallback_used=false`.
@@ -163,5 +164,5 @@ The course exam requires a full software engineering process package, not only c
 
 ## Next Steps
 
-- Add stricter field-level validation, fuller end-to-end browser smoke coverage, richer approval policies, and URL-synced table filter state.
+- Add stricter field-level validation, fuller end-to-end browser smoke coverage, richer approval policies, synced pagination state, and saved view preferences.
 - Capture screenshots and export Word/PPT final materials.
