@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .models import LeadStage, OrderStatus
+
+T = TypeVar("T")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    items: list[T]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+    has_next: bool
+    has_previous: bool
 
 
 class CustomerRead(BaseModel):

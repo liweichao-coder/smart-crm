@@ -614,7 +614,8 @@ function useRemoteRecords(fetcher, mapper) {
     fetcher()
       .then((payload) => {
         if (mounted) {
-          setRecords(payload.map(mapper))
+          const items = Array.isArray(payload) ? payload : payload?.items ?? []
+          setRecords(items.map(mapper))
           setError('')
         }
       })

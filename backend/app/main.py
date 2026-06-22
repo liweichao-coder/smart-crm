@@ -4,10 +4,11 @@ import csv
 import io
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
+from math import ceil
 from time import perf_counter
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 
@@ -34,6 +35,7 @@ from .schemas import (
     InventoryRestockAlertRead,
     LeadRead,
     OrderItemRead,
+    PaginatedResponse,
     ProductCreate,
     ProductRestockRequest,
     ProductRestockResponse,
@@ -88,6 +90,61 @@ def patch_values(payload) -> dict:
 
 def delete_response(entity: str, item_id: int) -> dict[str, bool | int | str]:
     return {"deleted": True, "entity": entity, "id": item_id}
+
+
+def normalized_query_value(value) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "value"):
+        value = value.value
+    return str(value).strip().lower()
+
+
+def filter_records(records: list, *, q: str = "", fields: tuple[str, ...] = (), **filters) -> list:
+    result = records
+    term = normalized_query_value(q)
+    if term and fields:
+        result = [
+            record
+            for record in result
+            if any(term in normalized_query_value(getattr(record, field, "")) for field in fields)
+        ]
+
+    for field, expected in filters.items():
+        if expected is None:
+            continue
+        expected_value = normalized_query_value(expected)
+        if not expected_value:
+            continue
+        result = [record for record in result if normalized_query_value(getattr(record, field, "")) == expected_value]
+    return result
+
+
+def filter_bool(records: list, field: str, expected: bool | None) -> list:
+    if expected is None:
+        return records
+    return [record for record in records if bool(getattr(record, field, False)) is expected]
+
+
+def paginate_or_list(records: list, *, page: int | None = None, per_page: int | None = None) -> list | dict:
+    if page is None and per_page is None:
+        return records
+
+    safe_page = page or 1
+    safe_per_page = min(per_page or 20, 100)
+    total = len(records)
+    start = (safe_page - 1) * safe_per_page
+    end = start + safe_per_page
+    pages = ceil(total / safe_per_page) if total else 0
+    return {
+        "items": records[start:end],
+        "total": total,
+        "page": safe_page,
+        "per_page": safe_per_page,
+        "pages": pages,
+        "has_next": safe_page < pages,
+        "has_previous": safe_page > 1 and total > 0,
+    }
 
 
 def product_recent_order_quantity(product_id: int, session: Session) -> int:
@@ -397,9 +454,28 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/customers", response_model=list[CustomerRead])
-def list_customers(session: SessionDep) -> list[Customer]:
-    return session.exec(select(Customer).order_by(Customer.created_at.desc())).all()
+@app.get("/api/customers", response_model=list[CustomerRead] | PaginatedResponse[CustomerRead])
+def list_customers(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    status: str = "",
+    level: str = "",
+    city: str = "",
+    industry: str = "",
+) -> list[Customer] | dict:
+    customers = session.exec(select(Customer).order_by(Customer.created_at.desc())).all()
+    customers = filter_records(
+        customers,
+        q=q,
+        fields=("name", "company", "industry", "city", "contact_person", "phone", "email", "source"),
+        status=status,
+        level=level,
+        city=city,
+        industry=industry,
+    )
+    return paginate_or_list(customers, page=page, per_page=per_page)
 
 
 @app.post("/api/customers", response_model=CustomerRead, status_code=201)
@@ -481,9 +557,17 @@ def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | i
     return delete_response("customer", customer_id)
 
 
-@app.get("/api/products", response_model=list[ProductRead])
-def list_products(session: SessionDep) -> list[Product]:
-    return session.exec(select(Product).order_by(Product.created_at.desc())).all()
+@app.get("/api/products", response_model=list[ProductRead] | PaginatedResponse[ProductRead])
+def list_products(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    category: str = "",
+) -> list[Product] | dict:
+    products = session.exec(select(Product).order_by(Product.created_at.desc())).all()
+    products = filter_records(products, q=q, fields=("name", "sku", "category"), category=category)
+    return paginate_or_list(products, page=page, per_page=per_page)
 
 
 @app.post("/api/products", response_model=ProductRead, status_code=201)
@@ -563,11 +647,24 @@ def get_restock_alerts(session: SessionDep) -> list[InventoryRestockAlertRead]:
     return list_restock_alerts(session)
 
 
-@app.get("/api/inventory/movements", response_model=list[InventoryMovementRead])
-def get_inventory_movements(session: SessionDep, limit: int = 30) -> list[InventoryMovementRead]:
+@app.get("/api/inventory/movements", response_model=list[InventoryMovementRead] | PaginatedResponse[InventoryMovementRead])
+def get_inventory_movements(
+    session: SessionDep,
+    limit: int = 30,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    source: str = "",
+) -> list[InventoryMovementRead] | dict:
     safe_limit = min(max(limit, 1), 100)
-    movements = session.exec(select(InventoryMovement).order_by(InventoryMovement.created_at.desc()).limit(safe_limit)).all()
-    return [serialize_inventory_movement(movement, session) for movement in movements]
+    has_filter = bool(q.strip() or source.strip())
+    query_limit = None if page is not None or per_page is not None or has_filter else safe_limit
+    statement = select(InventoryMovement).order_by(InventoryMovement.created_at.desc())
+    if query_limit is not None:
+        statement = statement.limit(query_limit)
+    movements = [serialize_inventory_movement(movement, session) for movement in session.exec(statement).all()]
+    movements = filter_records(movements, q=q, fields=("product_name", "sku", "reason", "operator", "source"), source=source)
+    return paginate_or_list(movements, page=page, per_page=per_page)
 
 
 @app.post("/api/products/{product_id}/restock", response_model=ProductRestockResponse)
@@ -609,9 +706,24 @@ def restock_product(product_id: int, payload: ProductRestockRequest, session: Se
     )
 
 
-@app.get("/api/contacts", response_model=list[ContactRead])
-def list_contacts(session: SessionDep) -> list[Contact]:
-    return session.exec(select(Contact).order_by(Contact.created_at.desc())).all()
+@app.get("/api/contacts", response_model=list[ContactRead] | PaginatedResponse[ContactRead])
+def list_contacts(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    owner: str = "",
+    status: str = "",
+) -> list[Contact] | dict:
+    contacts = session.exec(select(Contact).order_by(Contact.created_at.desc())).all()
+    contacts = filter_records(
+        contacts,
+        q=q,
+        fields=("name", "company", "role", "email", "phone", "owner"),
+        owner=owner,
+        status=status,
+    )
+    return paginate_or_list(contacts, page=page, per_page=per_page)
 
 
 @app.post("/api/contacts", response_model=ContactRead, status_code=201)
@@ -674,9 +786,28 @@ def delete_contact(contact_id: int, session: SessionDep) -> dict[str, bool | int
     return delete_response("contact", contact_id)
 
 
-@app.get("/api/leads", response_model=list[LeadRead])
-def list_leads(session: SessionDep) -> list[SalesLead]:
-    return session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+@app.get("/api/leads", response_model=list[LeadRead] | PaginatedResponse[LeadRead])
+def list_leads(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    stage: str = "",
+    owner: str = "",
+    region: str = "",
+    ai_assisted: bool | None = None,
+) -> list[SalesLead] | dict:
+    leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+    leads = filter_records(
+        leads,
+        q=q,
+        fields=("title", "customer_name", "owner", "region", "next_action"),
+        stage=stage,
+        owner=owner,
+        region=region,
+    )
+    leads = filter_bool(leads, "ai_assisted", ai_assisted)
+    return paginate_or_list(leads, page=page, per_page=per_page)
 
 
 @app.post("/api/leads", response_model=LeadRead, status_code=201)
@@ -739,9 +870,26 @@ def delete_lead(lead_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("lead", lead_id)
 
 
-@app.get("/api/cases", response_model=list[SupportCaseRead])
-def list_cases(session: SessionDep) -> list[SupportCase]:
-    return session.exec(select(SupportCase).order_by(SupportCase.due_date.asc())).all()
+@app.get("/api/cases", response_model=list[SupportCaseRead] | PaginatedResponse[SupportCaseRead])
+def list_cases(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    owner: str = "",
+    priority: str = "",
+    status: str = "",
+) -> list[SupportCase] | dict:
+    cases = session.exec(select(SupportCase).order_by(SupportCase.due_date.asc())).all()
+    cases = filter_records(
+        cases,
+        q=q,
+        fields=("title", "account", "owner", "priority", "status", "status_label"),
+        owner=owner,
+        priority=priority,
+        status=status,
+    )
+    return paginate_or_list(cases, page=page, per_page=per_page)
 
 
 @app.post("/api/cases", response_model=SupportCaseRead, status_code=201)
@@ -804,9 +952,26 @@ def delete_case(case_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("case", case_id)
 
 
-@app.get("/api/tasks", response_model=list[TaskItemRead])
-def list_tasks(session: SessionDep) -> list[TaskItem]:
-    return session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+@app.get("/api/tasks", response_model=list[TaskItemRead] | PaginatedResponse[TaskItemRead])
+def list_tasks(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    owner: str = "",
+    priority: str = "",
+    status: str = "",
+) -> list[TaskItem] | dict:
+    tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    tasks = filter_records(
+        tasks,
+        q=q,
+        fields=("title", "description", "owner", "due_date", "priority", "status", "status_label"),
+        owner=owner,
+        priority=priority,
+        status=status,
+    )
+    return paginate_or_list(tasks, page=page, per_page=per_page)
 
 
 @app.post("/api/tasks", response_model=TaskItemRead, status_code=201)
@@ -869,9 +1034,17 @@ def delete_task(task_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("task", task_id)
 
 
-@app.get("/api/goals", response_model=list[SalesGoalRead])
-def list_goals(session: SessionDep) -> list[SalesGoal]:
-    return session.exec(select(SalesGoal).order_by(SalesGoal.created_at.desc())).all()
+@app.get("/api/goals", response_model=list[SalesGoalRead] | PaginatedResponse[SalesGoalRead])
+def list_goals(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    period: str = "",
+) -> list[SalesGoal] | dict:
+    goals = session.exec(select(SalesGoal).order_by(SalesGoal.created_at.desc())).all()
+    goals = filter_records(goals, q=q, fields=("name", "period", "note"), period=period)
+    return paginate_or_list(goals, page=page, per_page=per_page)
 
 
 @app.post("/api/goals", response_model=SalesGoalRead, status_code=201)
@@ -946,22 +1119,91 @@ def delete_goal(goal_id: int, session: SessionDep) -> dict[str, bool | int | str
     return delete_response("goal", goal_id)
 
 
-@app.get("/api/ai-audit-logs", response_model=list[AIInteractionLogRead])
-def list_ai_audit_logs(session: SessionDep, limit: int = 30) -> list[AIInteractionLog]:
+@app.get("/api/ai-audit-logs", response_model=list[AIInteractionLogRead] | PaginatedResponse[AIInteractionLogRead])
+def list_ai_audit_logs(
+    session: SessionDep,
+    limit: int = 30,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    operation: str = "",
+    status: str = "",
+    entity_type: str = "",
+    fallback_used: bool | None = None,
+) -> list[AIInteractionLog] | dict:
     safe_limit = min(max(limit, 1), 100)
-    return session.exec(select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc()).limit(safe_limit)).all()
+    has_filter = bool(q.strip() or operation.strip() or status.strip() or entity_type.strip() or fallback_used is not None)
+    query_limit = None if page is not None or per_page is not None or has_filter else safe_limit
+    statement = select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc())
+    if query_limit is not None:
+        statement = statement.limit(query_limit)
+    logs = session.exec(statement).all()
+    logs = filter_records(
+        logs,
+        q=q,
+        fields=("operation", "provider", "model", "status", "entity_type", "request_summary", "response_summary"),
+        operation=operation,
+        status=status,
+        entity_type=entity_type,
+    )
+    logs = filter_bool(logs, "fallback_used", fallback_used)
+    return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/business-audit-logs", response_model=list[BusinessAuditLogRead])
-def list_business_audit_logs(session: SessionDep, limit: int = 40) -> list[BusinessAuditLog]:
+@app.get("/api/business-audit-logs", response_model=list[BusinessAuditLogRead] | PaginatedResponse[BusinessAuditLogRead])
+def list_business_audit_logs(
+    session: SessionDep,
+    limit: int = 40,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    action: str = "",
+    entity_type: str = "",
+    operator: str = "",
+    status: str = "",
+) -> list[BusinessAuditLog] | dict:
     safe_limit = min(max(limit, 1), 120)
-    return session.exec(select(BusinessAuditLog).order_by(BusinessAuditLog.created_at.desc()).limit(safe_limit)).all()
+    has_filter = bool(q.strip() or action.strip() or entity_type.strip() or operator.strip() or status.strip())
+    query_limit = None if page is not None or per_page is not None or has_filter else safe_limit
+    statement = select(BusinessAuditLog).order_by(BusinessAuditLog.created_at.desc())
+    if query_limit is not None:
+        statement = statement.limit(query_limit)
+    logs = session.exec(statement).all()
+    logs = filter_records(
+        logs,
+        q=q,
+        fields=("action", "entity_type", "operator", "status", "summary", "detail"),
+        action=action,
+        entity_type=entity_type,
+        operator=operator,
+        status=status,
+    )
+    return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/orders", response_model=list[SalesOrderRead])
-def list_orders(session: SessionDep) -> list[SalesOrderRead]:
+@app.get("/api/orders", response_model=list[SalesOrderRead] | PaginatedResponse[SalesOrderRead])
+def list_orders(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    owner: str = "",
+    region: str = "",
+    status: str = "",
+    created_by_ai: bool | None = None,
+) -> list[SalesOrderRead] | dict:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
-    return [serialize_order(order, session) for order in orders]
+    serialized_orders = [serialize_order(order, session) for order in orders]
+    serialized_orders = filter_records(
+        serialized_orders,
+        q=q,
+        fields=("customer_name", "owner", "region", "currency", "status", "notes"),
+        owner=owner,
+        region=region,
+        status=status,
+    )
+    serialized_orders = filter_bool(serialized_orders, "created_by_ai", created_by_ai)
+    return paginate_or_list(serialized_orders, page=page, per_page=per_page)
 
 
 @app.get("/api/orders/export.csv")

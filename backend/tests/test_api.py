@@ -71,6 +71,45 @@ def test_resource_collection_payloads() -> None:
         assert required_key in payload[0]
 
 
+def test_paginated_collection_queries() -> None:
+    with TestClient(app) as client:
+        customers = client.get("/api/customers?page=1&per_page=3&q=深圳")
+        products = client.get("/api/products?page=1&per_page=2&category=软件")
+        leads = client.get("/api/leads?page=1&per_page=5&stage=proposal&ai_assisted=true")
+        orders = client.get("/api/orders?page=1&per_page=2&status=draft&created_by_ai=true")
+        client.post("/api/customers", json={"company": "分页审计客户", "contact_person": "审计查询员"})
+        audit_logs = client.get("/api/business-audit-logs?page=1&per_page=1&entity_type=customer&action=create")
+
+    assert customers.status_code == 200
+    customer_payload = customers.json()
+    assert customer_payload["page"] == 1
+    assert customer_payload["per_page"] == 3
+    assert customer_payload["total"] >= 3
+    assert len(customer_payload["items"]) == 3
+    assert all("深圳" in " ".join(str(value) for value in customer.values()) for customer in customer_payload["items"])
+
+    assert products.status_code == 200
+    product_payload = products.json()
+    assert product_payload["total"] >= 2
+    assert all(product["category"] == "软件" for product in product_payload["items"])
+
+    assert leads.status_code == 200
+    lead_payload = leads.json()
+    assert lead_payload["items"]
+    assert all(lead["stage"] == "proposal" and lead["ai_assisted"] is True for lead in lead_payload["items"])
+
+    assert orders.status_code == 200
+    order_payload = orders.json()
+    assert order_payload["items"]
+    assert all(order["status"] == "draft" and order["created_by_ai"] is True for order in order_payload["items"])
+
+    assert audit_logs.status_code == 200
+    audit_payload = audit_logs.json()
+    assert audit_payload["total"] >= 1
+    assert audit_payload["items"][0]["entity_type"] == "customer"
+    assert audit_payload["items"][0]["action"] == "create"
+
+
 def test_create_business_resources() -> None:
     with TestClient(app) as client:
         responses = {

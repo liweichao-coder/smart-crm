@@ -115,3 +115,14 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/cases
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/tasks
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/api/goals
 ```
+
+Paginated search/filter smoke:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/api/customers?page=1&per_page=3&q=深圳"
+Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/api/products?page=1&per_page=2&category=软件"
+Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/api/leads?page=1&per_page=5&stage=proposal&ai_assisted=true"
+Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8000/api/orders?page=1&per_page=2&status=draft&created_by_ai=true"
+```
+
+When `page` or `per_page` is provided, list APIs return `{ items, total, page, per_page, pages, has_next, has_previous }`. Without pagination parameters they keep returning the original array shape, so the existing frontend remains compatible.

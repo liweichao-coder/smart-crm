@@ -34,16 +34,28 @@ async function request(path, init) {
   return payload
 }
 
+function buildQueryString(params = {}) {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') {
+      return
+    }
+    query.set(key, String(value))
+  })
+  const queryString = query.toString()
+  return queryString ? `?${queryString}` : ''
+}
+
 export function fetchCopilotSummary() {
   return request('/api/copilot/summary')
 }
 
-export function fetchAiAuditLogs() {
-  return request('/api/ai-audit-logs')
+export function fetchAiAuditLogs(params) {
+  return request(`/api/ai-audit-logs${buildQueryString(params)}`)
 }
 
-export function fetchBusinessAuditLogs() {
-  return request('/api/business-audit-logs')
+export function fetchBusinessAuditLogs(params) {
+  return request(`/api/business-audit-logs${buildQueryString(params)}`)
 }
 
 export function generateFollowUp(leadId) {
@@ -66,8 +78,8 @@ export function fetchDashboard() {
   return request('/api/dashboard')
 }
 
-export function fetchCustomers() {
-  return request('/api/customers')
+export function fetchCustomers(params) {
+  return request(`/api/customers${buildQueryString(params)}`)
 }
 
 export function createCustomer(payload) {
@@ -90,8 +102,8 @@ export function deleteCustomer(customerId) {
   })
 }
 
-export function fetchProducts() {
-  return request('/api/products')
+export function fetchProducts(params) {
+  return request(`/api/products${buildQueryString(params)}`)
 }
 
 export function createProduct(payload) {
@@ -118,8 +130,8 @@ export function fetchRestockAlerts() {
   return request('/api/inventory/restock-alerts')
 }
 
-export function fetchInventoryMovements() {
-  return request('/api/inventory/movements')
+export function fetchInventoryMovements(params) {
+  return request(`/api/inventory/movements${buildQueryString(params)}`)
 }
 
 export function fetchOrderInventoryMovements(orderId) {
@@ -133,8 +145,8 @@ export function restockProduct(productId, payload) {
   })
 }
 
-export function fetchContacts() {
-  return request('/api/contacts')
+export function fetchContacts(params) {
+  return request(`/api/contacts${buildQueryString(params)}`)
 }
 
 export function createContact(payload) {
@@ -157,8 +169,8 @@ export function deleteContact(contactId) {
   })
 }
 
-export function fetchLeads() {
-  return request('/api/leads')
+export function fetchLeads(params) {
+  return request(`/api/leads${buildQueryString(params)}`)
 }
 
 export function createLead(payload) {
@@ -181,8 +193,8 @@ export function deleteLead(leadId) {
   })
 }
 
-export function fetchCases() {
-  return request('/api/cases')
+export function fetchCases(params) {
+  return request(`/api/cases${buildQueryString(params)}`)
 }
 
 export function createCase(payload) {
@@ -205,8 +217,8 @@ export function deleteCase(caseId) {
   })
 }
 
-export function fetchTasks() {
-  return request('/api/tasks')
+export function fetchTasks(params) {
+  return request(`/api/tasks${buildQueryString(params)}`)
 }
 
 export function createTask(payload) {
@@ -229,8 +241,8 @@ export function deleteTask(taskId) {
   })
 }
 
-export function fetchGoals() {
-  return request('/api/goals')
+export function fetchGoals(params) {
+  return request(`/api/goals${buildQueryString(params)}`)
 }
 
 export function createGoal(payload) {
@@ -253,8 +265,8 @@ export function deleteGoal(goalId) {
   })
 }
 
-export function fetchOrders() {
-  return request('/api/orders')
+export function fetchOrders(params) {
+  return request(`/api/orders${buildQueryString(params)}`)
 }
 
 export async function exportOrdersCsv() {
