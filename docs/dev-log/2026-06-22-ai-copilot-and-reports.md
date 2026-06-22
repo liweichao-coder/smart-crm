@@ -173,8 +173,10 @@ The course exam requires a full software engineering process package, not only c
 - Browser smoke succeeded at `/accounts/{id}`: the customer workspace rendered account-plan content, metrics, orders, recommendations, and timeline without app errors.
 - Customer activity regression succeeded: seeded activities appear in `/api/customer-activities`, workspace activity creation writes `CustomerActivity`, refreshes the customer timeline, feeds account-plan next actions, and writes `BusinessAuditLog`.
 - Customer activity HTTP smoke succeeded on temporary port 8024: login, workspace read, activity creation, activity query, timeline refresh, and LLM account plan all returned expected results; the demo DB was reset afterward to the 16-activity baseline.
+- Cross-table consistency regression succeeded: `/api/system/consistency-checks` returned `overall_status=ok` on the seeded database; after deliberately tampering with an order total, the same endpoint returned a warning issue under `订单金额合计`.
+- Environment doctor now includes the same consistency payload and reports `consistency: ok / issues 0` on the demo database, so teammates can catch broken order totals, inventory movements, product stock, or approval references before a presentation.
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, saved view preferences, and cross-table consistency checks.
+- Add fuller end-to-end browser smoke coverage, saved view preferences, approval BI, and model-quality evaluation.
 - Capture screenshots and export Word/PPT final materials.

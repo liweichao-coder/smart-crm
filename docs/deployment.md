@@ -48,7 +48,7 @@ Run the environment doctor after resetting or receiving a teammate's checkout:
 .\.venv\Scripts\python.exe -m app.manage doctor
 ```
 
-The doctor checks database tables, demo-data scale, and LLM configuration state. It exits with a non-zero code when the database is empty or below the classroom-demo target, so teammates can quickly know when to run `reset-db`.
+The doctor checks database tables, demo-data scale, LLM configuration state, and cross-table consistency. It exits with a non-zero code when the database is empty, below the classroom-demo target, or has order-total, inventory-movement, order-item, product-stock, or approval-reference consistency issues, so teammates can quickly know when to run `reset-db` or inspect Operation Audit.
 
 Current demo dataset scale:
 

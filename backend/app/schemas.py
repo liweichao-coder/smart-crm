@@ -776,6 +776,29 @@ class BusinessAuditLogRead(BaseModel):
     created_at: datetime
 
 
+class ConsistencyCheckRead(BaseModel):
+    id: str
+    category: str
+    severity: str
+    status: str
+    title: str
+    detail: str
+    entity_type: str
+    entity_id: int | None = None
+    suggestion: str
+
+
+class ConsistencyReportResponse(BaseModel):
+    overall_status: str
+    total_checks: int
+    issue_count: int
+    critical_count: int
+    warning_count: int
+    ok_count: int
+    generated_at: datetime
+    checks: list[ConsistencyCheckRead]
+
+
 class OrderItemPayload(BaseModel):
     product_id: int
     quantity: int = Field(ge=1)

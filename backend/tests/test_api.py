@@ -636,6 +636,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
             headers=headers,
         )
         denied_audit = client.get("/api/business-audit-logs", headers=headers)
+        denied_consistency = client.get("/api/system/consistency-checks", headers=headers)
         denied_report = client.get("/api/reports/sales-performance", headers=headers)
         denied_matrix = client.get("/api/admin/permission-matrix", headers=headers)
         denied_team = client.get("/api/admin/users", headers=headers)
@@ -685,6 +686,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert denied_recommendation_task.status_code == 403
     assert denied_product.status_code == 403
     assert denied_audit.status_code == 403
+    assert denied_consistency.status_code == 403
     assert denied_report.status_code == 403
     assert denied_matrix.status_code == 403
     assert denied_team.status_code == 403
@@ -1639,6 +1641,30 @@ def test_business_audit_logs_record_core_write_actions() -> None:
     assert ("order", "create") in actions
     assert ("order", "update") in actions
     assert all(log["status"] == "success" for log in audit_logs)
+
+
+def test_consistency_checks_detect_cross_table_issues() -> None:
+    with TestClient(app) as client:
+        clean_response = client.get("/api/system/consistency-checks")
+        with Session(main_module.engine) as session:
+            order = session.exec(select(SalesOrder)).first()
+            assert order is not None
+            order.total_amount += 88
+            session.add(order)
+            session.commit()
+        broken_response = client.get("/api/system/consistency-checks")
+
+    assert clean_response.status_code == 200
+    clean_payload = clean_response.json()
+    assert clean_payload["overall_status"] == "ok"
+    assert clean_payload["issue_count"] == 0
+    assert clean_payload["ok_count"] >= 5
+
+    assert broken_response.status_code == 200
+    broken_payload = broken_response.json()
+    assert broken_payload["overall_status"] == "warning"
+    assert broken_payload["issue_count"] >= 1
+    assert any(check["category"] == "订单金额合计" and check["status"] == "issue" for check in broken_payload["checks"])
 
 
 def test_copilot_summary_fallback(monkeypatch) -> None:

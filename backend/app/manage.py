@@ -5,6 +5,7 @@ import argparse
 from sqlmodel import Session, SQLModel, select
 
 from . import database
+from .consistency import build_consistency_payload
 from .config import settings
 from .models import (  # noqa: F401
     AIInteractionLog,
@@ -67,6 +68,7 @@ def doctor() -> int:
     database.create_db_and_tables()
     with Session(database.engine) as session:
         stats = collect_demo_stats(session)
+        consistency = build_consistency_payload(session)
 
     print("Smart CRM environment doctor")
     print(f"- database_url: {settings.database_url}")
@@ -77,10 +79,18 @@ def doctor() -> int:
     for label, count, minimum in stats:
         status = "OK" if count >= minimum else "LOW"
         print(f"  {label}: {count} / target {minimum} [{status}]")
+    print("- consistency:")
+    print(
+        f"  status: {consistency['overall_status']} / issues {consistency['issue_count']} "
+        f"(critical {consistency['critical_count']}, warning {consistency['warning_count']})"
+    )
 
     missing = [(label, count, minimum) for label, count, minimum in stats if count < minimum]
     if missing:
         print("Doctor result: demo data is below target. Run `python -m app.manage reset-db` before a presentation.")
+        return 1
+    if consistency["issue_count"]:
+        print("Doctor result: cross-table consistency issues found. Open Operation Audit for details before a presentation.")
         return 1
 
     print("Doctor result: environment is ready for a classroom demo.")

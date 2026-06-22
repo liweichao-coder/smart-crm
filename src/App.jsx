@@ -60,6 +60,7 @@ import {
   fetchAiAuditLogs,
   fetchBusinessAuditLogs,
   fetchContacts,
+  fetchConsistencyChecks,
   fetchCopilotRecommendations,
   fetchCopilotSummary,
   fetchCurrentUser,
@@ -3248,15 +3249,17 @@ function AiAuditPage() {
 
 function BusinessAuditPage() {
   const [logs, setLogs] = useState([])
+  const [consistency, setConsistency] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let mounted = true
-    fetchBusinessAuditLogs()
-      .then((payload) => {
+    Promise.all([fetchBusinessAuditLogs(), fetchConsistencyChecks()])
+      .then(([payload, consistencyPayload]) => {
         if (mounted) {
           setLogs(payload)
+          setConsistency(consistencyPayload)
           setError('')
         }
       })
@@ -3279,9 +3282,13 @@ function BusinessAuditPage() {
   const summary = useMemo(() => {
     const orderCount = logs.filter((log) => log.entity_type === 'order').length
     const stockCount = logs.filter((log) => log.action === 'restock' || log.summary.includes('库存')).length
-    const operators = new Set(logs.map((log) => log.operator).filter(Boolean))
-    return { orderCount, stockCount, operatorCount: operators.size }
-  }, [logs])
+    return {
+      orderCount,
+      stockCount,
+      issueCount: consistency?.issue_count ?? 0,
+      criticalCount: consistency?.critical_count ?? 0,
+    }
+  }, [consistency, logs])
 
   return (
     <div className="crm-page-stack">
@@ -3332,14 +3339,48 @@ function BusinessAuditPage() {
         </article>
         <article className="crm-panel crm-metric-card">
           <div className="crm-metric-icon tone-won">
-            <Users size={18} />
+            <Shield size={18} />
           </div>
           <div>
-            <span>操作人</span>
-            <strong>{summary.operatorCount}</strong>
-            <small>按审计记录去重统计</small>
+            <span>一致性巡检</span>
+            <strong>{summary.issueCount}</strong>
+            <small>{summary.criticalCount ? `${summary.criticalCount} 个严重问题` : '跨表关系实时校验'}</small>
           </div>
         </article>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="跨表一致性巡检" subtitle={consistency ? `生成时间 ${formatDateTime(consistency.generated_at)} / ${consistency.total_checks} 项检查` : '正在检查订单、库存、审批和客户关系'} />
+        <div className="crm-table-wrap">
+          <table className="crm-table">
+            <thead>
+              <tr>
+                <th>类别</th>
+                <th>状态</th>
+                <th>检查项</th>
+                <th>详情</th>
+                <th>建议</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(consistency?.checks ?? []).map((check) => (
+                <tr key={check.id}>
+                  <td>{check.category}</td>
+                  <td>
+                    <StatusBadge
+                      value={check.status === 'ok' ? '正常' : check.severity === 'critical' ? '严重' : '提醒'}
+                      tone={check.status === 'ok' ? 'success' : check.severity === 'critical' ? 'danger' : 'warning'}
+                    />
+                  </td>
+                  <td>{check.title}</td>
+                  <td>{check.detail}</td>
+                  <td>{check.suggestion}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!loading && !error && consistency && !consistency.checks.length ? <EmptyState icon={Shield} title="暂无巡检项" subtitle="数据库初始化后会自动展示跨表一致性检查。" /> : null}
       </section>
 
       <section className="crm-panel">
@@ -5602,7 +5643,7 @@ function ResourceToolbar({ query, onQueryChange, columnCount, children, inputRef
   )
 }
 
-function PanelHeader({ title, actionLabel, actionHref = '', actionOnClick }) {
+function PanelHeader({ title, subtitle = '', actionLabel, actionHref = '', actionOnClick }) {
   const actionContent = actionLabel ? (
     <>
       {actionLabel}
@@ -5612,7 +5653,10 @@ function PanelHeader({ title, actionLabel, actionHref = '', actionOnClick }) {
 
   return (
     <div className="crm-panel-header">
-      <strong>{title}</strong>
+      <div>
+        <strong>{title}</strong>
+        {subtitle ? <small>{subtitle}</small> : null}
+      </div>
       {actionHref ? <NavLink className="crm-link-button" to={actionHref}>{actionContent}</NavLink> : null}
       {!actionHref && actionOnClick ? (
         <button className="crm-link-button" type="button" onClick={actionOnClick}>

@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 
 from .auth import generate_session_token, hash_password, hash_session_token, verify_password
 from .config import settings
+from .consistency import build_consistency_payload
 from .database import create_db_and_tables, engine, get_session
 from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
@@ -33,6 +34,7 @@ from .schemas import (
     ContactCreate,
     ContactRead,
     ContactUpdate,
+    ConsistencyReportResponse,
     CopilotAskRequest,
     CopilotAskResponse,
     CopilotFollowUpRequest,
@@ -2821,6 +2823,11 @@ def list_business_audit_logs(
         status=status,
     )
     return paginate_or_list(logs, page=page, per_page=per_page)
+
+
+@app.get("/api/system/consistency-checks", response_model=ConsistencyReportResponse, dependencies=[Depends(require_permission("audit:read"))])
+def get_system_consistency_checks(session: SessionDep) -> dict:
+    return build_consistency_payload(session)
 
 
 @app.get("/api/orders", response_model=list[SalesOrderRead] | PaginatedResponse[SalesOrderRead])

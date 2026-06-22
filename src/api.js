@@ -123,6 +123,10 @@ export function fetchBusinessAuditLogs(params) {
   return request(`/api/business-audit-logs${buildQueryString(params)}`)
 }
 
+export function fetchConsistencyChecks() {
+  return request('/api/system/consistency-checks')
+}
+
 export function generateFollowUp(leadId) {
   return request('/api/copilot/follow-up', {
     method: 'POST',
