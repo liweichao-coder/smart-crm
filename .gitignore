@@ -21,6 +21,7 @@ backend/.env
 backend/__pycache__/
 backend/.pytest_cache/
 backend/smart_crm.db
+backend/smart_crm_preview.db
 backend/uvicorn.log
 backend/uvicorn.err.log
 *.pyc
