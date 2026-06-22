@@ -289,6 +289,45 @@ class ContactUpdate(BaseModel):
     status: str | None = None
 
 
+class CustomerActivityRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    customer_id: int
+    customer_name: str
+    owner: str
+    activity_type: str
+    subject: str
+    summary: str
+    outcome: str
+    next_action: str
+    sentiment: str
+    occurred_at: datetime
+    created_at: datetime
+
+
+class CustomerActivityCreate(BaseModel):
+    owner: str = ""
+    activity_type: str = "call"
+    subject: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    outcome: str = ""
+    next_action: str = ""
+    sentiment: str = "neutral"
+    occurred_at: datetime | None = None
+
+
+class CustomerActivityUpdate(BaseModel):
+    owner: str | None = None
+    activity_type: str | None = None
+    subject: str | None = None
+    summary: str | None = None
+    outcome: str | None = None
+    next_action: str | None = None
+    sentiment: str | None = None
+    occurred_at: datetime | None = None
+
+
 class LeadRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -739,6 +778,7 @@ class CustomerWorkspaceResponse(BaseModel):
     customer: CustomerRead
     metrics: list[DashboardMetric]
     contacts: list[ContactRead]
+    activities: list[CustomerActivityRead]
     leads: list[LeadRead]
     orders: list[SalesOrderRead]
     cases: list[SupportCaseRead]

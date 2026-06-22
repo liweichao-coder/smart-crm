@@ -148,6 +148,24 @@ class Contact(ContactBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class CustomerActivityBase(SQLModel):
+    customer_id: int = Field(foreign_key="customer.id", index=True)
+    customer_name: str = Field(index=True)
+    owner: str = Field(index=True)
+    activity_type: str = Field(default="call", index=True)
+    subject: str
+    summary: str
+    outcome: str = ""
+    next_action: str = ""
+    sentiment: str = Field(default="neutral", index=True)
+    occurred_at: datetime = Field(default_factory=datetime.utcnow, nullable=False, index=True)
+
+
+class CustomerActivity(CustomerActivityBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class SalesLeadBase(SQLModel):
     title: str
     customer_name: str

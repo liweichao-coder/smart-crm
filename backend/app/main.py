@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from .auth import generate_session_token, hash_password, hash_session_token, verify_password
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
     AuthAuditLogRead,
@@ -40,6 +40,9 @@ from .schemas import (
     CopilotRecommendationRead,
     CopilotSummaryResponse,
     CustomerCreate,
+    CustomerActivityCreate,
+    CustomerActivityRead,
+    CustomerActivityUpdate,
     CustomerRead,
     CustomerUpdate,
     CustomerTimelineItem,
@@ -130,8 +133,8 @@ PERMISSION_CATALOG = {
     "ai:use": ("AI 能力", "AI 副驾与智能录单", "调用 Copilot、跟进话术、订单草稿和智能录单接口。"),
     "audit:read": ("审计", "审计读取", "查看认证审计、AI 审计和业务操作审计。"),
     "catalog:manage": ("商品", "商品目录维护", "创建、编辑和删除商品目录与 SKU。"),
-    "crm:read": ("CRM", "CRM 数据读取", "查看客户、联系人、线索、工单、任务和目标。"),
-    "crm:write": ("CRM", "CRM 数据维护", "创建、编辑和删除客户、联系人、线索、工单、任务和目标。"),
+    "crm:read": ("CRM", "CRM 数据读取", "查看客户、联系人、互动记录、线索、工单、任务和目标。"),
+    "crm:write": ("CRM", "CRM 数据维护", "创建、编辑和删除客户、联系人、互动记录、线索、工单、任务和目标。"),
     "dashboard:read": ("BI", "仪表盘查看", "查看经营仪表盘和首页概览。"),
     "inventory:manage": ("库存", "库存补货", "执行商品补货并写入库存流水。"),
     "order:manage": ("订单", "订单管理", "创建、编辑、导出订单并查看订单库存审计。"),
@@ -327,6 +330,13 @@ def normalize_payload_owner(owner: str | None, user: AuthUser) -> str:
     owner_text = (owner or "").strip()
     if owner_text in {"", "未分配", "待分配", "新负责人"}:
         return user.full_name
+    return owner_text
+
+
+def normalize_related_owner(owner: str | None, user: AuthUser, fallback_owner: str) -> str:
+    owner_text = (owner or "").strip()
+    if owner_text in {"", "未分配", "待分配", "新负责人"}:
+        return fallback_owner if has_all_data_scope(user) else user.full_name
     return owner_text
 
 
@@ -925,6 +935,7 @@ def build_customer_workspace_metrics(
 
 def build_customer_timeline(
     customer: Customer,
+    activities: list[CustomerActivity],
     leads: list[SalesLead],
     orders: list[SalesOrder],
     cases: list[SupportCase],
@@ -941,6 +952,20 @@ def build_customer_timeline(
             severity="info",
         )
     ]
+
+    sentiment_tone = {"positive": "success", "risk": "danger", "negative": "danger", "neutral": "info"}
+    for activity in activities:
+        items.append(
+            CustomerTimelineItem(
+                id=f"activity-{activity.id}",
+                category="互动",
+                title=activity.subject,
+                description=f"{activity.outcome or activity.summary} 下一步：{activity.next_action or '待跟进'}",
+                timestamp=activity.occurred_at,
+                href=f"/accounts/{customer.id}",
+                severity=sentiment_tone.get(activity.sentiment, "info"),
+            )
+        )
 
     for order in orders:
         tone = "success" if order.status.value in {"confirmed", "fulfilled"} else "warning"
@@ -1511,6 +1536,105 @@ def delete_customer(
     return delete_response("customer", customer_id)
 
 
+@app.get("/api/customer-activities", response_model=list[CustomerActivityRead] | PaginatedResponse[CustomerActivityRead])
+def list_customer_activities(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    customer_id: int | None = None,
+    owner: str = "",
+    activity_type: str = "",
+    sentiment: str = "",
+) -> list[CustomerActivity] | dict:
+    activities = session.exec(select(CustomerActivity).order_by(CustomerActivity.occurred_at.desc())).all()
+    activities = filter_by_owner_scope(activities, current_user)
+    if customer_id is not None:
+        activities = [activity for activity in activities if activity.customer_id == customer_id]
+    activities = filter_records(
+        activities,
+        q=q,
+        fields=("customer_name", "owner", "activity_type", "subject", "summary", "outcome", "next_action", "sentiment"),
+        owner=owner,
+        activity_type=activity_type,
+        sentiment=sentiment,
+    )
+    return paginate_or_list(activities, page=page, per_page=per_page)
+
+
+@app.post("/api/customers/{customer_id}/activities", response_model=CustomerActivityRead, status_code=201)
+def create_customer_activity(
+    customer_id: int,
+    payload: CustomerActivityCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> CustomerActivity:
+    customer = session.get(Customer, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    require_owner_scope(current_user, customer.owner)
+    owner = normalize_related_owner(payload.owner, current_user, customer.owner)
+    require_payload_owner_scope(current_user, owner)
+    activity = CustomerActivity(
+        customer_id=customer.id or 0,
+        customer_name=customer.company,
+        owner=owner,
+        activity_type=payload.activity_type,
+        subject=payload.subject,
+        summary=payload.summary,
+        outcome=payload.outcome,
+        next_action=payload.next_action,
+        sentiment=payload.sentiment,
+        occurred_at=payload.occurred_at or datetime.utcnow(),
+    )
+    session.add(activity)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="customer_activity",
+        entity_id=activity.id,
+        operator=activity.owner,
+        summary=f"新增客户互动 {activity.subject}",
+        detail=f"客户 {activity.customer_name}，类型 {activity.activity_type}，情绪 {activity.sentiment}",
+    )
+    session.commit()
+    session.refresh(activity)
+    return activity
+
+
+@app.patch("/api/customer-activities/{activity_id}", response_model=CustomerActivityRead)
+def update_customer_activity(
+    activity_id: int,
+    payload: CustomerActivityUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> CustomerActivity:
+    activity = session.get(CustomerActivity, activity_id)
+    if not activity:
+        raise HTTPException(status_code=404, detail="客户互动不存在")
+    require_owner_scope(current_user, activity.owner)
+    updates = patch_values(payload)
+    if "owner" in updates:
+        updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
+        require_payload_owner_scope(current_user, updates["owner"])
+    apply_updates(activity, updates)
+    session.add(activity)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="customer_activity",
+        entity_id=activity.id,
+        operator=activity.owner,
+        summary=f"更新客户互动 {activity.subject}",
+        detail=", ".join(sorted(updates.keys())) or "更新互动记录",
+    )
+    session.commit()
+    session.refresh(activity)
+    return activity
+
+
 @app.get("/api/customers/{customer_id}/workspace", response_model=CustomerWorkspaceResponse)
 async def get_customer_workspace(
     customer_id: int,
@@ -1529,6 +1653,9 @@ async def get_customer_workspace(
         if contact.company in aliases
     ]
     contacts = filter_by_owner_scope(contacts, current_user)
+
+    activities = session.exec(select(CustomerActivity).where(CustomerActivity.customer_id == customer.id).order_by(CustomerActivity.occurred_at.desc())).all()
+    activities = filter_by_owner_scope(activities, current_user)
 
     leads = [
         lead
@@ -1555,14 +1682,14 @@ async def get_customer_workspace(
     recommendations = filter_by_owner_scope(recommendations, current_user)
 
     start_time = perf_counter()
-    account_plan = await copilot_service.account_plan(customer, contacts, leads, orders, cases, recommendations)
+    account_plan = await copilot_service.account_plan(customer, contacts, activities, leads, orders, cases, recommendations)
     save_ai_interaction(
         session,
         operation="customer_account_plan",
         model=account_plan.model,
         fallback_used=account_plan.fallback_used,
         start_time=start_time,
-        request_summary=f"{customer.company} / {len(contacts)} contacts / {len(leads)} leads / {len(orders)} orders",
+        request_summary=f"{customer.company} / {len(contacts)} contacts / {len(activities)} activities / {len(leads)} leads / {len(orders)} orders",
         response_summary=account_plan.summary,
         entity_type="customer",
         entity_id=customer.id,
@@ -1572,11 +1699,12 @@ async def get_customer_workspace(
         customer=customer,
         metrics=build_customer_workspace_metrics(contacts, leads, orders, cases),
         contacts=contacts,
+        activities=activities[:10],
         leads=leads,
         orders=[serialize_order(order, session) for order in orders],
         cases=cases,
         recommendations=[serialize_copilot_recommendation(recommendation) for recommendation in recommendations[:8]],
-        timeline=build_customer_timeline(customer, leads, orders, cases, recommendations),
+        timeline=build_customer_timeline(customer, activities, leads, orders, cases, recommendations),
         account_plan=account_plan,
     )
 

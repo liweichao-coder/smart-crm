@@ -64,6 +64,7 @@ import {
   convertCopilotRecommendationToTask,
   createCase,
   createContact,
+  createCustomerActivity,
   createCustomer,
   createGoal,
   createLead,
@@ -919,6 +920,16 @@ function CustomerWorkspacePage() {
   const [workspace, setWorkspace] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [activityDraft, setActivityDraft] = useState({
+    activity_type: 'call',
+    subject: '',
+    summary: '',
+    outcome: '',
+    next_action: '',
+    sentiment: 'neutral',
+  })
+  const [activitySaving, setActivitySaving] = useState(false)
+  const [activityError, setActivityError] = useState('')
 
   useEffect(() => {
     let mounted = true
@@ -947,6 +958,37 @@ function CustomerWorkspacePage() {
 
   const customer = workspace?.customer
   const accountPlan = workspace?.account_plan
+
+  const handleActivityDraftChange = (key, value) => {
+    setActivityDraft((currentDraft) => ({ ...currentDraft, [key]: value }))
+  }
+
+  const handleCreateActivity = async (event) => {
+    event.preventDefault()
+    setActivitySaving(true)
+    setActivityError('')
+    try {
+      await createCustomerActivity(customerId, {
+        ...activityDraft,
+        subject: activityDraft.subject || `${customer?.company ?? '客户'}跟进`,
+        summary: activityDraft.summary || activityDraft.outcome || '完成一次客户跟进。',
+      })
+      const nextWorkspace = await fetchCustomerWorkspace(customerId)
+      setWorkspace(nextWorkspace)
+      setActivityDraft({
+        activity_type: 'call',
+        subject: '',
+        summary: '',
+        outcome: '',
+        next_action: '',
+        sentiment: 'neutral',
+      })
+    } catch (requestError) {
+      setActivityError(requestError.message || '新增互动失败')
+    } finally {
+      setActivitySaving(false)
+    }
+  }
 
   return (
     <div className="crm-page-stack">
@@ -1049,6 +1091,72 @@ function CustomerWorkspacePage() {
                 </>
               )}
             />
+          </section>
+
+          <section className="crm-dashboard-grid">
+            <CustomerWorkspaceList
+              title="客户互动"
+              actionLabel={`${workspace.activities.length} 条`}
+              emptyIcon={Phone}
+              emptyTitle="暂无互动记录"
+              items={workspace.activities}
+              renderItem={(activity) => (
+                <>
+                  <div>
+                    <strong>{activity.subject}</strong>
+                    <span>{activity.activity_type} / {activity.outcome || activity.summary}</span>
+                  </div>
+                  <StatusBadge value={activity.sentiment} tone={activity.sentiment === 'positive' ? 'success' : activity.sentiment === 'risk' || activity.sentiment === 'negative' ? 'danger' : 'neutral'} />
+                </>
+              )}
+            />
+            <div className="crm-panel">
+              <PanelHeader title="新增互动" actionLabel={activitySaving ? '保存中' : '实时入库'} />
+              <form className="crm-activity-form" onSubmit={handleCreateActivity}>
+                <div className="crm-workspace-form-grid">
+                  <label className="crm-field">
+                    <span>类型</span>
+                    <select value={activityDraft.activity_type} onChange={(event) => handleActivityDraftChange('activity_type', event.target.value)}>
+                      <option value="call">电话</option>
+                      <option value="meeting">会议</option>
+                      <option value="email">邮件</option>
+                      <option value="review">复盘</option>
+                    </select>
+                  </label>
+                  <label className="crm-field">
+                    <span>信号</span>
+                    <select value={activityDraft.sentiment} onChange={(event) => handleActivityDraftChange('sentiment', event.target.value)}>
+                      <option value="positive">正向</option>
+                      <option value="neutral">中性</option>
+                      <option value="risk">风险</option>
+                      <option value="negative">负向</option>
+                    </select>
+                  </label>
+                  <label className="crm-field crm-field-span">
+                    <span>主题</span>
+                    <input value={activityDraft.subject} onChange={(event) => handleActivityDraftChange('subject', event.target.value)} required />
+                  </label>
+                  <label className="crm-field crm-field-span">
+                    <span>摘要</span>
+                    <textarea value={activityDraft.summary} onChange={(event) => handleActivityDraftChange('summary', event.target.value)} required />
+                  </label>
+                  <label className="crm-field">
+                    <span>结果</span>
+                    <input value={activityDraft.outcome} onChange={(event) => handleActivityDraftChange('outcome', event.target.value)} />
+                  </label>
+                  <label className="crm-field">
+                    <span>下一步</span>
+                    <input value={activityDraft.next_action} onChange={(event) => handleActivityDraftChange('next_action', event.target.value)} />
+                  </label>
+                </div>
+                {activityError ? <div className="crm-form-error">{activityError}</div> : null}
+                <div className="crm-form-actions">
+                  <button className="crm-primary-button" type="submit" disabled={activitySaving}>
+                    {activitySaving ? '保存中' : '保存互动'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </section>
 
           <section className="crm-dashboard-grid">

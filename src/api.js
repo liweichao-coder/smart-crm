@@ -152,6 +152,13 @@ export function fetchCustomerWorkspace(customerId) {
   return request(`/api/customers/${customerId}/workspace`)
 }
 
+export function createCustomerActivity(customerId, payload) {
+  return request(`/api/customers/${customerId}/activities`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function createCustomer(payload) {
   return request('/api/customers', {
     method: 'POST',

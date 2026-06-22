@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app import database
 from app.config import settings
 import app.main as main_module
-from app.models import AuthUser, CopilotRecommendation, Customer, SalesLead, SalesOrder, TaskItem
+from app.models import AuthUser, CopilotRecommendation, Customer, CustomerActivity, SalesLead, SalesOrder, TaskItem
 from app.seed import seed_data
 
 
@@ -186,6 +186,7 @@ def test_permission_matrix_payload() -> None:
 def test_resource_collection_payloads() -> None:
     endpoints = {
         "/api/customers": "company",
+        "/api/customer-activities": "subject",
         "/api/products": "sku",
         "/api/contacts": "company",
         "/api/leads": "customer_name",
@@ -728,6 +729,44 @@ def test_customer_workspace_aggregates_account_plan(monkeypatch) -> None:
     assert any(item["operation"] == "customer_account_plan" for item in audit_response.json())
 
 
+def test_customer_activity_create_updates_workspace_and_audit(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    with TestClient(app) as client:
+        customer = client.get("/api/customers").json()[0]
+        created = client.post(
+            f"/api/customers/{customer['id']}/activities",
+            json={
+                "activity_type": "meeting",
+                "subject": "高层复盘会议",
+                "summary": "客户确认希望把 AI 副驾扩展到售后团队。",
+                "outcome": "扩展意向明确",
+                "next_action": "发送售后场景报价",
+                "sentiment": "positive",
+            },
+        )
+        activities = client.get(f"/api/customer-activities?customer_id={customer['id']}&q=高层复盘")
+        workspace = client.get(f"/api/customers/{customer['id']}/workspace")
+        audit_logs = client.get("/api/business-audit-logs?entity_type=customer_activity")
+
+    assert created.status_code == 201
+    activity = created.json()
+    assert activity["customer_id"] == customer["id"]
+    assert activity["customer_name"] == customer["company"]
+    assert activity["subject"] == "高层复盘会议"
+
+    assert activities.status_code == 200
+    assert any(item["id"] == activity["id"] for item in activities.json())
+
+    assert workspace.status_code == 200
+    workspace_payload = workspace.json()
+    assert any(item["id"] == activity["id"] for item in workspace_payload["activities"])
+    assert any(item["category"] == "互动" and item["title"] == "高层复盘会议" for item in workspace_payload["timeline"])
+    assert "发送售后场景报价" in workspace_payload["account_plan"]["next_actions"]
+
+    assert audit_logs.status_code == 200
+    assert any(log["entity_id"] == activity["id"] and log["action"] == "create" for log in audit_logs.json())
+
+
 def test_customer_workspace_respects_sales_scope(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     register_payload = {
@@ -756,10 +795,23 @@ def test_customer_workspace_respects_sales_scope(monkeypatch) -> None:
         own_customer = client.get("/api/customers", headers=headers).json()[0]
         own_workspace = client.get(f"/api/customers/{own_customer['id']}/workspace", headers=headers)
         denied_workspace = client.get(f"/api/customers/{other_customer_id}/workspace", headers=headers)
+        own_activity = client.post(
+            f"/api/customers/{own_customer['id']}/activities",
+            json={"subject": "销售本人客户跟进", "summary": "确认下一次演示时间。"},
+            headers=headers,
+        )
+        denied_activity = client.post(
+            f"/api/customers/{other_customer_id}/activities",
+            json={"subject": "越权客户跟进", "summary": "不应允许写入。"},
+            headers=headers,
+        )
 
     assert own_workspace.status_code == 200
     assert own_workspace.json()["customer"]["owner"] == "李伟超"
     assert denied_workspace.status_code == 403
+    assert own_activity.status_code == 201
+    assert own_activity.json()["owner"] == "李伟超"
+    assert denied_activity.status_code == 403
 
 
 def test_create_order() -> None:

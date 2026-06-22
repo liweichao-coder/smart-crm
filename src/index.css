@@ -2191,6 +2191,50 @@ body {
   line-height: 1.55;
 }
 
+.crm-activity-form {
+  padding: 0 16px 16px;
+}
+
+.crm-workspace-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.crm-field-span {
+  grid-column: 1 / -1;
+}
+
+.crm-field textarea {
+  width: 100%;
+  min-height: 92px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  resize: vertical;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.crm-field textarea:focus {
+  outline: 2px solid rgba(14, 165, 233, 0.18);
+  border-color: var(--accent);
+}
+
+.crm-form-error {
+  margin-top: 12px;
+  color: #f87171;
+  font-size: 13px;
+}
+
+.crm-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
 @media (max-width: 1200px) {
   .crm-stage-row,
   .crm-metric-grid,

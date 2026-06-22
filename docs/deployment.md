@@ -55,12 +55,14 @@ Current demo dataset scale:
 - 12 customers
 - 10 products
 - 12 contacts
+- 16 customer activities
 - 15 leads/opportunities
 - 8 support cases
 - 8 task items
 - 4 sales goals
 - 12 seeded orders
 - 22 order items, with product stock deducted
+- 22 inventory movements and 2 order approval records
 
 This scale is intentionally larger than a toy example but still small enough for stable classroom demos.
 

@@ -64,6 +64,7 @@ The course exam requires a full software engineering process package, not only c
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 - Added `python -m app.manage doctor` for teammate deployment checks. It verifies demo data counts, database setup, and LLM configuration state, returning non-zero when the local database is below the classroom-demo target.
 - Added a Customer 360 workspace with `GET /api/customers/{customer_id}/workspace`, account-level metrics, contacts/leads/orders/cases/recommendations, a chronological timeline, owner-scope enforcement, and an OpenAI-compatible LLM account plan with deterministic fallback.
+- Added real customer activity records with `CustomerActivity`, `/api/customer-activities`, `/api/customers/{customer_id}/activities`, seeded touchpoints, workspace activity creation, business audit logging, owner-scope checks, and account-plan context.
 
 ## Report Changes
 
@@ -107,10 +108,11 @@ The course exam requires a full software engineering process package, not only c
 - After current-user owner default upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 32 passed.
 - After environment doctor upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 34 passed.
 - After Customer 360 workspace upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 36 passed.
+- After customer activity timeline upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 37 passed.
 - `npm run lint`: passed.
 - `npm test`: 24 passed.
 - `npm run build`: passed.
-- Demo database reset succeeded with 12 customers, 10 products, 12 contacts, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, and 22 order items.
+- Demo database reset succeeded with 12 customers, 10 products, 12 contacts, 16 customer activities, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, and 22 order items.
 - DeepSeek OpenAI-compatible smoke succeeded: summary and follow-up returned `fallback_used=false`.
 - Browser smoke succeeded at `/copilot`: backend leads loaded and follow-up generation updated the UI.
 - Browser DOM smoke succeeded for real resource pages:
@@ -149,6 +151,8 @@ The course exam requires a full software engineering process package, not only c
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 - Customer 360 API smoke succeeded with the local LLM key: `/api/customers/{id}/workspace` returned customer metrics, 1 order, 4 timeline items, 3 next actions, and `account_plan.fallback_used=false`.
 - Browser smoke succeeded at `/accounts/{id}`: the customer workspace rendered account-plan content, metrics, orders, recommendations, and timeline without app errors.
+- Customer activity regression succeeded: seeded activities appear in `/api/customer-activities`, workspace activity creation writes `CustomerActivity`, refreshes the customer timeline, feeds account-plan next actions, and writes `BusinessAuditLog`.
+- Customer activity HTTP smoke succeeded on temporary port 8024: login, workspace read, activity creation, activity query, timeline refresh, and LLM account plan all returned expected results; the demo DB was reset afterward to the 16-activity baseline.
 
 ## Next Steps
 

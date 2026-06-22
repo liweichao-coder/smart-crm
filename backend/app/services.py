@@ -10,7 +10,7 @@ from fastapi import UploadFile
 import httpx
 
 from .config import settings
-from .models import Contact, CopilotRecommendation, Customer, LeadStage, Product, SalesLead, SalesOrder, SupportCase
+from .models import Contact, CopilotRecommendation, Customer, CustomerActivity, LeadStage, Product, SalesLead, SalesOrder, SupportCase
 from .schemas import (
     CustomerAccountPlanResponse,
     CopilotFollowUpRequest,
@@ -553,6 +553,7 @@ class CopilotService:
         self,
         customer: Customer,
         contacts: list[Contact],
+        activities: list[CustomerActivity],
         leads: list[SalesLead],
         orders: list[SalesOrder],
         cases: list[SupportCase],
@@ -564,11 +565,15 @@ class CopilotService:
         total_revenue = sum(order.total_amount for order in orders)
         pipeline_amount = sum(lead.expected_amount for lead in open_leads)
         latest_recommendations = [item.next_best_action for item in recommendations if item.next_best_action][:3]
+        latest_activities = activities[:4]
+        risk_activities = [activity for activity in activities if activity.sentiment in {"risk", "negative"}]
 
         context = (
             f"客户：{customer.company}\n"
             f"行业：{customer.industry}；等级：{customer.level}；城市：{customer.city}；负责人：{customer.owner}\n"
             f"联系人：{len(contacts)} 位，关键联系人：{', '.join(contact.name + '/' + contact.role for contact in contacts[:4]) or '暂无'}\n"
+            f"最近互动：{len(activities)} 条，"
+            f"{'；'.join(activity.subject + '/' + activity.outcome for activity in latest_activities) or '暂无'}\n"
             f"订单：{len(orders)} 张，累计收入 {total_revenue:.0f} 元\n"
             f"在管商机：{len(open_leads)} 个，管道金额 {pipeline_amount:.0f} 元；已赢单商机 {len(won_leads)} 个\n"
             f"未关闭工单：{len(active_cases)} 个\n"
@@ -600,6 +605,8 @@ class CopilotService:
         risks = []
         if active_cases:
             risks.append(f"存在 {len(active_cases)} 个未关闭工单，需避免服务问题影响成交。")
+        if risk_activities:
+            risks.append(f"最近 {len(risk_activities)} 条互动带有风险信号，需复核异议和承诺事项。")
         if not contacts:
             risks.append("缺少联系人沉淀，客户关系稳定性不足。")
         if pipeline_amount == 0:
@@ -608,6 +615,10 @@ class CopilotService:
             risks.append("暂无高危服务阻塞，重点风险在于商机推进节奏。")
 
         next_actions = latest_recommendations[:]
+        for activity in activities:
+            if activity.next_action and activity.next_action not in next_actions:
+                next_actions.append(activity.next_action)
+                break
         if open_leads:
             next_actions.append(max(open_leads, key=lambda item: item.expected_amount).next_action)
         if active_cases:

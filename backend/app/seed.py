@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from sqlmodel import Session, select
 
 from .auth import hash_password
-from .models import AuthUser, Contact, Customer, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AuthUser, Contact, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 
 
 DEMO_AUTH_EMAIL = "demo@smart-crm.local"
@@ -47,6 +47,7 @@ def seed_data(session: Session) -> None:
         return
 
     today = date.today()
+    now = datetime.utcnow()
 
     customers = [
         Customer(name="李强", company="星海装备", industry="工业制造", city="上海", contact_person="李强", phone="13800001111", email="liqiang@xinghai.com", source="展会", level="A"),
@@ -174,6 +175,41 @@ def seed_data(session: Session) -> None:
 
     product_by_sku = {product.sku: product for product in products}
     customer_by_company = {customer.company: customer for customer in customers}
+
+    activity_specs = [
+        ("云舟智能", "王蕾", "meeting", "二期画像需求复盘", "采购和业务负责人确认希望把客户画像接入售后工单数据。", "认可二期方向", "整理数据字段清单并同步报价", "positive", 1),
+        ("南山科技", "李伟超", "call", "DeepSeek Copilot 质量沟通", "客户反馈话术生成质量稳定，但希望补充审批场景模板。", "需求扩大", "补充审批流模板并约演示", "positive", 1),
+        ("北辰教育科技", "李伟超", "email", "最终报价单确认", "客户收到报价单，关注移动录单套件交付时间。", "等待采购确认", "明天跟进采购审批状态", "neutral", 2),
+        ("星海装备", "李伟超", "meeting", "工业现场勘查", "现场网络环境较复杂，需要私有化部署和数据接入服务联合评估。", "技术方案需细化", "安排实施顾问补充部署方案", "risk", 3),
+        ("云川医疗", "王晨", "call", "终端补货交付确认", "客户希望在月底前完成终端到货和接口联调。", "交付窗口明确", "同步供应链库存并锁定交付批次", "neutral", 2),
+        ("峰值数据", "陈卓", "meeting", "数据治理合同附件", "法务已返回两处修改意见，客户认可数据接入服务范围。", "合同推进", "更新附件并发起盖章流程", "positive", 4),
+        ("拓海医疗", "赵可", "call", "ROI 试点计划沟通", "客户希望先做 2 周试点，看销售自动化对跟进效率的提升。", "进入试点", "发送试点里程碑和验收口径", "positive", 2),
+        ("永酌公司", "刘涵", "meeting", "流程整合让步边界", "客户压缩预算，希望减少首期权限模块范围。", "价格异议", "准备两档报价并保留增购空间", "risk", 1),
+        ("辰星物流", "赵可", "email", "SLA 报表字段补充", "客户补充仓配看板需要按区域、时效和异常原因拆分。", "范围清晰", "更新方案字段和实施排期", "neutral", 5),
+        ("北极星资本", "王蕾", "meeting", "投后模板研讨", "客户希望把投后企业模板标准化到 CRM 客户资产页。", "方案认可", "输出模板样例并约下周评审", "positive", 6),
+        ("星火教育", "陈卓", "call", "续费窗口确认", "客户预算需等校区汇总，短期不会推进增购。", "节奏放缓", "七天后回访预算进展", "negative", 7),
+        ("北宸制造", "刘涵", "meeting", "售后系统方案讲解", "客户对工单协同席位感兴趣，但担心库存扣减核对问题影响上线。", "存在上线顾虑", "先关闭库存核对工单再推进合同", "risk", 2),
+        ("云舟智能", "王蕾", "email", "合同条款补充", "采购要求补充服务级别和数据安全条款。", "合同待补充", "发送法务修订版", "neutral", 3),
+        ("南山科技", "李伟超", "meeting", "增长包预算确认", "客户确认预算上限，要求本周提供私有化部署资源安排。", "预算明确", "整理部署资源排期", "positive", 4),
+        ("星海装备", "李伟超", "call", "现场改造安全要求", "客户安全负责人要求补充离线部署和审计日志说明。", "安全审查", "补充安全方案和审计截图", "risk", 5),
+        ("云川医疗", "李伟超", "email", "接口清单补充", "客户发送 HIS 接口清单，等待技术评估工作量。", "资料已收齐", "请技术评估接口改造工期", "positive", 1),
+    ]
+    activities = [
+        CustomerActivity(
+            customer_id=customer_by_company[company].id,
+            customer_name=company,
+            owner=owner,
+            activity_type=activity_type,
+            subject=subject,
+            summary=summary,
+            outcome=outcome,
+            next_action=next_action,
+            sentiment=sentiment,
+            occurred_at=now - timedelta(days=days_ago),
+        )
+        for company, owner, activity_type, subject, summary, outcome, next_action, sentiment, days_ago in activity_specs
+    ]
+    session.add_all(activities)
 
     order_specs = [
         ("云川医疗", "李伟超", "华东", OrderStatus.confirmed, True, 0.93, today - timedelta(days=6), today + timedelta(days=6), [("AI-DEVICE-001", 2), ("SERV-API-003", 1)]),

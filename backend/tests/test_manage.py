@@ -25,6 +25,7 @@ def test_doctor_passes_after_demo_reset(monkeypatch, capsys) -> None:
     assert result == 0
     assert "environment is ready" in output
     assert "customers: 12 / target 12 [OK]" in output
+    assert "customer_activities: 16 / target 16 [OK]" in output
     assert "orders: 12 / target 12 [OK]" in output
 
     SQLModel.metadata.drop_all(test_engine)
