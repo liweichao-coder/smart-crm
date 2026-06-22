@@ -10,6 +10,7 @@ import {
   CheckSquare,
   ChevronRight,
   ChevronsUpDown,
+  Download,
   Eye,
   Filter,
   FileText,
@@ -67,6 +68,7 @@ import {
   deleteGoal,
   deleteLead,
   deleteTask,
+  exportOrdersCsv,
   fetchCustomers,
   fetchDashboard,
   fetchGoals,
@@ -1846,6 +1848,7 @@ function OrdersPage() {
   const [selectedOrderId, setSelectedOrderId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [restockSavingId, setRestockSavingId] = useState(null)
+  const [exportSaving, setExportSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -1906,6 +1909,26 @@ function OrdersPage() {
     }
   }
 
+  const handleExportOrders = async () => {
+    setExportSaving(true)
+    setError('')
+    try {
+      const blob = await exportOrdersCsv()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `smart-crm-orders-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (nextError) {
+      setError(nextError.message || '订单导出失败')
+    } finally {
+      setExportSaving(false)
+    }
+  }
+
   const summary = useMemo(() => summarizeOrders(orders), [orders])
   const visibleOrders = useMemo(() => filterOrders(orders, activeTab), [activeTab, orders])
   const selectedOrder = useMemo(() => {
@@ -1928,7 +1951,7 @@ function OrdersPage() {
         onTabChange={setActiveTab}
         onCreate={() => navigate('/capture')}
       />
-      <ResourceSyncState loading={loading || Boolean(restockSavingId)} error={error} />
+      <ResourceSyncState loading={loading || Boolean(restockSavingId) || exportSaving} error={error} />
 
       <section className="crm-metric-grid">
         <article className="crm-panel crm-metric-card">
@@ -1975,8 +1998,16 @@ function OrdersPage() {
 
       <section className="crm-dashboard-grid">
         <div className="crm-panel">
-          <PanelHeader title="订单列表" />
-          <small>{visibleOrders.length} 条订单，点击任意行查看明细。</small>
+          <div className="crm-panel-header">
+            <div>
+              <strong>订单列表</strong>
+              <small>{visibleOrders.length} 条订单，点击任意行查看明细。</small>
+            </div>
+            <button className="crm-ghost-button" type="button" onClick={handleExportOrders} disabled={exportSaving || loading}>
+              <Download size={16} />
+              {exportSaving ? '导出中' : '导出 CSV'}
+            </button>
+          </div>
           <div className="crm-table-wrap">
             <table className="crm-table">
               <thead>

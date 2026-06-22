@@ -30,6 +30,7 @@ The course exam requires a full software engineering process package, not only c
 - Added `InventoryMovement` to persist order deductions and manual restock actions.
 - Added `/api/inventory/restock-alerts`, `/api/inventory/movements`, and `/api/products/{product_id}/restock` for real inventory restock planning.
 - Connected the Orders page to restock alerts, one-click restock actions, and recent inventory movement records.
+- Added `/api/orders/export.csv` and an Orders page CSV export button for order-detail reporting.
 - Added persisted AI interaction audit logs for Copilot summary, follow-up generation, Copilot order drafts, and vision extraction.
 - Added `/api/ai-audit-logs` and an AI Audit frontend page showing operation, LLM/fallback status, model, latency, request summary, and response summary.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
@@ -56,6 +57,7 @@ The course exam requires a full software engineering process package, not only c
 - After AI audit upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 11 passed.
 - After resource update/delete upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 12 passed.
 - After inventory restock upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 14 passed, including insufficient-stock order protection.
+- After order export upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 15 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -77,10 +79,11 @@ The course exam requires a full software engineering process package, not only c
 - Real resource create smoke succeeded: POST create for customer, contact, lead, case, task, and goal returned server IDs/statuses; frontend customer modal created a persisted customer and updated the table to 13 rows; demo DB was reset afterward to 12/12/15/8/8/4/12 baseline.
 - Real resource update/delete smoke succeeded on temporary port 8010: POST created customer `#13`, PATCH updated contact person and annual revenue, DELETE returned `deleted=true`; temporary records were removed afterward.
 - Inventory restock smoke succeeded on temporary port 8011: `/api/inventory/restock-alerts` returned 5 alerts, `/api/products/{id}/restock` wrote a `manual_restock` movement, and the demo DB was reset afterward to 10 products and 22 seed movement records.
+- Order export smoke succeeded on temporary port 8012: `/api/orders/export.csv` returned a CSV attachment with 23 lines, including the Chinese header and 22 order item rows.
 - AI audit smoke succeeded: Copilot summary and follow-up returned `fallback_used=false`, `/api/ai-audit-logs` returned 2 `llm` records, and the AI Audit page rendered the persisted rows.
 
 ## Next Steps
 
-- Add order editing/export and richer product catalog maintenance.
+- Add order editing and richer product catalog maintenance.
 - Add table pagination, resource operation audit, and stricter field-level validation for larger demo datasets.
 - Capture screenshots and export Word/PPT final materials.

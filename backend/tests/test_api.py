@@ -272,6 +272,19 @@ def test_create_order_rejects_insufficient_stock() -> None:
     assert "库存不足" in response.json()["detail"]
 
 
+def test_export_orders_csv() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/orders/export.csv")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    body = response.text
+    assert "订单ID,客户,负责人" in body
+    assert "智能巡检终端" in body
+    assert "AI Copilot 演示数据" in body
+
+
 def test_inventory_restock_alerts_and_movements() -> None:
     with TestClient(app) as client:
         alerts_response = client.get("/api/inventory/restock-alerts")

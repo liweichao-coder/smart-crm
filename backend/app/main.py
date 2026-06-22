@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import csv
+import io
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
 from time import perf_counter
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 
@@ -202,6 +204,75 @@ def serialize_order(order: SalesOrder, session: Session) -> SalesOrderRead:
         created_at=order.created_at,
         items=serialized_items,
     )
+
+
+def build_orders_csv(orders: list[SalesOrderRead]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "订单ID",
+            "客户",
+            "负责人",
+            "区域",
+            "状态",
+            "下单日期",
+            "交付日期",
+            "来源",
+            "AI置信度",
+            "订单总额",
+            "商品",
+            "数量",
+            "单价",
+            "明细金额",
+            "备注",
+        ]
+    )
+    for order in orders:
+        source = "AI" if order.created_by_ai else "人工"
+        status = order.status.value if hasattr(order.status, "value") else str(order.status)
+        if not order.items:
+            writer.writerow(
+                [
+                    order.id,
+                    order.customer_name,
+                    order.owner,
+                    order.region,
+                    status,
+                    order.order_date.isoformat(),
+                    order.due_date.isoformat(),
+                    source,
+                    order.ai_confidence_score,
+                    order.total_amount,
+                    "",
+                    0,
+                    0,
+                    0,
+                    order.notes,
+                ]
+            )
+            continue
+        for item in order.items:
+            writer.writerow(
+                [
+                    order.id,
+                    order.customer_name,
+                    order.owner,
+                    order.region,
+                    status,
+                    order.order_date.isoformat(),
+                    order.due_date.isoformat(),
+                    source,
+                    order.ai_confidence_score,
+                    order.total_amount,
+                    item.product_name,
+                    item.quantity,
+                    item.unit_price,
+                    item.line_total,
+                    order.notes,
+                ]
+            )
+    return "\ufeff" + output.getvalue()
 
 
 @asynccontextmanager
@@ -532,6 +603,17 @@ def list_ai_audit_logs(session: SessionDep, limit: int = 30) -> list[AIInteracti
 def list_orders(session: SessionDep) -> list[SalesOrderRead]:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
     return [serialize_order(order, session) for order in orders]
+
+
+@app.get("/api/orders/export.csv")
+def export_orders_csv(session: SessionDep) -> Response:
+    orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
+    csv_content = build_orders_csv([serialize_order(order, session) for order in orders])
+    return Response(
+        content=csv_content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="smart-crm-orders.csv"'},
+    )
 
 
 @app.post("/api/orders", response_model=SalesOrderRead, status_code=201)

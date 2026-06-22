@@ -229,6 +229,15 @@ export function fetchOrders() {
   return request('/api/orders')
 }
 
+export async function exportOrdersCsv() {
+  const response = await fetch(`${API_BASE_URL}/api/orders/export.csv`)
+  if (!response.ok) {
+    const payload = await readResponsePayload(response)
+    throw new Error(typeof payload === 'string' ? payload : payload?.detail ?? '订单导出失败')
+  }
+  return response.blob()
+}
+
 export function createOrder(payload) {
   return request('/api/orders', {
     method: 'POST',
