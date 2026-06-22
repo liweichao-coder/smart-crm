@@ -51,6 +51,7 @@ def test_dashboard_payload() -> None:
 def test_resource_collection_payloads() -> None:
     endpoints = {
         "/api/customers": "company",
+        "/api/products": "sku",
         "/api/contacts": "company",
         "/api/leads": "customer_name",
         "/api/cases": "status_label",
@@ -148,6 +149,46 @@ def test_create_business_resources() -> None:
     assert responses["goal"].json()["progress"] == 50
     assert any(customer["company"] == "测试智能制造" for customer in customer_list)
     assert any(lead["title"] == "测试智能制造 CRM 升级" for lead in lead_list)
+
+
+def test_create_update_and_delete_products() -> None:
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/products",
+            json={
+                "name": "课程演示商品",
+                "sku": "COURSE-DEMO-001",
+                "category": "软件",
+                "unit_price": 5200,
+                "stock": 42,
+            },
+        )
+        duplicate = client.post(
+            "/api/products",
+            json={
+                "name": "重复 SKU 商品",
+                "sku": "COURSE-DEMO-001",
+                "category": "软件",
+                "unit_price": 5200,
+                "stock": 1,
+            },
+        )
+        product_id = created.json()["id"]
+        updated = client.patch(f"/api/products/{product_id}", json={"unit_price": 6800, "stock": 60})
+        deleted = client.delete(f"/api/products/{product_id}")
+        protected_product = client.get("/api/products").json()[0]
+        protected_delete = client.delete(f"/api/products/{protected_product['id']}")
+
+    assert created.status_code == 201
+    assert created.json()["sku"] == "COURSE-DEMO-001"
+    assert duplicate.status_code == 400
+    assert updated.status_code == 200
+    assert updated.json()["unit_price"] == 6800
+    assert updated.json()["stock"] == 60
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+    assert protected_delete.status_code == 400
+    assert "订单或库存流水" in protected_delete.json()["detail"]
 
 
 def test_update_and_delete_business_resources() -> None:

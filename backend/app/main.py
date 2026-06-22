@@ -33,9 +33,11 @@ from .schemas import (
     InventoryRestockAlertRead,
     LeadRead,
     OrderItemRead,
+    ProductCreate,
     ProductRestockRequest,
     ProductRestockResponse,
     ProductRead,
+    ProductUpdate,
     RevenuePoint,
     SalesGoalCreate,
     SalesGoalRead,
@@ -357,6 +359,50 @@ def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | i
 @app.get("/api/products", response_model=list[ProductRead])
 def list_products(session: SessionDep) -> list[Product]:
     return session.exec(select(Product).order_by(Product.created_at.desc())).all()
+
+
+@app.post("/api/products", response_model=ProductRead, status_code=201)
+def create_product(payload: ProductCreate, session: SessionDep) -> Product:
+    existing = session.exec(select(Product).where(Product.sku == payload.sku)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="SKU 已存在")
+    product = Product(**payload.model_dump())
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+    return product
+
+
+@app.patch("/api/products/{product_id}", response_model=ProductRead)
+def update_product(product_id: int, payload: ProductUpdate, session: SessionDep) -> Product:
+    product = session.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="商品不存在")
+    updates = patch_values(payload)
+    next_sku = updates.get("sku")
+    if next_sku and next_sku != product.sku:
+        existing = session.exec(select(Product).where(Product.sku == next_sku)).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="SKU 已存在")
+    apply_updates(product, updates)
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+    return product
+
+
+@app.delete("/api/products/{product_id}")
+def delete_product(product_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+    product = session.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="商品不存在")
+    order_item = session.exec(select(OrderItem).where(OrderItem.product_id == product_id)).first()
+    movement = session.exec(select(InventoryMovement).where(InventoryMovement.product_id == product_id)).first()
+    if order_item or movement:
+        raise HTTPException(status_code=400, detail="商品已有订单或库存流水，不能直接删除")
+    session.delete(product)
+    session.commit()
+    return delete_response("product", product_id)
 
 
 @app.get("/api/inventory/restock-alerts", response_model=list[InventoryRestockAlertRead])

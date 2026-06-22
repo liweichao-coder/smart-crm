@@ -20,6 +20,7 @@ import {
   LayoutList,
   LogOut,
   Menu,
+  Package,
   PanelLeftClose,
   Pencil,
   Phone,
@@ -61,12 +62,14 @@ import {
   createGoal,
   createLead,
   createOrder,
+  createProduct,
   createTask,
   deleteCase,
   deleteContact,
   deleteCustomer,
   deleteGoal,
   deleteLead,
+  deleteProduct,
   deleteTask,
   exportOrdersCsv,
   fetchCustomers,
@@ -86,6 +89,7 @@ import {
   updateCustomer,
   updateGoal,
   updateLead,
+  updateProduct,
   updateTask,
 } from './api.js'
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
@@ -100,6 +104,7 @@ const navItems = [
   { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM' },
   { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM' },
   { path: '/orders', label: '订单', icon: Activity, title: 'Orders | 深大 AI CRM' },
+  { path: '/products', label: '商品', icon: Package, title: 'Products | 深大 AI CRM' },
   { path: '/leads', label: '线索', icon: Target, title: 'Leads | 深大 AI CRM' },
   { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 深大 AI CRM' },
   { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 深大 AI CRM' },
@@ -409,6 +414,16 @@ function buildGoalPayload(draft) {
   }
 }
 
+function buildProductPayload(draft) {
+  return {
+    name: toDraftText(draft.name, '新商品'),
+    sku: toDraftText(draft.sku, `SKU-${Date.now()}`),
+    category: toDraftText(draft.category, '软件'),
+    unit_price: toDraftNumber(draft.unitPrice, 1),
+    stock: Math.max(0, Math.round(toDraftNumber(draft.stock))),
+  }
+}
+
 function buildDraftFromRecord(columns, record, workflowField) {
   const draft = columns.reduce(
     (nextDraft, column) => ({
@@ -428,6 +443,17 @@ function mapCustomerRecord(customer) {
     owner: customer.contact_person,
     revenue: customer.annual_revenue,
     status: customer.status,
+  }
+}
+
+function mapProductRecord(product) {
+  return {
+    id: product.id,
+    name: product.name,
+    sku: product.sku,
+    category: product.category,
+    unitPrice: product.unit_price,
+    stock: product.stock,
   }
 }
 
@@ -550,6 +576,7 @@ function App() {
         <Route path="/ai-audit" element={<AiAuditPage />} />
         <Route path="/capture" element={<CapturePage />} />
         <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/products" element={<ProductsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/accounts" element={<AccountsPage />} />
         <Route path="/contacts" element={<ContactsPage />} />
@@ -561,6 +588,39 @@ function App() {
       </Route>
       <Route path="*" element={<Navigate replace to="/login" />} />
     </Routes>
+  )
+}
+
+function ProductsPage() {
+  const { records, loading, error } = useRemoteRecords(fetchProducts, mapProductRecord)
+
+  return (
+    <TableResourcePage
+      title="商品"
+      subtitle="维护 AI 录单、订单明细和库存补货共用的商品目录。"
+      icon={Package}
+      records={records}
+      loading={loading}
+      error={error}
+      onCreateRecord={(draft) => createProduct(buildProductPayload(draft)).then(mapProductRecord)}
+      onUpdateRecord={(id, draft) => updateProduct(id, buildProductPayload(draft)).then(mapProductRecord)}
+      onDeleteRecord={deleteProduct}
+      createLabel="新建商品"
+      columns={[
+        { key: 'name', label: '商品名称' },
+        { key: 'sku', label: 'SKU' },
+        { key: 'category', label: '分类' },
+        { key: 'unitPrice', label: '单价', format: 'currency' },
+        { key: 'stock', label: '库存' },
+      ]}
+      tabs={[
+        { key: 'all', label: '全部' },
+        { key: 'hardware', label: '硬件', predicate: (item) => item.category === '硬件' },
+        { key: 'software', label: '软件', predicate: (item) => item.category === '软件' },
+        { key: 'service', label: '服务', predicate: (item) => item.category === '服务' },
+        { key: 'low', label: '低库存', predicate: (item) => Number(item.stock) <= 300 },
+      ]}
+    />
   )
 }
 

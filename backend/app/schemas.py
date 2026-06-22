@@ -64,6 +64,22 @@ class ProductRead(BaseModel):
     stock: int
 
 
+class ProductCreate(BaseModel):
+    name: str
+    sku: str
+    category: str = "软件"
+    unit_price: float = Field(gt=0)
+    stock: int = Field(default=0, ge=0)
+
+
+class ProductUpdate(BaseModel):
+    name: str | None = None
+    sku: str | None = None
+    category: str | None = None
+    unit_price: float | None = Field(default=None, gt=0)
+    stock: int | None = Field(default=None, ge=0)
+
+
 class InventoryRestockAlertRead(BaseModel):
     product_id: int
     name: str

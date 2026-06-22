@@ -90,6 +90,26 @@ export function fetchProducts() {
   return request('/api/products')
 }
 
+export function createProduct(payload) {
+  return request('/api/products', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateProduct(productId, payload) {
+  return request(`/api/products/${productId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteProduct(productId) {
+  return request(`/api/products/${productId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function fetchRestockAlerts() {
   return request('/api/inventory/restock-alerts')
 }
