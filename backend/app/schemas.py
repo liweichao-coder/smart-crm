@@ -333,6 +333,14 @@ class SalesOrderCreate(BaseModel):
     items: list[OrderItemPayload]
 
 
+class SalesOrderUpdate(BaseModel):
+    owner: str | None = None
+    region: str | None = None
+    status: OrderStatus | None = None
+    due_date: date | None = None
+    notes: str | None = None
+
+
 class OrderItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

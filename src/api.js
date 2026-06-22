@@ -264,3 +264,10 @@ export function createOrder(payload) {
     body: JSON.stringify(payload),
   })
 }
+
+export function updateOrder(orderId, payload) {
+  return request(`/api/orders/${orderId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}

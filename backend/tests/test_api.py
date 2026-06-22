@@ -283,6 +283,30 @@ def test_create_order() -> None:
     assert payload["items"][0]["quantity"] == 1
 
 
+def test_update_order_lifecycle_fields() -> None:
+    with TestClient(app) as client:
+        order = client.get("/api/orders").json()[0]
+        response = client.patch(
+            f"/api/orders/{order['id']}",
+            json={
+                "owner": "王蕾",
+                "region": "华北",
+                "status": "fulfilled",
+                "due_date": "2026-07-08",
+                "notes": "订单状态已由运营复核更新。",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["owner"] == "王蕾"
+    assert payload["region"] == "华北"
+    assert payload["status"] == "fulfilled"
+    assert payload["due_date"] == "2026-07-08"
+    assert payload["notes"] == "订单状态已由运营复核更新。"
+    assert payload["items"]
+
+
 def test_create_order_rejects_insufficient_stock() -> None:
     with TestClient(app) as client:
         customers = client.get("/api/customers").json()

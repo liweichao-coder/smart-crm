@@ -89,6 +89,7 @@ import {
   updateCustomer,
   updateGoal,
   updateLead,
+  updateOrder,
   updateProduct,
   updateTask,
 } from './api.js'
@@ -421,6 +422,26 @@ function buildProductPayload(draft) {
     category: toDraftText(draft.category, '软件'),
     unit_price: toDraftNumber(draft.unitPrice, 1),
     stock: Math.max(0, Math.round(toDraftNumber(draft.stock))),
+  }
+}
+
+function buildOrderDraft(order) {
+  return {
+    owner: order?.owner ?? userProfile.name,
+    region: order?.region ?? '华南',
+    status: order?.status ?? 'draft',
+    dueDate: order?.due_date ?? new Date().toISOString().slice(0, 10),
+    notes: order?.notes ?? '',
+  }
+}
+
+function buildOrderUpdatePayload(draft) {
+  return {
+    owner: toDraftText(draft.owner, userProfile.name),
+    region: toDraftText(draft.region, '华南'),
+    status: toDraftText(draft.status, 'draft'),
+    due_date: toDraftText(draft.dueDate, new Date().toISOString().slice(0, 10)),
+    notes: toDraftText(draft.notes, '订单状态已更新。'),
   }
 }
 
@@ -1909,6 +1930,9 @@ function OrdersPage() {
   const [loading, setLoading] = useState(true)
   const [restockSavingId, setRestockSavingId] = useState(null)
   const [exportSaving, setExportSaving] = useState(false)
+  const [orderEditOpen, setOrderEditOpen] = useState(false)
+  const [orderSaving, setOrderSaving] = useState(false)
+  const [orderDraft, setOrderDraft] = useState(() => buildOrderDraft(null))
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -1989,6 +2013,34 @@ function OrdersPage() {
     }
   }
 
+  const handleOpenOrderEdit = () => {
+    if (!selectedOrder) {
+      return
+    }
+    setOrderDraft(buildOrderDraft(selectedOrder))
+    setError('')
+    setOrderEditOpen(true)
+  }
+
+  const handleSubmitOrderEdit = async (event) => {
+    event.preventDefault()
+    if (!selectedOrder) {
+      return
+    }
+    setOrderSaving(true)
+    setError('')
+    try {
+      const updatedOrder = await updateOrder(selectedOrder.id, buildOrderUpdatePayload(orderDraft))
+      setOrders((currentOrders) => currentOrders.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)))
+      setSelectedOrderId(updatedOrder.id)
+      setOrderEditOpen(false)
+    } catch (nextError) {
+      setError(nextError.message || '订单更新失败')
+    } finally {
+      setOrderSaving(false)
+    }
+  }
+
   const summary = useMemo(() => summarizeOrders(orders), [orders])
   const visibleOrders = useMemo(() => filterOrders(orders, activeTab), [activeTab, orders])
   const selectedOrder = useMemo(() => {
@@ -1998,6 +2050,19 @@ function OrdersPage() {
   const restockAlertMap = useMemo(() => new Map(restockAlerts.map((alert) => [alert.product_id, alert])), [restockAlerts])
   const criticalAlertCount = useMemo(() => restockAlerts.filter((alert) => alert.priority === 'critical').length, [restockAlerts])
   const maxStock = useMemo(() => Math.max(1, ...products.map((product) => Number(product.stock ?? 0))), [products])
+  const orderEditColumns = useMemo(() => [
+    { key: 'owner', label: '负责人' },
+    { key: 'region', label: '区域' },
+    { key: 'dueDate', label: '交付日期' },
+    { key: 'notes', label: '备注' },
+  ], [])
+  const orderStatusField = useMemo(() => ({
+    key: 'status',
+    label: '订单状态',
+    value: 'draft',
+    options: ['draft', 'confirmed', 'fulfilled'],
+    optionLabels: orderStatusLabelMap,
+  }), [])
 
   return (
     <div className="crm-page-stack">
@@ -2011,7 +2076,7 @@ function OrdersPage() {
         onTabChange={setActiveTab}
         onCreate={() => navigate('/capture')}
       />
-      <ResourceSyncState loading={loading || Boolean(restockSavingId) || exportSaving} error={error} />
+      <ResourceSyncState loading={loading || Boolean(restockSavingId) || exportSaving || orderSaving} error={error} />
 
       <section className="crm-metric-grid">
         <article className="crm-panel crm-metric-card">
@@ -2107,7 +2172,15 @@ function OrdersPage() {
         </div>
 
         <div className="crm-panel">
-          <PanelHeader title="订单明细" />
+          <div className="crm-panel-header">
+            <strong>订单明细</strong>
+            {selectedOrder ? (
+              <button className="crm-ghost-button" type="button" onClick={handleOpenOrderEdit}>
+                <Pencil size={16} />
+                编辑订单
+              </button>
+            ) : null}
+          </div>
           {selectedOrder ? (
             <div className="crm-progress-list">
               <div className="crm-list-item">
@@ -2139,6 +2212,18 @@ function OrdersPage() {
           )}
         </div>
       </section>
+
+      <CreateRecordModal
+        open={orderEditOpen}
+        title="编辑订单"
+        columns={orderEditColumns}
+        workflowField={orderStatusField}
+        draft={orderDraft}
+        onDraftChange={setOrderDraft}
+        onClose={() => setOrderEditOpen(false)}
+        onSubmit={handleSubmitOrderEdit}
+        submitting={orderSaving}
+      />
 
       <section className="crm-panel">
         <PanelHeader title="库存补货建议" />
@@ -3041,7 +3126,7 @@ function CreateRecordModal({ open, title, columns, workflowField, draft, onDraft
       <form className="crm-modal" onSubmit={onSubmit}>
         <div className="crm-modal-head">
           <div>
-            <span className="crm-overline">快速创建</span>
+            <span className="crm-overline">{title.startsWith('编辑') ? '记录维护' : '快速创建'}</span>
             <h3>{title}</h3>
           </div>
           <button className="crm-icon-button" type="button" aria-label="关闭" onClick={onClose}>
@@ -3056,7 +3141,7 @@ function CreateRecordModal({ open, title, columns, workflowField, draft, onDraft
               <select value={draft[workflowField.key] ?? workflowField.value} onChange={(event) => handleChange(workflowField.key, event.target.value)}>
                 {workflowField.options.map((option) => (
                   <option key={option} value={option}>
-                    {option}
+                    {workflowField.optionLabels?.[option] ?? option}
                   </option>
                 ))}
               </select>

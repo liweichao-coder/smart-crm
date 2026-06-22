@@ -46,6 +46,7 @@ from .schemas import (
     SalesLeadUpdate,
     SalesOrderCreate,
     SalesOrderRead,
+    SalesOrderUpdate,
     SupportCaseCreate,
     SupportCaseRead,
     SupportCaseUpdate,
@@ -660,6 +661,18 @@ def export_orders_csv(session: SessionDep) -> Response:
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="smart-crm-orders.csv"'},
     )
+
+
+@app.patch("/api/orders/{order_id}", response_model=SalesOrderRead)
+def update_order(order_id: int, payload: SalesOrderUpdate, session: SessionDep) -> SalesOrderRead:
+    order = session.get(SalesOrder, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    apply_updates(order, patch_values(payload))
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return serialize_order(order, session)
 
 
 @app.post("/api/orders", response_model=SalesOrderRead, status_code=201)

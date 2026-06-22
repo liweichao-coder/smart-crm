@@ -35,6 +35,8 @@ The course exam requires a full software engineering process package, not only c
 - Added a real Products page backed by `/api/products`, so AI capture and order catalog data can be maintained in the app.
 - Added persisted AI interaction audit logs for Copilot summary, follow-up generation, Copilot order drafts, and vision extraction.
 - Added `/api/ai-audit-logs` and an AI Audit frontend page showing operation, LLM/fallback status, model, latency, request summary, and response summary.
+- Added `PATCH /api/orders/{order_id}` for order lifecycle fields: owner, region, status, due date, and notes.
+- Added an Orders page edit modal so the selected order can be maintained from the frontend without leaving the order detail panel.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -61,6 +63,7 @@ The course exam requires a full software engineering process package, not only c
 - After inventory restock upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 14 passed, including insufficient-stock order protection.
 - After order export upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 15 passed.
 - After product catalog CRUD upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 16 passed.
+- After order lifecycle edit upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 17 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -85,9 +88,11 @@ The course exam requires a full software engineering process package, not only c
 - Order export smoke succeeded on temporary port 8012: `/api/orders/export.csv` returned a CSV attachment with 23 lines, including the Chinese header and 22 order item rows.
 - Product catalog smoke succeeded on temporary port 8013: product create, update, and delete succeeded for a temporary SKU, while deleting a seeded product returned 400 due to existing order or inventory records.
 - AI audit smoke succeeded: Copilot summary and follow-up returned `fallback_used=false`, `/api/ai-audit-logs` returned 2 `llm` records, and the AI Audit page rendered the persisted rows.
+- Order lifecycle edit smoke succeeded: PATCH updated owner, region, status, due date, and notes for a real order; the returned order still included persisted item details.
+- DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps
 
-- Add order editing and stricter cross-module validation.
+- Add order item editing, recalculation, and stricter cross-module validation.
 - Add table pagination, resource operation audit, and stricter field-level validation for larger demo datasets.
 - Capture screenshots and export Word/PPT final materials.
