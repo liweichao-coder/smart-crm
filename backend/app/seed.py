@@ -4,12 +4,46 @@ from datetime import date, timedelta
 
 from sqlmodel import Session, select
 
-from .models import Contact, Customer, InventoryMovement, LeadStage, OrderItem, OrderStatus, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .auth import hash_password
+from .models import AuthUser, Contact, Customer, InventoryMovement, LeadStage, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+
+
+DEMO_AUTH_EMAIL = "demo@smart-crm.local"
+DEMO_AUTH_PASSWORD = "SmartCRM@2026"
+
+
+def ensure_auth_seed(session: Session) -> None:
+    existing_user = session.exec(select(AuthUser).where(AuthUser.email == DEMO_AUTH_EMAIL)).first()
+    if existing_user:
+        return
+
+    organization = session.exec(select(Organization).where(Organization.slug == "szu-ai-crm-course")).first()
+    if not organization:
+        organization = Organization(name="深大 AI CRM 课程组", slug="szu-ai-crm-course", plan="course", status="active")
+        session.add(organization)
+        session.flush()
+
+    session.add(
+        AuthUser(
+            organization_id=organization.id,
+            full_name="李伟超",
+            email=DEMO_AUTH_EMAIL,
+            phone="18600002048",
+            role="管理员",
+            position="CRM 运营管理员",
+            department="客户增长中心",
+            location="深圳 · 南山",
+            status="active",
+            password_hash=hash_password(DEMO_AUTH_PASSWORD),
+        )
+    )
 
 
 def seed_data(session: Session) -> None:
+    ensure_auth_seed(session)
     existing_customer = session.exec(select(Customer)).first()
     if existing_customer:
+        session.commit()
         return
 
     today = date.today()

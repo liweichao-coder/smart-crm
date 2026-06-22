@@ -22,6 +22,63 @@ class OrderStatus(str, Enum):
     fulfilled = "fulfilled"
 
 
+class OrganizationBase(SQLModel):
+    name: str = Field(index=True)
+    slug: str = Field(index=True, sa_column_kwargs={"unique": True})
+    plan: str = "course"
+    status: str = Field(default="active", index=True)
+
+
+class Organization(OrganizationBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class AuthUserBase(SQLModel):
+    organization_id: int = Field(foreign_key="organization.id", index=True)
+    full_name: str
+    email: str = Field(index=True, sa_column_kwargs={"unique": True})
+    phone: str = Field(default="", index=True)
+    role: str = "管理员"
+    position: str = "CRM 运营管理员"
+    department: str = "客户增长中心"
+    location: str = "深圳 · 南山"
+    status: str = Field(default="active", index=True)
+    password_hash: str
+
+
+class AuthUser(AuthUserBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    last_login_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class AuthSessionBase(SQLModel):
+    user_id: int = Field(foreign_key="authuser.id", index=True)
+    token_hash: str = Field(index=True, sa_column_kwargs={"unique": True})
+    expires_at: datetime
+    revoked_at: Optional[datetime] = None
+
+
+class AuthSession(AuthSessionBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class AuthAuditLogBase(SQLModel):
+    event: str = Field(index=True)
+    account: str = Field(index=True)
+    user_id: Optional[int] = Field(default=None, index=True)
+    organization_id: Optional[int] = Field(default=None, index=True)
+    status: str = Field(default="success", index=True)
+    detail: str = ""
+
+
+class AuthAuditLog(AuthAuditLogBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class CustomerBase(SQLModel):
     name: str = Field(index=True)
     company: str

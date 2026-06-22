@@ -4,19 +4,30 @@ import csv
 import io
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from math import ceil
 from time import perf_counter
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
+from .auth import generate_session_token, hash_password, hash_session_token, verify_password
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, BusinessAuditLog, Contact, Customer, InventoryMovement, OrderItem, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, Customer, InventoryMovement, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
+    AuthAuditLogRead,
+    AuthLoginRequest,
+    AuthLogoutResponse,
+    AuthMeResponse,
+    AuthOrganizationRead,
+    AuthRegisterRequest,
+    AuthSessionResponse,
+    AuthUserRead,
     BusinessAuditLogRead,
     ContactCreate,
     ContactRead,
@@ -65,8 +76,10 @@ from .services import CopilotService, VisionExtractionService
 vision_service = VisionExtractionService()
 copilot_service = CopilotService()
 SessionDep = Annotated[Session, Depends(get_session)]
+auth_scheme = HTTPBearer(auto_error=False)
 RESTOCK_DANGER_THRESHOLD = 80
 RESTOCK_WARNING_THRESHOLD = 300
+AUTH_SESSION_DAYS = 7
 CATEGORY_TARGET_STOCK = {
     "硬件": 600,
     "软件": 1200,
@@ -145,6 +158,119 @@ def paginate_or_list(records: list, *, page: int | None = None, per_page: int | 
         "has_next": safe_page < pages,
         "has_previous": safe_page > 1 and total > 0,
     }
+
+
+def normalize_account(account: str) -> str:
+    return " ".join(str(account or "").split()).lower()
+
+
+def build_organization_slug(name: str) -> str:
+    base = "".join(ch.lower() for ch in name if ch.isalnum())
+    return base[:40] or f"org-{round(datetime.utcnow().timestamp())}"
+
+
+def build_unique_organization_slug(session: Session, name: str) -> str:
+    base = build_organization_slug(name)
+    slug = base
+    suffix = 2
+    while session.exec(select(Organization).where(Organization.slug == slug)).first():
+        slug = f"{base}-{suffix}"
+        suffix += 1
+    return slug
+
+
+def find_user_by_account(session: Session, account: str) -> AuthUser | None:
+    normalized = normalize_account(account)
+    user = session.exec(select(AuthUser).where(AuthUser.email == normalized)).first()
+    if user:
+        return user
+    return session.exec(select(AuthUser).where(AuthUser.phone == normalized)).first()
+
+
+def serialize_auth_organization(user: AuthUser, organization: Organization) -> AuthOrganizationRead:
+    return AuthOrganizationRead(
+        id=organization.id,
+        name=organization.name,
+        slug=organization.slug,
+        role=user.role,
+        plan=organization.plan,
+        status=organization.status,
+    )
+
+
+def serialize_auth_user(user: AuthUser, organization: Organization) -> AuthUserRead:
+    return AuthUserRead(
+        id=user.id,
+        organization_id=user.organization_id,
+        organization_name=organization.name,
+        full_name=user.full_name,
+        email=user.email,
+        phone=user.phone,
+        role=user.role,
+        position=user.position,
+        department=user.department,
+        location=user.location,
+        status=user.status,
+        created_at=user.created_at,
+        last_login_at=user.last_login_at,
+    )
+
+
+def build_auth_payload(token: str, auth_session: AuthSession, user: AuthUser, organization: Organization) -> AuthSessionResponse:
+    return AuthSessionResponse(
+        token=token,
+        expires_at=auth_session.expires_at,
+        user=serialize_auth_user(user, organization),
+        organizations=[serialize_auth_organization(user, organization)],
+    )
+
+
+def record_auth_audit(
+    session: Session,
+    *,
+    event: str,
+    account: str,
+    status: str,
+    detail: str = "",
+    user: AuthUser | None = None,
+) -> None:
+    session.add(
+        AuthAuditLog(
+            event=event,
+            account=summarize_text(account, limit=120),
+            user_id=user.id if user else None,
+            organization_id=user.organization_id if user else None,
+            status=status,
+            detail=summarize_text(detail, limit=240),
+        )
+    )
+
+
+def create_auth_session(session: Session, user: AuthUser) -> tuple[str, AuthSession]:
+    token = generate_session_token()
+    auth_session = AuthSession(
+        user_id=user.id,
+        token_hash=hash_session_token(token),
+        expires_at=datetime.utcnow() + timedelta(days=AUTH_SESSION_DAYS),
+    )
+    session.add(auth_session)
+    return token, auth_session
+
+
+def require_current_auth(
+    session: SessionDep,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(auth_scheme)] = None,
+) -> tuple[AuthUser, AuthSession]:
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="请先登录")
+    token_hash = hash_session_token(credentials.credentials)
+    auth_session = session.exec(select(AuthSession).where(AuthSession.token_hash == token_hash)).first()
+    if not auth_session or auth_session.revoked_at is not None or auth_session.expires_at <= datetime.utcnow():
+        raise HTTPException(status_code=401, detail="登录状态已失效，请重新登录")
+    user = session.get(AuthUser, auth_session.user_id)
+    if not user or user.status != "active":
+        raise HTTPException(status_code=401, detail="账号不可用")
+    return user, auth_session
 
 
 def product_recent_order_quantity(product_id: int, session: Session) -> int:
@@ -452,6 +578,122 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/auth/login", response_model=AuthSessionResponse)
+def login(payload: AuthLoginRequest, session: SessionDep) -> AuthSessionResponse:
+    account = normalize_account(payload.account)
+    user = find_user_by_account(session, account)
+    if not user or not verify_password(payload.password, user.password_hash):
+        record_auth_audit(session, event="login", account=account, status="failed", detail="账号或密码错误", user=user)
+        session.commit()
+        raise HTTPException(status_code=401, detail="账号或密码错误")
+    if user.status != "active":
+        record_auth_audit(session, event="login", account=account, status="failed", detail="账号已停用", user=user)
+        session.commit()
+        raise HTTPException(status_code=403, detail="账号已停用")
+
+    organization = session.get(Organization, user.organization_id)
+    if not organization or organization.status != "active":
+        record_auth_audit(session, event="login", account=account, status="failed", detail="组织不可用", user=user)
+        session.commit()
+        raise HTTPException(status_code=403, detail="组织不可用")
+
+    user.last_login_at = datetime.utcnow()
+    session.add(user)
+    token, auth_session = create_auth_session(session, user)
+    record_auth_audit(session, event="login", account=account, status="success", detail="登录成功", user=user)
+    session.commit()
+    session.refresh(user)
+    session.refresh(auth_session)
+    return build_auth_payload(token, auth_session, user, organization)
+
+
+@app.post("/api/auth/register", response_model=AuthSessionResponse, status_code=201)
+def register(payload: AuthRegisterRequest, session: SessionDep) -> AuthSessionResponse:
+    email = normalize_account(payload.email)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="请输入有效邮箱")
+    if payload.password != payload.confirm_password:
+        raise HTTPException(status_code=400, detail="两次输入的密码不一致")
+    if session.exec(select(AuthUser).where(AuthUser.email == email)).first():
+        record_auth_audit(session, event="register", account=email, status="failed", detail="邮箱已注册")
+        session.commit()
+        raise HTTPException(status_code=400, detail="邮箱已注册")
+
+    organization = Organization(
+        name=payload.organization_name.strip(),
+        slug=build_unique_organization_slug(session, payload.organization_name),
+        plan="course",
+        status="active",
+    )
+    session.add(organization)
+    session.flush()
+    user = AuthUser(
+        organization_id=organization.id,
+        full_name=payload.full_name.strip(),
+        email=email,
+        phone=normalize_account(payload.phone),
+        role="管理员",
+        position="CRM 运营管理员",
+        department="客户增长中心",
+        location="深圳 · 南山",
+        status="active",
+        password_hash=hash_password(payload.password),
+        last_login_at=datetime.utcnow(),
+    )
+    session.add(user)
+    session.flush()
+    token, auth_session = create_auth_session(session, user)
+    record_auth_audit(session, event="register", account=email, status="success", detail=f"创建组织 {organization.name}", user=user)
+    session.commit()
+    session.refresh(user)
+    session.refresh(auth_session)
+    session.refresh(organization)
+    return build_auth_payload(token, auth_session, user, organization)
+
+
+@app.get("/api/auth/me", response_model=AuthMeResponse)
+def get_current_user(
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> AuthMeResponse:
+    user, auth_session = current
+    organization = session.get(Organization, user.organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="组织不存在")
+    return AuthMeResponse(
+        expires_at=auth_session.expires_at,
+        user=serialize_auth_user(user, organization),
+        organizations=[serialize_auth_organization(user, organization)],
+    )
+
+
+@app.post("/api/auth/logout", response_model=AuthLogoutResponse)
+def logout(
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> AuthLogoutResponse:
+    user, auth_session = current
+    auth_session.revoked_at = datetime.utcnow()
+    session.add(auth_session)
+    record_auth_audit(session, event="logout", account=user.email, status="success", detail="退出登录", user=user)
+    session.commit()
+    return AuthLogoutResponse(revoked=True)
+
+
+@app.get("/api/auth/audit-logs", response_model=list[AuthAuditLogRead] | PaginatedResponse[AuthAuditLogRead])
+def list_auth_audit_logs(
+    session: SessionDep,
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    event: str = "",
+    status: str = "",
+) -> list[AuthAuditLog] | dict:
+    logs = session.exec(select(AuthAuditLog).order_by(AuthAuditLog.created_at.desc())).all()
+    logs = filter_records(logs, q=q, fields=("event", "account", "status", "detail"), event=event, status=status)
+    return paginate_or_list(logs, page=page, per_page=per_page)
 
 
 @app.get("/api/customers", response_model=list[CustomerRead] | PaginatedResponse[CustomerRead])

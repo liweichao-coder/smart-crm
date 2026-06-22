@@ -1180,6 +1180,16 @@ p {
   margin-top: 6px;
 }
 
+.crm-auth-alert {
+  border: 1px solid rgba(220, 53, 69, 0.28);
+  border-radius: var(--radius-lg);
+  background: rgba(220, 53, 69, 0.08);
+  color: var(--text-error);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .crm-auth-check {
   display: flex;
   align-items: flex-start;

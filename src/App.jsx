@@ -53,11 +53,13 @@ import {
   orgs,
 } from './data/mockData.js'
 import {
+  AUTH_STORAGE_KEY,
   fetchCases,
   fetchAiAuditLogs,
   fetchBusinessAuditLogs,
   fetchContacts,
   fetchCopilotSummary,
+  fetchCurrentUser,
   createCase,
   createContact,
   createCustomer,
@@ -86,6 +88,9 @@ import {
   fetchTasks,
   extractOrderFromFile,
   generateFollowUp,
+  login,
+  logout,
+  register,
   restockProduct,
   updateCase,
   updateContact,
@@ -638,14 +643,109 @@ function useRemoteRecords(fetcher, mapper) {
   return { records, loading, error }
 }
 
+function RequireAuth({ authSession, children }) {
+  if (!authSession?.token) {
+    return <Navigate replace to="/login" />
+  }
+  return children
+}
+
 function App() {
+  const [authSession, setAuthSession] = useState(loadStoredAuthSession)
+  const [authChecked, setAuthChecked] = useState(() => !loadStoredAuthSession()?.token)
+
+  useEffect(() => {
+    const storedSession = loadStoredAuthSession()
+    if (!storedSession?.token) {
+      return
+    }
+    let mounted = true
+    fetchCurrentUser()
+      .then((payload) => {
+        if (!mounted) {
+          return
+        }
+        const refreshedSession = {
+          ...storedSession,
+          expires_at: payload.expires_at,
+          user: payload.user,
+          organizations: payload.organizations,
+        }
+        persistAuthSession(refreshedSession)
+        setAuthSession(refreshedSession)
+      })
+      .catch(() => {
+        if (mounted) {
+          clearStoredAuthSession()
+          setAuthSession(null)
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setAuthChecked(true)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const handleAuthSession = (session) => {
+    persistAuthSession(session)
+    setAuthSession(session)
+  }
+
+  const handleLogout = async () => {
+    try {
+      if (authSession?.token) {
+        await logout()
+      }
+    } catch {
+      // The local session should still be cleared if the server token is already expired.
+    }
+    clearStoredAuthSession()
+    setAuthSession(null)
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="crm-auth-page">
+        <main className="crm-auth-shell crm-auth-shell--compact">
+          <section className="crm-auth-panel">
+            <div className="crm-auth-brand crm-auth-brand--panel">
+              <div className="crm-brand-mark">深</div>
+              <div>
+                <strong>深大 AI CRM</strong>
+                <span>正在校验登录状态</span>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
-      <Route path="/org" element={<OrgSelectionPage />} />
-      <Route path="/" element={<Navigate replace to="/login" />} />
-      <Route element={<AppShell />}>
+      <Route path="/login" element={<LoginPage onLogin={handleAuthSession} />} />
+      <Route path="/register" element={<RegisterPage onLogin={handleAuthSession} />} />
+      <Route
+        path="/org"
+        element={(
+          <RequireAuth authSession={authSession}>
+            <OrgSelectionPage authSession={authSession} onLogout={handleLogout} />
+          </RequireAuth>
+        )}
+      />
+      <Route path="/" element={<Navigate replace to={authSession?.token ? '/dashboard' : '/login'} />} />
+      <Route
+        element={(
+          <RequireAuth authSession={authSession}>
+            <AppShell authSession={authSession} onLogout={handleLogout} />
+          </RequireAuth>
+        )}
+      >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/ai-audit" element={<AiAuditPage />} />
@@ -843,14 +943,35 @@ function CasesPage() {
   )
 }
 
-function LoginPage() {
+function LoginPage({ onLogin }) {
   const navigate = useNavigate()
-  const [account, setAccount] = useState('')
-  const [password, setPassword] = useState('')
+  const [account, setAccount] = useState('demo@smart-crm.local')
+  const [password, setPassword] = useState('SmartCRM@2026')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     document.title = '登录 | 深大 AI CRM'
   }, [])
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      const session = await login({ account, password })
+      onLogin(session)
+      const nextOrg = session.organizations?.[0]
+      if (nextOrg) {
+        persistOrg({ id: nextOrg.id, name: nextOrg.name, role: nextOrg.role })
+      }
+      navigate('/org')
+    } catch (nextError) {
+      setError(nextError.message || '登录失败，请检查账号和密码')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <div className="crm-auth-page">
@@ -888,11 +1009,9 @@ function LoginPage() {
 
           <form
             className="crm-auth-form"
-            onSubmit={(event) => {
-              event.preventDefault()
-              navigate('/org')
-            }}
+            onSubmit={handleSubmit}
           >
+            {error ? <div className="crm-auth-alert">{error}</div> : null}
             <label className="crm-auth-field">
               <span>账号</span>
               <input
@@ -901,6 +1020,7 @@ function LoginPage() {
                 onChange={(event) => setAccount(event.target.value)}
                 placeholder="请输入邮箱号或手机号"
                 autoComplete="username"
+                required
               />
             </label>
 
@@ -912,11 +1032,12 @@ function LoginPage() {
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="请输入密码"
                 autoComplete="current-password"
+                required
               />
             </label>
 
-            <button className="crm-primary-button crm-auth-submit" type="submit">
-              登录
+            <button className="crm-primary-button crm-auth-submit" type="submit" disabled={submitting}>
+              {submitting ? '登录中...' : '登录'}
               <ArrowRight size={16} />
             </button>
           </form>
@@ -933,7 +1054,7 @@ function LoginPage() {
   )
 }
 
-function RegisterPage() {
+function RegisterPage({ onLogin }) {
   const navigate = useNavigate()
   const [companyName, setCompanyName] = useState('')
   const [fullName, setFullName] = useState('')
@@ -942,10 +1063,46 @@ function RegisterPage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [agreed, setAgreed] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     document.title = '注册 | 深大 AI CRM'
   }, [])
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    if (!agreed) {
+      setError('请先阅读并同意服务协议与隐私政策')
+      return
+    }
+    if (password !== confirmPassword) {
+      setError('两次输入的密码不一致')
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    try {
+      const session = await register({
+        organization_name: companyName,
+        full_name: fullName,
+        email,
+        phone,
+        password,
+        confirm_password: confirmPassword,
+      })
+      onLogin(session)
+      const nextOrg = session.organizations?.[0]
+      if (nextOrg) {
+        persistOrg({ id: nextOrg.id, name: nextOrg.name, role: nextOrg.role })
+      }
+      navigate('/org')
+    } catch (nextError) {
+      setError(nextError.message || '注册失败，请检查输入信息')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <div className="crm-auth-page">
@@ -971,14 +1128,9 @@ function RegisterPage() {
 
           <form
             className="crm-auth-form"
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (!agreed) {
-                return
-              }
-              navigate('/login')
-            }}
+            onSubmit={handleSubmit}
           >
+            {error ? <div className="crm-auth-alert">{error}</div> : null}
             <label className="crm-auth-field">
               <span>企业名称</span>
               <input
@@ -987,6 +1139,7 @@ function RegisterPage() {
                 onChange={(event) => setCompanyName(event.target.value)}
                 placeholder="请输入企业或团队名称"
                 autoComplete="organization"
+                required
               />
             </label>
 
@@ -998,6 +1151,7 @@ function RegisterPage() {
                 onChange={(event) => setFullName(event.target.value)}
                 placeholder="请输入管理员姓名"
                 autoComplete="name"
+                required
               />
             </label>
 
@@ -1009,6 +1163,7 @@ function RegisterPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="请输入常用工作邮箱"
                 autoComplete="email"
+                required
               />
             </label>
 
@@ -1031,6 +1186,7 @@ function RegisterPage() {
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="设置登录密码"
                 autoComplete="new-password"
+                required
               />
             </label>
 
@@ -1042,6 +1198,7 @@ function RegisterPage() {
                 onChange={(event) => setConfirmPassword(event.target.value)}
                 placeholder="请再次输入密码"
                 autoComplete="new-password"
+                required
               />
             </label>
 
@@ -1050,8 +1207,8 @@ function RegisterPage() {
               <span>我已阅读并同意服务协议与隐私政策</span>
             </label>
 
-            <button className="crm-primary-button crm-auth-submit" type="submit">
-              创建账号
+            <button className="crm-primary-button crm-auth-submit" type="submit" disabled={submitting}>
+              {submitting ? '创建中...' : '创建账号'}
               <ArrowRight size={16} />
             </button>
           </form>
@@ -1068,7 +1225,7 @@ function RegisterPage() {
   )
 }
 
-function AppShell() {
+function AppShell({ authSession, onLogout }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedOrg, setSelectedOrg] = useState(loadStoredOrg())
@@ -1076,6 +1233,7 @@ function AppShell() {
   const navigate = useNavigate()
   const currentPage = pageItems.find((item) => location.pathname.startsWith(item.path)) ?? navItems[0]
   const isProfilePage = location.pathname.startsWith('/profile')
+  const activeProfile = buildUserProfile(authSession?.user)
 
   useEffect(() => {
     document.title = currentPage.title
@@ -1132,8 +1290,8 @@ function AppShell() {
             >
               <img src={avatar} alt="用户头像" />
               <div>
-                <strong>{userProfile.name}</strong>
-                <span>{userProfile.email}</span>
+                <strong>{activeProfile.name}</strong>
+                <span>{activeProfile.email}</span>
               </div>
               <ChevronsUpDown size={16} />
             </button>
@@ -1164,15 +1322,18 @@ function AppShell() {
         </header>
 
         <section className="crm-content">
-          <Outlet context={{ selectedOrg, setSelectedOrg }} />
+          <Outlet context={{ selectedOrg, setSelectedOrg, userProfile: activeProfile, onLogout }} />
         </section>
       </main>
     </div>
   )
 }
 
-function OrgSelectionPage() {
+function OrgSelectionPage({ authSession, onLogout }) {
   const navigate = useNavigate()
+  const availableOrgs = authSession?.organizations?.length
+    ? authSession.organizations.map((org) => ({ id: org.id, name: org.name, role: org.role }))
+    : orgs
 
   useEffect(() => {
     document.title = '选择组织 | 深大 AI CRM'
@@ -1185,7 +1346,14 @@ function OrgSelectionPage() {
           <div className="crm-brand-mark">深</div>
           <strong>深大 AI CRM</strong>
         </div>
-        <button className="crm-ghost-button" type="button" onClick={() => navigate('/login')}>
+        <button
+          className="crm-ghost-button"
+          type="button"
+          onClick={async () => {
+            await onLogout()
+            navigate('/login')
+          }}
+        >
           <LogOut size={16} />
           退出
         </button>
@@ -1194,11 +1362,11 @@ function OrgSelectionPage() {
       <main className="crm-org-main">
         <div className="crm-org-copy">
           <h1>选择一个组织</h1>
-          <p>选择你想进入的组织。当前版本仅包含前端页面与简单逻辑，方便你继续开发。</p>
+          <p>组织来自后端认证会话，选择后进入对应工作台；后续可继续扩展多组织成员权限。</p>
         </div>
 
         <div className="crm-org-list">
-          {orgs.map((org) => (
+          {availableOrgs.map((org) => (
             <button
               key={org.id}
               type="button"
@@ -3285,21 +3453,21 @@ function GoalsPage() {
 
 function ProfilePage() {
   const navigate = useNavigate()
-  const { selectedOrg } = useOutletContext()
+  const { selectedOrg, userProfile: activeProfile, onLogout } = useOutletContext()
 
   const profileInfo = [
-    { label: '邮箱', value: userProfile.email },
-    { label: '手机号', value: userProfile.phone },
-    { label: '岗位', value: userProfile.position },
-    { label: '部门', value: userProfile.department },
-    { label: '办公地点', value: userProfile.location },
-    { label: '加入时间', value: userProfile.joinDate },
+    { label: '邮箱', value: activeProfile.email },
+    { label: '手机号', value: activeProfile.phone },
+    { label: '岗位', value: activeProfile.position },
+    { label: '部门', value: activeProfile.department },
+    { label: '办公地点', value: activeProfile.location },
+    { label: '加入时间', value: activeProfile.joinDate },
   ]
 
   const securityInfo = [
     { label: '登录方式', value: '账号密码', tone: 'neutral' },
     { label: '账户状态', value: '正常', tone: 'success' },
-    { label: '组织权限', value: '管理员', tone: 'accent' },
+    { label: '组织权限', value: selectedOrg.role, tone: 'accent' },
   ]
 
   return (
@@ -3309,9 +3477,9 @@ function ProfilePage() {
           <img className="crm-profile-avatar" src={avatar} alt="用户头像" />
           <div className="crm-profile-copy">
             <span className="crm-overline">个人主页</span>
-            <h2>{userProfile.name}</h2>
+            <h2>{activeProfile.name}</h2>
             <div className="crm-profile-meta">
-              <span>{userProfile.position}</span>
+              <span>{activeProfile.position}</span>
               <span>{selectedOrg.name}</span>
               <span>{selectedOrg.role}</span>
             </div>
@@ -3323,7 +3491,14 @@ function ProfilePage() {
             <Building2 size={16} />
             切换组织
           </button>
-          <button className="crm-ghost-button crm-ghost-button--danger" type="button" onClick={() => navigate('/login')}>
+          <button
+            className="crm-ghost-button crm-ghost-button--danger"
+            type="button"
+            onClick={async () => {
+              await onLogout()
+              navigate('/login')
+            }}
+          >
             <LogOut size={16} />
             退出登录
           </button>
@@ -3673,6 +3848,62 @@ function formatDateTime(value) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value))
+}
+
+function formatProfileDate(value) {
+  if (!value) {
+    return userProfile.joinDate
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(value))
+}
+
+function buildUserProfile(user) {
+  if (!user) {
+    return userProfile
+  }
+  return {
+    name: user.full_name || userProfile.name,
+    email: user.email || userProfile.email,
+    phone: user.phone || userProfile.phone,
+    position: user.position || user.role || userProfile.position,
+    department: user.department || userProfile.department,
+    location: user.location || userProfile.location,
+    joinDate: formatProfileDate(user.created_at),
+  }
+}
+
+function loadStoredAuthSession() {
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
+    if (!raw) {
+      return null
+    }
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function persistAuthSession(session) {
+  try {
+    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+function clearStoredAuthSession() {
+  try {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY)
+  } catch {
+    return undefined
+  }
+  return undefined
 }
 
 function loadStoredOrg() {

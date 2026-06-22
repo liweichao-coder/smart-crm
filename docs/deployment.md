@@ -56,6 +56,13 @@ Current demo dataset scale:
 
 This scale is intentionally larger than a toy example but still small enough for stable classroom demos.
 
+Default demo login:
+
+```text
+Account: demo@smart-crm.local
+Password: SmartCRM@2026
+```
+
 ## 4. Start Services
 
 Backend:
@@ -78,11 +85,22 @@ Open:
 http://127.0.0.1:5173
 ```
 
-## 5. Verify Copilot
+## 5. Verify Auth and Copilot
 
 ```powershell
 cd D:\LwcCode\personal-project\smart-crm\backend
 .\.venv\Scripts\python.exe -m pytest
+```
+
+Auth smoke:
+
+```powershell
+$login = Invoke-RestMethod -Method Post -ContentType "application/json" `
+  -Body '{"account":"demo@smart-crm.local","password":"SmartCRM@2026"}' `
+  http://127.0.0.1:8000/api/auth/login
+
+Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.token)" } `
+  http://127.0.0.1:8000/api/auth/me
 ```
 
 Manual API smoke:

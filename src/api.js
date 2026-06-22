@@ -1,4 +1,20 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+export const AUTH_STORAGE_KEY = 'smart-crm:auth-session'
+
+function readStoredAuthToken() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
+    if (!raw) {
+      return ''
+    }
+    return JSON.parse(raw)?.token ?? ''
+  } catch {
+    return ''
+  }
+}
 
 async function readResponsePayload(response) {
   const text = await response.text()
@@ -14,13 +30,17 @@ async function readResponsePayload(response) {
 
 async function request(path, init) {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
+  const token = readStoredAuthToken()
+  const authHeader = token ? { Authorization: `Bearer ${token}` } : {}
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: isFormData
       ? {
+          ...authHeader,
           ...(init?.headers ?? {}),
         }
       : {
           'Content-Type': 'application/json',
+          ...authHeader,
           ...(init?.headers ?? {}),
         },
     ...init,
@@ -48,6 +68,30 @@ function buildQueryString(params = {}) {
 
 export function fetchCopilotSummary() {
   return request('/api/copilot/summary')
+}
+
+export function login(payload) {
+  return request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function register(payload) {
+  return request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function fetchCurrentUser() {
+  return request('/api/auth/me')
+}
+
+export function logout() {
+  return request('/api/auth/logout', {
+    method: 'POST',
+  })
 }
 
 export function fetchAiAuditLogs(params) {

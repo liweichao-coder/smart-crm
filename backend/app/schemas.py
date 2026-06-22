@@ -20,6 +20,76 @@ class PaginatedResponse(BaseModel, Generic[T]):
     has_previous: bool
 
 
+class AuthOrganizationRead(BaseModel):
+    id: int
+    name: str
+    slug: str
+    role: str
+    plan: str
+    status: str
+
+
+class AuthUserRead(BaseModel):
+    id: int
+    organization_id: int
+    organization_name: str
+    full_name: str
+    email: str
+    phone: str
+    role: str
+    position: str
+    department: str
+    location: str
+    status: str
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+
+class AuthLoginRequest(BaseModel):
+    account: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class AuthRegisterRequest(BaseModel):
+    organization_name: str = Field(min_length=2)
+    full_name: str = Field(min_length=2)
+    email: str = Field(min_length=5)
+    phone: str = ""
+    password: str = Field(min_length=6)
+    confirm_password: str = Field(min_length=6)
+
+
+class AuthSessionResponse(BaseModel):
+    token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+    user: AuthUserRead
+    organizations: list[AuthOrganizationRead]
+
+
+class AuthMeResponse(BaseModel):
+    expires_at: datetime
+    user: AuthUserRead
+    organizations: list[AuthOrganizationRead]
+
+
+class AuthLogoutResponse(BaseModel):
+    revoked: bool
+
+
+class AuthAuditLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event: str
+    account: str
+    user_id: int | None
+    organization_id: int | None
+    status: str
+    detail: str
+    created_at: datetime
+
+
 class CustomerRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

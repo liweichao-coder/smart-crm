@@ -71,6 +71,57 @@ def test_resource_collection_payloads() -> None:
         assert required_key in payload[0]
 
 
+def test_auth_login_me_logout_and_audit() -> None:
+    with TestClient(app) as client:
+        failed_login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "wrong"})
+        login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+        token = login.json()["token"]
+        me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        audit_logs = client.get("/api/auth/audit-logs?page=1&per_page=5&event=login").json()
+        logout = client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+        revoked_me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert failed_login.status_code == 401
+    assert login.status_code == 200
+    payload = login.json()
+    assert payload["token_type"] == "bearer"
+    assert payload["user"]["email"] == "demo@smart-crm.local"
+    assert payload["organizations"][0]["name"] == "深大 AI CRM 课程组"
+    assert me.status_code == 200
+    assert me.json()["user"]["role"] == "管理员"
+    assert audit_logs["total"] >= 2
+    statuses = {item["status"] for item in audit_logs["items"]}
+    assert {"success", "failed"} <= statuses
+    assert logout.status_code == 200
+    assert logout.json()["revoked"] is True
+    assert revoked_me.status_code == 401
+
+
+def test_auth_register_new_workspace() -> None:
+    register_payload = {
+        "organization_name": "课程答辩测试组",
+        "full_name": "注册测试员",
+        "email": "register-smoke@smart-crm.local",
+        "phone": "18800001111",
+        "password": "Course@2026",
+        "confirm_password": "Course@2026",
+    }
+
+    with TestClient(app) as client:
+        created = client.post("/api/auth/register", json=register_payload)
+        duplicate = client.post("/api/auth/register", json=register_payload)
+        token = created.json()["token"]
+        me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert created.status_code == 201
+    assert created.json()["user"]["email"] == "register-smoke@smart-crm.local"
+    assert created.json()["organizations"][0]["name"] == "课程答辩测试组"
+    assert duplicate.status_code == 400
+    assert "已注册" in duplicate.json()["detail"]
+    assert me.status_code == 200
+    assert me.json()["user"]["organization_name"] == "课程答辩测试组"
+
+
 def test_paginated_collection_queries() -> None:
     with TestClient(app) as client:
         customers = client.get("/api/customers?page=1&per_page=3&q=深圳")
