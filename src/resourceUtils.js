@@ -173,3 +173,34 @@ export function sortRecordsByColumn(records, sortKey, sortDirection = 'asc') {
     return String(leftValue).localeCompare(String(rightValue), 'zh-Hans-CN') * directionMultiplier
   })
 }
+
+export function toggleSelectedKey(selectedKeys, key) {
+  const selectedSet = new Set(selectedKeys)
+  if (selectedSet.has(key)) {
+    selectedSet.delete(key)
+  } else {
+    selectedSet.add(key)
+  }
+  return [...selectedSet]
+}
+
+export function toggleVisibleSelection(selectedKeys, visibleKeys) {
+  const visibleSet = new Set(visibleKeys)
+  const selectedSet = new Set(selectedKeys)
+  const allVisibleSelected = visibleKeys.length > 0 && visibleKeys.every((key) => selectedSet.has(key))
+  if (allVisibleSelected) {
+    return selectedKeys.filter((key) => !visibleSet.has(key))
+  }
+  visibleKeys.forEach((key) => selectedSet.add(key))
+  return [...selectedSet]
+}
+
+export function summarizeBulkSettledResults(results) {
+  return results.reduce(
+    (summary, result) => ({
+      succeeded: summary.succeeded + (result.status === 'fulfilled' ? 1 : 0),
+      failed: summary.failed + (result.status === 'rejected' ? 1 : 0),
+    }),
+    { succeeded: 0, failed: 0 },
+  )
+}

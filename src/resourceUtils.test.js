@@ -12,6 +12,9 @@ import {
   parseListSearchState,
   patchListSearchParams,
   sortRecordsByColumn,
+  summarizeBulkSettledResults,
+  toggleSelectedKey,
+  toggleVisibleSelection,
 } from './resourceUtils.js'
 
 test('createDraftFromColumns builds sensible defaults for resource forms', () => {
@@ -153,4 +156,18 @@ test('normalizeSortState and sortRecordsByColumn apply saved table sorting', () 
   assert.deepEqual(normalizeSortState(columns, { key: 'missing', direction: 'desc' }), { key: '', direction: 'desc' })
   assert.deepEqual(sortRecordsByColumn(records, 'amount', 'desc').map((record) => record.name), ['北辰', '云舟', '南山'])
   assert.deepEqual(sortRecordsByColumn(records, 'name', 'asc').map((record) => record.name), ['北辰', '南山', '云舟'])
+})
+
+test('selection helpers toggle rows and summarize bulk results', () => {
+  assert.deepEqual(toggleSelectedKey(['1', '2'], '2'), ['1'])
+  assert.deepEqual(toggleSelectedKey(['1'], '2'), ['1', '2'])
+  assert.deepEqual(toggleVisibleSelection(['1'], ['1', '2', '3']), ['1', '2', '3'])
+  assert.deepEqual(toggleVisibleSelection(['1', '2', '3', 'x'], ['1', '2', '3']), ['x'])
+
+  const summary = summarizeBulkSettledResults([
+    { status: 'fulfilled', value: { deleted: true } },
+    { status: 'rejected', reason: new Error('失败') },
+    { status: 'fulfilled', value: { deleted: true } },
+  ])
+  assert.deepEqual(summary, { succeeded: 2, failed: 1 })
 })

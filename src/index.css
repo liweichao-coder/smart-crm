@@ -1122,6 +1122,22 @@ p {
   font-weight: 800;
 }
 
+.crm-bulk-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: rgba(255, 122, 89, 0.08);
+  padding: 12px 14px;
+}
+
+.crm-bulk-action-bar strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
 .crm-table {
   width: 100%;
   border-collapse: collapse;
@@ -1144,6 +1160,15 @@ p {
 .crm-table .crm-table-actions-cell {
   width: 112px;
   text-align: right;
+}
+
+.crm-table .crm-table-select-cell {
+  width: 44px;
+  text-align: center;
+}
+
+.crm-table-select-cell input {
+  accent-color: var(--color-primary-default);
 }
 
 .crm-table tbody tr {

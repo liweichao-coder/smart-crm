@@ -137,6 +137,9 @@ import {
   parseListSearchState,
   patchListSearchParams,
   sortRecordsByColumn,
+  summarizeBulkSettledResults,
+  toggleSelectedKey,
+  toggleVisibleSelection,
 } from './resourceUtils.js'
 import { getSessionOrganizations, resolveSelectedOrg } from './sessionUtils.js'
 
@@ -4853,6 +4856,7 @@ function TableResourcePage({
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
+  const [selectedRowIds, setSelectedRowIds] = useState([])
   const createInitialDraft = () => ({
     ...createDraftFromColumns(columns),
     ...defaultDraftValues,
@@ -4882,6 +4886,11 @@ function TableResourcePage({
     setRows(records)
   }, [records])
 
+  useEffect(() => {
+    const rowIds = new Set(rows.map((record) => String(record.id)))
+    setSelectedRowIds((currentIds) => currentIds.filter((id) => rowIds.has(id)))
+  }, [rows])
+
   const filteredRecords = useMemo(() => {
     const tab = tabs.find((item) => item.key === activeTab)
     return rows.filter((record) => {
@@ -4899,6 +4908,12 @@ function TableResourcePage({
     () => sortRecordsByColumn(filteredRecords, sortState.key, sortState.direction),
     [filteredRecords, sortState.direction, sortState.key],
   )
+  const visibleRecordIds = useMemo(() => visibleRecords.map((record) => String(record.id)), [visibleRecords])
+  const selectedRecords = useMemo(
+    () => rows.filter((record) => selectedRowIds.includes(String(record.id))),
+    [rows, selectedRowIds],
+  )
+  const allVisibleSelected = visibleRecordIds.length > 0 && visibleRecordIds.every((id) => selectedRowIds.includes(id))
 
   const handleOpenCreate = () => {
     setEditingRecord(null)
@@ -4961,6 +4976,10 @@ function TableResourcePage({
     downloadResourceCsv(title, visibleRecords, visibleColumns)
   }
 
+  const handleExportSelectedCsv = () => {
+    downloadResourceCsv(`${title}-selected`, selectedRecords, visibleColumns)
+  }
+
   const handleToggleColumn = (columnKey) => {
     const nextKeys = visibleColumnKeys.includes(columnKey)
       ? visibleColumnKeys.filter((key) => key !== columnKey)
@@ -4980,6 +4999,37 @@ function TableResourcePage({
     savePreferencePatch({ sort: nextSort })
   }
 
+  const handleToggleRowSelection = (recordId) => {
+    setSelectedRowIds((currentIds) => toggleSelectedKey(currentIds, String(recordId)))
+  }
+
+  const handleToggleVisibleSelection = () => {
+    setSelectedRowIds((currentIds) => toggleVisibleSelection(currentIds, visibleRecordIds))
+  }
+
+  const handleBulkDelete = async () => {
+    if (!onDeleteRecord || !selectedRecords.length || !window.confirm(`确认删除选中的 ${selectedRecords.length} 条记录？`)) {
+      return
+    }
+    setDeleteSaving(true)
+    setCreateError('')
+    const targetRecords = [...selectedRecords]
+    try {
+      const results = await Promise.allSettled(targetRecords.map((record) => onDeleteRecord(record.id)))
+      const summary = summarizeBulkSettledResults(results)
+      const deletedIds = new Set(targetRecords.filter((_, index) => results[index].status === 'fulfilled').map((record) => String(record.id)))
+      setRows((currentRows) => currentRows.filter((record) => !deletedIds.has(String(record.id))))
+      setSelectedRowIds((currentIds) => currentIds.filter((id) => !deletedIds.has(id)))
+      if (summary.failed) {
+        setCreateError(`已删除 ${summary.succeeded} 条，${summary.failed} 条失败，请检查关联数据或权限。`)
+      }
+    } catch (nextError) {
+      setCreateError(nextError.message || '批量删除失败')
+    } finally {
+      setDeleteSaving(false)
+    }
+  }
+
   return (
     <div className="crm-page-stack">
       <ResourceHeader
@@ -4996,6 +5046,24 @@ function TableResourcePage({
         exportDisabled={!visibleRecords.length}
       />
       <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
+      {selectedRecords.length ? (
+        <section className="crm-bulk-action-bar">
+          <strong>已选 {selectedRecords.length} 条</strong>
+          <button className="crm-ghost-button" type="button" onClick={handleExportSelectedCsv}>
+            <Download size={15} />
+            导出选中
+          </button>
+          {onDeleteRecord ? (
+            <button className="crm-ghost-button crm-ghost-button--danger" type="button" onClick={handleBulkDelete} disabled={deleteSaving}>
+              <Trash2 size={15} />
+              {deleteSaving ? '删除中' : '批量删除'}
+            </button>
+          ) : null}
+          <button className="crm-link-button" type="button" onClick={() => setSelectedRowIds([])}>
+            清除选择
+          </button>
+        </section>
+      ) : null}
       <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={visibleColumns.length} inputRef={searchInputRef} preferenceStatus={preferenceStatus}>
         <div className="crm-column-picker" aria-label="列显示">
           {columns.map((column) => (
@@ -5016,6 +5084,15 @@ function TableResourcePage({
           <table className="crm-table">
             <thead>
               <tr>
+                <th className="crm-table-select-cell">
+                  <input
+                    type="checkbox"
+                    aria-label="选择当前可见记录"
+                    checked={allVisibleSelected}
+                    disabled={!visibleRecordIds.length}
+                    onChange={handleToggleVisibleSelection}
+                  />
+                </th>
                 {visibleColumns.map((column) => (
                   <th key={column.key}>
                     <button className="crm-table-sort-button" type="button" onClick={() => handleSortColumn(column.key)}>
@@ -5030,6 +5107,14 @@ function TableResourcePage({
             <tbody>
               {visibleRecords.map((record) => (
                 <tr key={record.id}>
+                  <td className="crm-table-select-cell">
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${record.name ?? record.title ?? record.company ?? record.id}`}
+                      checked={selectedRowIds.includes(String(record.id))}
+                      onChange={() => handleToggleRowSelection(record.id)}
+                    />
+                  </td>
                   {visibleColumns.map((column) => (
                     <td key={column.key}>{renderCell(record[column.key], column)}</td>
                   ))}

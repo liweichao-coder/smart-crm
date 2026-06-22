@@ -185,8 +185,10 @@ The course exam requires a full software engineering process package, not only c
 - User preference regression succeeded: unauthenticated preference reads return 401, a logged-in user can save and reload `resource:orders`, invalid namespaces return 400, and another registered user sees an empty isolated preference. Full backend pytest now covers 46 tests.
 - Added table view personalization: table resource pages can hide/show columns, sort by a column, export only visible columns, and persist `visibleColumnKeys` plus `sort` through the existing backend preference API.
 - Frontend utility regression now covers 29 tests, including visible-column normalization and persisted table sorting.
+- Added bulk table actions: table resource pages now support row selection, select-visible, selected-row CSV export, and bulk delete through the existing real resource DELETE APIs with partial-failure feedback.
+- Frontend utility regression now covers 30 tests, adding selection toggles and bulk-settled result summaries.
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, batch actions, feedback note editing, and more operating BI dimensions.
+- Add fuller end-to-end browser smoke coverage, batch edit, feedback note editing, and more operating BI dimensions.
 - Capture screenshots and export Word/PPT final materials.
