@@ -128,8 +128,10 @@ import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { toDraftOwner } from './ownerUtils.js'
 import {
+  buildBulkEditPatch,
   buildClientRecord,
   buildCsvContent,
+  createBulkEditDraft,
   createCsvFilename,
   createDraftFromColumns,
   normalizeSortState,
@@ -4852,7 +4854,9 @@ function TableResourcePage({
 }) {
   const [rows, setRows] = useState(records)
   const [createOpen, setCreateOpen] = useState(false)
+  const [bulkEditOpen, setBulkEditOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
+  const [bulkEditSaving, setBulkEditSaving] = useState(false)
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
@@ -4862,6 +4866,7 @@ function TableResourcePage({
     ...defaultDraftValues,
   })
   const [draft, setDraft] = useState(createInitialDraft)
+  const [bulkEditDraft, setBulkEditDraft] = useState(() => createBulkEditDraft(columns))
   const searchInputRef = useRef(null)
   const hasActions = Boolean(getRecordHref || onUpdateRecord || onDeleteRecord)
   const { query, setQuery, activeTab, setActiveTab, preferenceStatus, preferenceValue, savePreferencePatch } = useResourceUrlState({
@@ -4927,6 +4932,12 @@ function TableResourcePage({
     setDraft(buildDraftFromRecord(columns, record))
     setCreateError('')
     setCreateOpen(true)
+  }
+
+  const handleOpenBulkEdit = () => {
+    setBulkEditDraft(createBulkEditDraft(columns))
+    setCreateError('')
+    setBulkEditOpen(true)
   }
 
   const handleSubmitCreate = async (event) => {
@@ -5030,6 +5041,50 @@ function TableResourcePage({
     }
   }
 
+  const handleSubmitBulkEdit = async (event) => {
+    event.preventDefault()
+    if (!onUpdateRecord || !selectedRecords.length) {
+      return
+    }
+    const patch = buildBulkEditPatch(bulkEditDraft, columns)
+    if (!Object.keys(patch).length) {
+      setCreateError('请至少选择一个要批量更新的字段。')
+      return
+    }
+
+    setBulkEditSaving(true)
+    setCreateError('')
+    const targetRecords = [...selectedRecords]
+    try {
+      const results = await Promise.allSettled(targetRecords.map((record) => {
+        const nextDraft = {
+          ...buildDraftFromRecord(columns, record),
+          ...patch,
+        }
+        return onUpdateRecord(record.id, nextDraft)
+      }))
+      const summary = summarizeBulkSettledResults(results)
+      const updatedById = new Map()
+      targetRecords.forEach((record, index) => {
+        if (results[index].status === 'fulfilled') {
+          updatedById.set(String(record.id), results[index].value)
+        }
+      })
+
+      setRows((currentRows) => currentRows.map((record) => updatedById.get(String(record.id)) ?? record))
+      setSelectedRowIds((currentIds) => currentIds.filter((id) => !updatedById.has(id)))
+      if (summary.failed) {
+        setCreateError(`已更新 ${summary.succeeded} 条，${summary.failed} 条失败，请检查字段唯一性、权限或后端校验。`)
+      } else {
+        setBulkEditOpen(false)
+      }
+    } catch (nextError) {
+      setCreateError(nextError.message || '批量编辑失败')
+    } finally {
+      setBulkEditSaving(false)
+    }
+  }
+
   return (
     <div className="crm-page-stack">
       <ResourceHeader
@@ -5045,7 +5100,7 @@ function TableResourcePage({
         onExport={handleExportCsv}
         exportDisabled={!visibleRecords.length}
       />
-      <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
+      <ResourceSyncState loading={loading || createSaving || deleteSaving || bulkEditSaving} error={error || createError} />
       {selectedRecords.length ? (
         <section className="crm-bulk-action-bar">
           <strong>已选 {selectedRecords.length} 条</strong>
@@ -5053,6 +5108,12 @@ function TableResourcePage({
             <Download size={15} />
             导出选中
           </button>
+          {onUpdateRecord ? (
+            <button className="crm-ghost-button" type="button" onClick={handleOpenBulkEdit} disabled={bulkEditSaving}>
+              <Pencil size={15} />
+              {bulkEditSaving ? '保存中' : '批量编辑'}
+            </button>
+          ) : null}
           {onDeleteRecord ? (
             <button className="crm-ghost-button crm-ghost-button--danger" type="button" onClick={handleBulkDelete} disabled={deleteSaving}>
               <Trash2 size={15} />
@@ -5164,6 +5225,17 @@ function TableResourcePage({
         }}
         onSubmit={handleSubmitCreate}
         submitting={createSaving}
+      />
+      <BulkEditModal
+        open={bulkEditOpen}
+        title={`批量编辑${title}`}
+        columns={columns}
+        draft={bulkEditDraft}
+        selectedCount={selectedRecords.length}
+        onDraftChange={setBulkEditDraft}
+        onClose={() => setBulkEditOpen(false)}
+        onSubmit={handleSubmitBulkEdit}
+        submitting={bulkEditSaving}
       />
     </div>
   )
@@ -6110,6 +6182,82 @@ function CreateRecordModal({ open, title, columns, workflowField, draft, onDraft
           </button>
           <button className="crm-primary-button" type="submit" disabled={submitting}>
             {submitting ? '保存中' : '保存'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function BulkEditModal({ open, title, columns, draft, selectedCount, onDraftChange, onClose, onSubmit, submitting = false }) {
+  if (!open) {
+    return null
+  }
+
+  const enabledCount = columns.filter((column) => draft[column.key]?.enabled).length
+
+  const handleToggleField = (key) => {
+    onDraftChange((currentDraft) => ({
+      ...currentDraft,
+      [key]: {
+        enabled: !currentDraft[key]?.enabled,
+        value: currentDraft[key]?.value ?? '',
+      },
+    }))
+  }
+
+  const handleChangeValue = (key, value) => {
+    onDraftChange((currentDraft) => ({
+      ...currentDraft,
+      [key]: {
+        enabled: currentDraft[key]?.enabled ?? true,
+        value,
+      },
+    }))
+  }
+
+  return (
+    <div className="crm-modal-backdrop" role="presentation">
+      <form className="crm-modal" onSubmit={onSubmit}>
+        <div className="crm-modal-head">
+          <div>
+            <span className="crm-overline">批量维护 · {selectedCount} 条</span>
+            <h3>{title}</h3>
+          </div>
+          <button className="crm-icon-button" type="button" aria-label="关闭" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="crm-bulk-edit-grid">
+          {columns.map((column) => {
+            const field = draft[column.key] ?? { enabled: false, value: '' }
+            return (
+              <label key={column.key} className={`crm-bulk-edit-field${field.enabled ? ' is-enabled' : ''}`}>
+                <span className="crm-bulk-edit-toggle">
+                  <input type="checkbox" checked={field.enabled} onChange={() => handleToggleField(column.key)} />
+                  <strong>{column.label}</strong>
+                </span>
+                <input
+                  type={column.format === 'currency' ? 'number' : 'text'}
+                  min={column.format === 'currency' ? '0' : undefined}
+                  step={column.format === 'currency' ? '1000' : undefined}
+                  value={field.value}
+                  disabled={!field.enabled}
+                  placeholder={`批量设置${column.label}`}
+                  onChange={(event) => handleChangeValue(column.key, event.target.value)}
+                />
+              </label>
+            )
+          })}
+        </div>
+
+        <div className="crm-modal-actions">
+          <button className="crm-ghost-button" type="button" onClick={onClose}>
+            取消
+          </button>
+          <button className="crm-primary-button" type="submit" disabled={submitting || !enabledCount}>
+            {submitting ? '保存中' : `更新 ${selectedCount} 条`}
           </button>
         </div>
       </form>

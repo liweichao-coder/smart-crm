@@ -1138,6 +1138,54 @@ p {
   font-size: 14px;
 }
 
+.crm-bulk-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0;
+}
+
+.crm-bulk-edit-field {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface-muted);
+}
+
+.crm-bulk-edit-field.is-enabled {
+  border-color: rgba(14, 165, 233, 0.36);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.crm-bulk-edit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.crm-bulk-edit-toggle input {
+  accent-color: var(--color-primary-default);
+}
+
+.crm-bulk-edit-field > input {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.crm-bulk-edit-field > input:disabled {
+  background: rgba(244, 247, 249, 0.88);
+  color: var(--muted);
+}
+
 .crm-table {
   width: 100%;
   border-collapse: collapse;
@@ -2700,6 +2748,7 @@ body {
   .crm-goal-grid,
   .crm-task-grid,
   .crm-form-grid,
+  .crm-bulk-edit-grid,
   .crm-copilot-grid,
   .crm-ask-form,
   .crm-ask-columns,

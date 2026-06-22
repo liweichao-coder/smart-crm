@@ -3,7 +3,9 @@ import test from 'node:test'
 
 import {
   buildClientRecord,
+  buildBulkEditPatch,
   buildCsvContent,
+  createBulkEditDraft,
   createCsvFilename,
   createDraftFromColumns,
   normalizeDraftValue,
@@ -170,4 +172,31 @@ test('selection helpers toggle rows and summarize bulk results', () => {
     { status: 'fulfilled', value: { deleted: true } },
   ])
   assert.deepEqual(summary, { succeeded: 2, failed: 1 })
+})
+
+test('bulk edit helpers keep only enabled fields and normalize values', () => {
+  const columns = [
+    { key: 'owner', label: '负责人' },
+    { key: 'revenue', label: '年度收入', format: 'currency' },
+    { key: 'status', label: '状态' },
+  ]
+  const draft = createBulkEditDraft(columns)
+
+  assert.deepEqual(draft, {
+    owner: { enabled: false, value: '' },
+    revenue: { enabled: false, value: '' },
+    status: { enabled: false, value: '' },
+  })
+
+  const patch = buildBulkEditPatch({
+    ...draft,
+    owner: { enabled: true, value: '  李伟超  ' },
+    revenue: { enabled: true, value: '580000' },
+    status: { enabled: false, value: 'closed' },
+  }, columns)
+
+  assert.deepEqual(patch, {
+    owner: '李伟超',
+    revenue: 580000,
+  })
 })

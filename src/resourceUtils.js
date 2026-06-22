@@ -204,3 +204,29 @@ export function summarizeBulkSettledResults(results) {
     { succeeded: 0, failed: 0 },
   )
 }
+
+export function createBulkEditDraft(columns) {
+  return columns.reduce(
+    (draft, column) => ({
+      ...draft,
+      [column.key]: {
+        enabled: false,
+        value: '',
+      },
+    }),
+    {},
+  )
+}
+
+export function buildBulkEditPatch(draft, columns) {
+  return columns.reduce((patch, column) => {
+    const field = draft[column.key]
+    if (!field?.enabled) {
+      return patch
+    }
+    return {
+      ...patch,
+      [column.key]: normalizeDraftValue(field.value, column),
+    }
+  }, {})
+}

@@ -187,8 +187,10 @@ The course exam requires a full software engineering process package, not only c
 - Frontend utility regression now covers 29 tests, including visible-column normalization and persisted table sorting.
 - Added bulk table actions: table resource pages now support row selection, select-visible, selected-row CSV export, and bulk delete through the existing real resource DELETE APIs with partial-failure feedback.
 - Frontend utility regression now covers 30 tests, adding selection toggles and bulk-settled result summaries.
+- Added bulk table editing: selected table rows can update checked fields through each resource's existing real PATCH API; successful rows are refreshed and deselected, while failed rows stay selected for retry.
+- Frontend utility regression now covers 31 tests, adding bulk-edit patch generation and numeric normalization.
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, batch edit, feedback note editing, and more operating BI dimensions.
+- Add fuller end-to-end browser smoke coverage, feedback note editing, and more operating BI dimensions.
 - Capture screenshots and export Word/PPT final materials.
