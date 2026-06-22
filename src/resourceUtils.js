@@ -61,3 +61,29 @@ export function buildClientRecord({ draft, columns, existingCount, workflowField
 
   return nextRecord
 }
+
+function escapeCsvValue(value) {
+  const text = String(value ?? '')
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replaceAll('"', '""')}"`
+  }
+  return text
+}
+
+export function buildCsvContent(records, columns) {
+  const header = columns.map((column) => escapeCsvValue(column.label)).join(',')
+  const rows = records.map((record) =>
+    columns.map((column) => escapeCsvValue(record[column.key])).join(','),
+  )
+  return [header, ...rows].join('\r\n')
+}
+
+export function createCsvFilename(title, date = new Date()) {
+  const datePart = date instanceof Date ? date.toISOString().slice(0, 10) : String(date).slice(0, 10)
+  const safeTitle = String(title || 'resource')
+    .trim()
+    .replace(/[\\/:*?"<>|\s]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+  return `${safeTitle || 'resource'}-${datePart}.csv`
+}

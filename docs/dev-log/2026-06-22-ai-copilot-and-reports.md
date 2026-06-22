@@ -58,6 +58,7 @@ The course exam requires a full software engineering process package, not only c
 - Added a real order approval workflow with `OrderApprovalRequest`, `/api/order-approvals`, `/api/orders/{id}/approval-requests`, `/api/order-approvals/{id}/decision`, seeded pending/approved approval records, order-center approval actions, `approval:manage` permission, notification-center approval reminders, and business audit logs.
 - Added real customer owner data scope with a persisted `Customer.owner` field, SQLite lightweight migration/backfill, customer list/create/update/delete owner checks, dashboard customer filtering, and customer ownership checks before order creation or Copilot order drafts.
 - Replaced the remaining static organization mock source in the frontend: organization selection, sidebar workspace name, and the create-organization action now use the authenticated backend session/register flow.
+- Added real CSV export for generic resource pages; the header filter action now focuses the search box, and the export action downloads the currently visible customer/contact/lead/opportunity/case/task/goal rows with escaped CSV values.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -100,7 +101,7 @@ The course exam requires a full software engineering process package, not only c
 - After order approval workflow upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 31 passed.
 - After customer owner-scope upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 32 passed.
 - `npm run lint`: passed.
-- `npm test`: 19 passed.
+- `npm test`: 21 passed.
 - `npm run build`: passed.
 - Demo database reset succeeded with 12 customers, 10 products, 12 contacts, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, and 22 order items.
 - DeepSeek OpenAI-compatible smoke succeeded: summary and follow-up returned `fallback_used=false`.

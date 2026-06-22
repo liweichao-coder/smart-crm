@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildClientRecord, createDraftFromColumns, normalizeDraftValue } from './resourceUtils.js'
+import { buildClientRecord, buildCsvContent, createCsvFilename, createDraftFromColumns, normalizeDraftValue } from './resourceUtils.js'
 
 test('createDraftFromColumns builds sensible defaults for resource forms', () => {
   const draft = createDraftFromColumns(
@@ -46,4 +46,24 @@ test('buildClientRecord normalizes text and currency values', () => {
 
 test('normalizeDraftValue falls back to zero for invalid currency input', () => {
   assert.equal(normalizeDraftValue('not-a-number', { key: 'revenue', format: 'currency' }), 0)
+})
+
+test('buildCsvContent exports visible records with escaped values', () => {
+  const csv = buildCsvContent(
+    [
+      { name: '深大 AI CRM', owner: '李伟超', note: '第一行\n第二行' },
+      { name: '含,逗号', owner: '王"蕾', note: '' },
+    ],
+    [
+      { key: 'name', label: '客户名称' },
+      { key: 'owner', label: '负责人' },
+      { key: 'note', label: '备注' },
+    ],
+  )
+
+  assert.equal(csv, '客户名称,负责人,备注\r\n深大 AI CRM,李伟超,"第一行\n第二行"\r\n"含,逗号","王""蕾",')
+})
+
+test('createCsvFilename builds a safe dated file name', () => {
+  assert.equal(createCsvFilename('客户 / 线索', '2026-06-23'), '客户-线索-2026-06-23.csv')
 })

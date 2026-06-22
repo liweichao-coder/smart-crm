@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   ArrowRight,
@@ -13,7 +13,6 @@ import {
   ChevronsUpDown,
   ClipboardList,
   Download,
-  Eye,
   Filter,
   FileText,
   Flame,
@@ -110,7 +109,7 @@ import {
 } from './api.js'
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
-import { buildClientRecord, createDraftFromColumns } from './resourceUtils.js'
+import { buildClientRecord, buildCsvContent, createCsvFilename, createDraftFromColumns } from './resourceUtils.js'
 import { getSessionOrganizations, resolveSelectedOrg } from './sessionUtils.js'
 
 const STORAGE_KEY = 'huahenuancrm:selected-org'
@@ -483,6 +482,22 @@ function buildGoalPayload(draft) {
     target: toDraftNumber(draft.target, 1),
     note: toDraftText(draft.note, '持续跟踪目标进度。'),
   }
+}
+
+function downloadResourceCsv(title, records, columns) {
+  if (!records.length) {
+    return
+  }
+  const csvContent = buildCsvContent(records, columns)
+  const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = createCsvFilename(title)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 function buildProductPayload(draft) {
@@ -3528,6 +3543,7 @@ function TableResourcePage({
   const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
   const [draft, setDraft] = useState(() => createDraftFromColumns(columns))
+  const searchInputRef = useRef(null)
   const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
 
   useEffect(() => {
@@ -3601,6 +3617,14 @@ function TableResourcePage({
     }
   }
 
+  const handleFocusSearch = () => {
+    searchInputRef.current?.focus()
+  }
+
+  const handleExportCsv = () => {
+    downloadResourceCsv(title, visibleRecords, columns)
+  }
+
   return (
     <div className="crm-page-stack">
       <ResourceHeader
@@ -3612,9 +3636,12 @@ function TableResourcePage({
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onCreate={handleOpenCreate}
+        onFocusSearch={handleFocusSearch}
+        onExport={handleExportCsv}
+        exportDisabled={!visibleRecords.length}
       />
       <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
-      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} />
+      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} inputRef={searchInputRef} />
       <div className="crm-panel">
         <div className="crm-table-wrap">
           <table className="crm-table">
@@ -3700,6 +3727,7 @@ function BoardResourcePage({
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
+  const searchInputRef = useRef(null)
   const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
   const boardValues = useMemo(() => [...new Set(rows.map((record) => record[boardKey]))], [boardKey, rows])
   const workflowField = useMemo(
@@ -3781,11 +3809,28 @@ function BoardResourcePage({
     }
   }
 
+  const handleFocusSearch = () => {
+    searchInputRef.current?.focus()
+  }
+
+  const handleExportCsv = () => {
+    downloadResourceCsv(title, visibleRecords, columns)
+  }
+
   return (
     <div className="crm-page-stack">
-      <ResourceHeader title={title} subtitle={subtitle} icon={Icon} createLabel={createLabel} onCreate={handleOpenCreate} />
+      <ResourceHeader
+        title={title}
+        subtitle={subtitle}
+        icon={Icon}
+        createLabel={createLabel}
+        onCreate={handleOpenCreate}
+        onFocusSearch={handleFocusSearch}
+        onExport={handleExportCsv}
+        exportDisabled={!visibleRecords.length}
+      />
       <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
-      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length}>
+      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} inputRef={searchInputRef}>
         <div className="crm-view-toggle">
           <button className={view === 'list' ? 'is-active' : ''} type="button" onClick={() => setView('list')}>
             <LayoutList size={16} />
@@ -4298,7 +4343,19 @@ function ProfilePage() {
   )
 }
 
-function ResourceHeader({ title, subtitle, icon: Icon, createLabel, tabs = [], activeTab, onTabChange, onCreate }) {
+function ResourceHeader({
+  title,
+  subtitle,
+  icon: Icon,
+  createLabel,
+  tabs = [],
+  activeTab,
+  onTabChange,
+  onCreate,
+  onFocusSearch,
+  onExport,
+  exportDisabled = false,
+}) {
   return (
     <section className="crm-resource-header">
       <div>
@@ -4324,13 +4381,13 @@ function ResourceHeader({ title, subtitle, icon: Icon, createLabel, tabs = [], a
       </div>
 
       <div className="crm-toolbar-actions">
-        <button className="crm-ghost-button" type="button">
+        <button className="crm-ghost-button" type="button" onClick={onFocusSearch}>
           <Filter size={16} />
           过滤器
         </button>
-        <button className="crm-ghost-button" type="button">
-          <Eye size={16} />
-          列
+        <button className="crm-ghost-button" type="button" onClick={onExport} disabled={exportDisabled}>
+          <Download size={16} />
+          导出 CSV
         </button>
         <button className="crm-primary-button" type="button" onClick={onCreate}>
           <Plus size={16} />
@@ -4492,12 +4549,12 @@ function CreateRecordModal({ open, title, columns, workflowField, draft, onDraft
   )
 }
 
-function ResourceToolbar({ query, onQueryChange, columnCount, children }) {
+function ResourceToolbar({ query, onQueryChange, columnCount, children, inputRef }) {
   return (
     <section className="crm-toolbar-card">
       <label className="crm-search-box">
         <Search size={16} />
-        <input placeholder="搜索姓名、公司、负责人或备注" value={query} onChange={(event) => onQueryChange(event.target.value)} />
+        <input ref={inputRef} placeholder="搜索姓名、公司、负责人或备注" value={query} onChange={(event) => onQueryChange(event.target.value)} />
       </label>
       <div className="crm-toolbar-right">
         {children}
