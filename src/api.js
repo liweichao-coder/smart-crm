@@ -122,6 +122,17 @@ export function logout() {
   })
 }
 
+export function fetchUserPreference(namespace) {
+  return request(`/api/preferences/${encodeURIComponent(namespace)}`)
+}
+
+export function saveUserPreference(namespace, value) {
+  return request(`/api/preferences/${encodeURIComponent(namespace)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  })
+}
+
 export function fetchAiAuditLogs(params) {
   return request(`/api/ai-audit-logs${buildQueryString(params)}`)
 }

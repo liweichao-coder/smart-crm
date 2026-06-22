@@ -25,6 +25,7 @@ from .models import (  # noqa: F401
     SalesOrder,
     SupportCase,
     TaskItem,
+    UserPreference,
 )
 from .seed import seed_data
 

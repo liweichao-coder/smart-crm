@@ -104,6 +104,7 @@ import {
   fetchProducts,
   fetchRestockAlerts,
   fetchTasks,
+  fetchUserPreference,
   extractOrderFromFile,
   generateFollowUp,
   login,
@@ -111,6 +112,7 @@ import {
   register,
   restockProduct,
   remindOrderApproval,
+  saveUserPreference,
   submitOrderApproval,
   updateCase,
   updateContact,
@@ -846,8 +848,11 @@ function useResourceUrlState({
   viewKeys = [],
   defaultView = viewKeys[0] ?? '',
   selectedKey = '',
+  preferenceNamespace = '',
 } = {}) {
   const [searchParams, setSearchParams] = useSearchParams()
+  const [preferenceStatus, setPreferenceStatus] = useState(preferenceNamespace ? '加载偏好' : '')
+  const saveTimerRef = useRef(null)
   const state = parseListSearchState(searchParams, {
     tabKeys,
     defaultTab,
@@ -856,7 +861,79 @@ function useResourceUrlState({
     selectedKey,
   })
 
-  const updateUrlState = (updates) => {
+  useEffect(() => {
+    if (!preferenceNamespace) {
+      return undefined
+    }
+    let mounted = true
+    setPreferenceStatus('加载偏好')
+    fetchUserPreference(preferenceNamespace)
+      .then((preference) => {
+        if (!mounted) {
+          return
+        }
+        const value = preference?.value ?? {}
+        const hasSavedState = Boolean(value.query || value.activeTab || value.tab || value.view)
+        if (hasSavedState) {
+          setSearchParams(
+            (currentParams) => {
+              const hasExplicitState = currentParams.has('q') || currentParams.has('tab') || currentParams.has('view')
+              if (hasExplicitState) {
+                return currentParams
+              }
+              return patchListSearchParams(currentParams, {
+                q: value.query ?? '',
+                tab: value.activeTab ?? value.tab ?? defaultTab,
+                view: value.view ?? defaultView,
+              }, {
+                q: '',
+                tab: defaultTab,
+                view: defaultView,
+              })
+            },
+            { replace: true },
+          )
+        }
+        setPreferenceStatus(hasSavedState ? '已恢复偏好' : '偏好已就绪')
+      })
+      .catch(() => {
+        if (mounted) {
+          setPreferenceStatus('偏好未同步')
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [defaultTab, defaultView, preferenceNamespace, setSearchParams])
+
+  useEffect(() => () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+    }
+  }, [])
+
+  const schedulePreferenceSave = (updates) => {
+    if (!preferenceNamespace) {
+      return
+    }
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+    }
+    const nextPreference = {
+      query: updates.q ?? state.query,
+      activeTab: updates.tab ?? state.tab,
+      view: updates.view ?? state.view,
+    }
+    setPreferenceStatus('保存偏好')
+    saveTimerRef.current = setTimeout(() => {
+      saveUserPreference(preferenceNamespace, nextPreference)
+        .then(() => setPreferenceStatus('偏好已保存'))
+        .catch(() => setPreferenceStatus('偏好保存失败'))
+    }, 350)
+  }
+
+  const updateUrlState = (updates, { persist = true } = {}) => {
     setSearchParams(
       (currentParams) => patchListSearchParams(currentParams, updates, {
         q: '',
@@ -865,6 +942,9 @@ function useResourceUrlState({
       }),
       { replace: true },
     )
+    if (persist) {
+      schedulePreferenceSave(updates)
+    }
   }
 
   return {
@@ -872,10 +952,11 @@ function useResourceUrlState({
     activeTab: state.tab,
     view: state.view,
     selectedId: state.selectedId,
+    preferenceStatus,
     setQuery: (query) => updateUrlState({ q: query }),
     setActiveTab: (tab) => updateUrlState({ tab }),
     setView: (view) => updateUrlState({ view }),
-    setSelectedId: (id) => updateUrlState(selectedKey ? { [selectedKey]: id } : {}),
+    setSelectedId: (id) => updateUrlState(selectedKey ? { [selectedKey]: id } : {}, { persist: false }),
   }
 }
 
@@ -4725,6 +4806,7 @@ function TableResourcePage({
   onDeleteRecord,
   getRecordHref,
   openRecordLabel = '打开详情',
+  preferenceNamespace = `resource:${title}`,
 }) {
   const [rows, setRows] = useState(records)
   const [createOpen, setCreateOpen] = useState(false)
@@ -4739,9 +4821,10 @@ function TableResourcePage({
   const [draft, setDraft] = useState(createInitialDraft)
   const searchInputRef = useRef(null)
   const hasActions = Boolean(getRecordHref || onUpdateRecord || onDeleteRecord)
-  const { query, setQuery, activeTab, setActiveTab } = useResourceUrlState({
+  const { query, setQuery, activeTab, setActiveTab, preferenceStatus } = useResourceUrlState({
     tabKeys: tabs.map((tab) => tab.key),
     defaultTab: tabs[0].key,
+    preferenceNamespace,
   })
 
   useEffect(() => {
@@ -4839,7 +4922,7 @@ function TableResourcePage({
         exportDisabled={!visibleRecords.length}
       />
       <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
-      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} inputRef={searchInputRef} />
+      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} inputRef={searchInputRef} preferenceStatus={preferenceStatus} />
       <div className="crm-panel">
         <div className="crm-table-wrap">
           <table className="crm-table">
@@ -4922,6 +5005,7 @@ function BoardResourcePage({
   onCreateRecord,
   onUpdateRecord,
   onDeleteRecord,
+  preferenceNamespace = `resource:${title}`,
 }) {
   const [rows, setRows] = useState(records)
   const [createOpen, setCreateOpen] = useState(false)
@@ -4931,9 +5015,10 @@ function BoardResourcePage({
   const [createError, setCreateError] = useState('')
   const searchInputRef = useRef(null)
   const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
-  const { query, setQuery, view, setView } = useResourceUrlState({
+  const { query, setQuery, view, setView, preferenceStatus } = useResourceUrlState({
     viewKeys: ['list', 'board'],
     defaultView: 'list',
+    preferenceNamespace,
   })
   const boardValues = useMemo(() => [...new Set(rows.map((record) => record[boardKey]))], [boardKey, rows])
   const workflowField = useMemo(
@@ -5040,7 +5125,7 @@ function BoardResourcePage({
         exportDisabled={!visibleRecords.length}
       />
       <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
-      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} inputRef={searchInputRef}>
+      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} inputRef={searchInputRef} preferenceStatus={preferenceStatus}>
         <div className="crm-view-toggle">
           <button className={view === 'list' ? 'is-active' : ''} type="button" onClick={() => setView('list')}>
             <LayoutList size={16} />
@@ -5854,7 +5939,7 @@ function CreateRecordModal({ open, title, columns, workflowField, draft, onDraft
   )
 }
 
-function ResourceToolbar({ query, onQueryChange, columnCount, children, inputRef }) {
+function ResourceToolbar({ query, onQueryChange, columnCount, children, inputRef, preferenceStatus = '' }) {
   return (
     <section className="crm-toolbar-card">
       <label className="crm-search-box">
@@ -5863,6 +5948,7 @@ function ResourceToolbar({ query, onQueryChange, columnCount, children, inputRef
       </label>
       <div className="crm-toolbar-right">
         {children}
+        {preferenceStatus ? <div className="crm-column-badge">{preferenceStatus}</div> : null}
         <div className="crm-column-badge">{columnCount} 列</div>
       </div>
     </section>

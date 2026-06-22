@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import re
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -251,6 +251,17 @@ class AuthAuditLogRead(BaseModel):
     status: str
     detail: str
     created_at: datetime
+
+
+class UserPreferenceRead(BaseModel):
+    id: int | None = None
+    namespace: str
+    value: dict[str, Any] = Field(default_factory=dict)
+    updated_at: datetime | None = None
+
+
+class UserPreferenceUpdate(BaseModel):
+    value: dict[str, Any] = Field(default_factory=dict)
 
 
 class CustomerRead(BaseModel):

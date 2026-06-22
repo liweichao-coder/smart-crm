@@ -181,8 +181,10 @@ The course exam requires a full software engineering process package, not only c
 - Targeted AI quality regression succeeded: the test triggers real Copilot summary/follow-up/order-draft/vision calls, converts a persisted recommendation to a task, and verifies quality metrics, operation breakdown, model breakdown, recent fallbacks, invalid date-range rejection, and sales-role 403.
 - Added Copilot recommendation feedback loop: recommendations now persist manual feedback status, rating, note, reviewer, and timestamp through `/api/copilot/recommendations/{id}/feedback`; the Copilot page exposes quick feedback actions and the AI quality report aggregates feedback count, positive feedback count, average human rating, and positive feedback rate.
 - Targeted feedback regression succeeded: a sales user can submit feedback for own Copilot recommendations, cross-owner feedback returns 403, and the AI quality regression verifies the new human-feedback metrics in `/api/reports/ai-quality`.
+- Added backend-synced view preferences: `/api/preferences/{namespace}` persists each authenticated user's resource-list query, active tab, and list/board view in `UserPreference`; resource pages restore the saved preference when the URL has no explicit state and show preference sync status in the toolbar.
+- User preference regression succeeded: unauthenticated preference reads return 401, a logged-in user can save and reload `resource:orders`, invalid namespaces return 400, and another registered user sees an empty isolated preference. Full backend pytest now covers 46 tests.
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, saved view preferences, feedback note editing, and more operating BI dimensions.
+- Add fuller end-to-end browser smoke coverage, column/sort preferences, feedback note editing, and more operating BI dimensions.
 - Capture screenshots and export Word/PPT final materials.

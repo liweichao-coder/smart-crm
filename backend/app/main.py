@@ -19,7 +19,7 @@ from .auth import generate_session_token, hash_password, hash_session_token, ver
 from .config import settings
 from .consistency import build_consistency_payload
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem, UserPreference
 from .schemas import (
     AIInteractionLogRead,
     AIQualityModelBreakdown,
@@ -102,6 +102,8 @@ from .schemas import (
     TaskItemUpdate,
     TeamMemberCreate,
     TeamMemberUpdate,
+    UserPreferenceRead,
+    UserPreferenceUpdate,
     VisionExtractResponse,
 )
 from .seed import seed_data
@@ -622,6 +624,36 @@ def decode_score_reasons(raw: str) -> list[str]:
     if not isinstance(payload, list):
         return []
     return [str(item) for item in payload if str(item).strip()]
+
+
+def validate_preference_namespace(namespace: str) -> str:
+    normalized = namespace.strip()
+    if len(normalized) < 2 or len(normalized) > 120:
+        raise HTTPException(status_code=400, detail="偏好命名空间长度需为 2-120 个字符")
+    return normalized
+
+
+def encode_preference_value(value: dict) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def decode_preference_value(raw: str) -> dict:
+    try:
+        payload = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def serialize_user_preference(preference: UserPreference | None, namespace: str) -> UserPreferenceRead:
+    if not preference:
+        return UserPreferenceRead(namespace=namespace, value={})
+    return UserPreferenceRead(
+        id=preference.id,
+        namespace=preference.namespace,
+        value=decode_preference_value(preference.value_json),
+        updated_at=preference.updated_at,
+    )
 
 
 def serialize_copilot_recommendation(recommendation: CopilotRecommendation) -> CopilotRecommendationRead:
@@ -1626,6 +1658,48 @@ def logout(
     record_auth_audit(session, event="logout", account=user.email, status="success", detail="退出登录", user=user)
     session.commit()
     return AuthLogoutResponse(revoked=True)
+
+
+@app.get("/api/preferences/{namespace}", response_model=UserPreferenceRead)
+def get_user_preference(
+    namespace: str,
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> UserPreferenceRead:
+    user, _ = current
+    normalized_namespace = validate_preference_namespace(namespace)
+    preference = session.exec(
+        select(UserPreference).where(
+            UserPreference.user_id == user.id,
+            UserPreference.namespace == normalized_namespace,
+        )
+    ).first()
+    return serialize_user_preference(preference, normalized_namespace)
+
+
+@app.put("/api/preferences/{namespace}", response_model=UserPreferenceRead)
+def update_user_preference(
+    namespace: str,
+    payload: UserPreferenceUpdate,
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> UserPreferenceRead:
+    user, _ = current
+    normalized_namespace = validate_preference_namespace(namespace)
+    preference = session.exec(
+        select(UserPreference).where(
+            UserPreference.user_id == user.id,
+            UserPreference.namespace == normalized_namespace,
+        )
+    ).first()
+    if not preference:
+        preference = UserPreference(user_id=user.id or 0, namespace=normalized_namespace)
+    preference.value_json = encode_preference_value(payload.value)
+    preference.updated_at = datetime.utcnow()
+    session.add(preference)
+    session.commit()
+    session.refresh(preference)
+    return serialize_user_preference(preference, normalized_namespace)
 
 
 @app.get("/api/admin/permission-matrix", response_model=PermissionMatrixResponse)

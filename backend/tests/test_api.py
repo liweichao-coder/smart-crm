@@ -402,6 +402,49 @@ def test_auth_register_new_workspace() -> None:
     assert me.json()["user"]["organization_name"] == "课程答辩测试组"
 
 
+def test_user_preferences_are_persisted_per_authenticated_user() -> None:
+    with TestClient(app, auth=False) as client:
+        unauthenticated = client.get("/api/preferences/resource:orders")
+        login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+        headers = {"Authorization": f"Bearer {login.json()['token']}"}
+        empty = client.get("/api/preferences/resource:orders", headers=headers)
+        saved = client.put(
+            "/api/preferences/resource:orders",
+            json={"value": {"query": "医疗", "activeTab": "draft", "view": "board"}},
+            headers=headers,
+        )
+        loaded = client.get("/api/preferences/resource:orders", headers=headers)
+        invalid_namespace = client.put("/api/preferences/x", json={"value": {"view": "list"}}, headers=headers)
+        other = client.post(
+            "/api/auth/register",
+            json={
+                "organization_name": "偏好隔离组织",
+                "full_name": "偏好隔离用户",
+                "email": "preference-user@smart-crm.local",
+                "phone": "18600009999",
+                "password": "Pref@2026",
+                "confirm_password": "Pref@2026",
+            },
+        )
+        other_headers = {"Authorization": f"Bearer {other.json()['token']}"}
+        other_loaded = client.get("/api/preferences/resource:orders", headers=other_headers)
+
+    assert unauthenticated.status_code == 401
+    assert login.status_code == 200
+    assert empty.status_code == 200
+    assert empty.json()["value"] == {}
+    assert saved.status_code == 200
+    assert saved.json()["namespace"] == "resource:orders"
+    assert saved.json()["value"] == {"query": "医疗", "activeTab": "draft", "view": "board"}
+    assert saved.json()["updated_at"]
+    assert loaded.status_code == 200
+    assert loaded.json()["value"]["query"] == "医疗"
+    assert invalid_namespace.status_code == 400
+    assert other.status_code == 201
+    assert other_loaded.status_code == 200
+    assert other_loaded.json()["value"] == {}
+
+
 def test_team_member_management_and_status_login_guard() -> None:
     with TestClient(app) as client:
         me = client.get("/api/auth/me")
