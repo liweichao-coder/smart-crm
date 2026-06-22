@@ -117,6 +117,8 @@ The course exam requires a full software engineering process package, not only c
 - CRM Skill real LLM smoke succeeded with the configured DeepSeek-compatible key: `/api/copilot/ask` returned `fallback_used=false`, a non-empty answer, 3 evidence items, and 5 next actions.
 - After team member management upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 39 passed; `npm test -- --run`: 24 passed; `npm run lint`: passed; `npm run build`: passed. Coverage includes permission matrix exposure, member create/update, disabled-account login rejection, self role/status protection, sales manager administrator-guard, and sales-role access denial.
 - Added URL-synced list state for table, board, team, task, and order views. `q`, `tab`, `view`, and `order` now preserve search terms, tabs, board/list mode, and selected order detail across refreshes or shared demo links.
+- Added backend field-level validation for email, phone, status/category enums, goal targets, non-empty order lines, and order due-date ordering. Invalid CRM payloads now fail at the FastAPI/Pydantic layer with 422 instead of silently entering the database.
+- After field-level validation upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 40 passed.
 - `npm run lint`: passed.
 - `npm test`: 27 passed.
 - `npm run build`: passed.
@@ -164,5 +166,5 @@ The course exam requires a full software engineering process package, not only c
 
 ## Next Steps
 
-- Add stricter field-level validation, fuller end-to-end browser smoke coverage, richer approval policies, synced pagination state, and saved view preferences.
+- Add fuller end-to-end browser smoke coverage, richer approval policies, synced pagination state, saved view preferences, and cross-table consistency checks.
 - Capture screenshots and export Word/PPT final materials.

@@ -1,13 +1,67 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import re
 from typing import Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .models import LeadStage, OrderApprovalStatus, OrderStatus
 
 T = TypeVar("T")
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+PHONE_PATTERN = re.compile(r"^[0-9+\-\s]{6,24}$")
+CUSTOMER_LEVELS = {"S", "A", "B", "C"}
+CUSTOMER_STATUSES = {"active", "nurturing", "proposal", "closed"}
+PRODUCT_CATEGORIES = {"硬件", "软件", "服务"}
+CONTACT_STATUSES = {"active", "nurturing", "closed"}
+ACTIVITY_TYPES = {"call", "meeting", "email", "review"}
+ACTIVITY_SENTIMENTS = {"positive", "neutral", "risk", "negative"}
+PRIORITIES = {"hot", "warm", "cold"}
+CASE_STATUSES = {"open", "working", "closed"}
+TASK_STATUSES = {"overdue", "today", "week", "completed", "cancelled"}
+
+
+def clean_text(value: str | None) -> str:
+    return str(value or "").strip()
+
+
+def optional_clean_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return clean_text(value)
+
+
+def validate_email_value(value: str | None, *, allow_empty: bool = False) -> str | None:
+    if value is None:
+        return None
+    text = clean_text(value).lower()
+    if allow_empty and not text:
+        return ""
+    if not EMAIL_PATTERN.match(text):
+        raise ValueError("请输入有效邮箱")
+    return text
+
+
+def validate_phone_value(value: str | None, *, allow_empty: bool = True) -> str | None:
+    if value is None:
+        return None
+    text = clean_text(value)
+    if allow_empty and not text:
+        return ""
+    if not PHONE_PATTERN.match(text):
+        raise ValueError("请输入有效手机号")
+    return text
+
+
+def validate_choice(value: str | None, allowed: set[str], label: str) -> str | None:
+    if value is None:
+        return None
+    text = clean_text(value)
+    if text not in allowed:
+        raise ValueError(f"{label}无效")
+    return text
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
@@ -59,6 +113,22 @@ class AuthRegisterRequest(BaseModel):
     phone: str = ""
     password: str = Field(min_length=6)
     confirm_password: str = Field(min_length=6)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return validate_email_value(value) or ""
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return validate_phone_value(value) or ""
+
+    @model_validator(mode="after")
+    def validate_password_confirmation(self) -> "AuthRegisterRequest":
+        if self.password != self.confirm_password:
+            raise ValueError("两次输入的密码不一致")
+        return self
 
 
 class AuthSessionResponse(BaseModel):
@@ -122,6 +192,22 @@ class TeamMemberCreate(BaseModel):
     password: str = Field(min_length=6)
     confirm_password: str = Field(min_length=6)
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return validate_email_value(value) or ""
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return validate_phone_value(value) or ""
+
+    @model_validator(mode="after")
+    def validate_password_confirmation(self) -> "TeamMemberCreate":
+        if self.password != self.confirm_password:
+            raise ValueError("两次输入的密码不一致")
+        return self
+
 
 class TeamMemberUpdate(BaseModel):
     full_name: str | None = None
@@ -134,6 +220,24 @@ class TeamMemberUpdate(BaseModel):
     status: str | None = None
     password: str | None = Field(default=None, min_length=6)
     confirm_password: str | None = Field(default=None, min_length=6)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        return validate_email_value(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        return validate_phone_value(value)
+
+    @model_validator(mode="after")
+    def validate_password_confirmation(self) -> "TeamMemberUpdate":
+        if (self.password is None) != (self.confirm_password is None):
+            raise ValueError("请输入并确认新密码")
+        if self.password is not None and self.password != self.confirm_password:
+            raise ValueError("两次输入的密码不一致")
+        return self
 
 
 class AuthAuditLogRead(BaseModel):
@@ -182,6 +286,26 @@ class CustomerCreate(BaseModel):
     annual_revenue: float = Field(default=0, ge=0)
     status: str = "active"
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return validate_email_value(value) or ""
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return validate_phone_value(value) or ""
+
+    @field_validator("level")
+    @classmethod
+    def validate_level(cls, value: str) -> str:
+        return validate_choice(value, CUSTOMER_LEVELS, "客户等级") or ""
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        return validate_choice(value, CUSTOMER_STATUSES, "客户状态") or ""
+
 
 class CustomerUpdate(BaseModel):
     name: str | None = None
@@ -197,6 +321,26 @@ class CustomerUpdate(BaseModel):
     annual_revenue: float | None = Field(default=None, ge=0)
     status: str | None = None
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        return validate_email_value(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        return validate_phone_value(value)
+
+    @field_validator("level")
+    @classmethod
+    def validate_level(cls, value: str | None) -> str | None:
+        return validate_choice(value, CUSTOMER_LEVELS, "客户等级")
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        return validate_choice(value, CUSTOMER_STATUSES, "客户状态")
+
 
 class ProductRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -210,11 +354,16 @@ class ProductRead(BaseModel):
 
 
 class ProductCreate(BaseModel):
-    name: str
-    sku: str
+    name: str = Field(min_length=1)
+    sku: str = Field(min_length=1)
     category: str = "软件"
     unit_price: float = Field(gt=0)
     stock: int = Field(default=0, ge=0)
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        return validate_choice(value, PRODUCT_CATEGORIES, "商品分类") or ""
 
 
 class ProductUpdate(BaseModel):
@@ -223,6 +372,19 @@ class ProductUpdate(BaseModel):
     category: str | None = None
     unit_price: float | None = Field(default=None, gt=0)
     stock: int | None = Field(default=None, ge=0)
+
+    @field_validator("name", "sku")
+    @classmethod
+    def validate_required_text(cls, value: str | None) -> str | None:
+        text = optional_clean_text(value)
+        if text == "":
+            raise ValueError("字段不能为空")
+        return text
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str | None) -> str | None:
+        return validate_choice(value, PRODUCT_CATEGORIES, "商品分类")
 
 
 class InventoryRestockAlertRead(BaseModel):
@@ -296,13 +458,28 @@ class ContactRead(BaseModel):
 
 
 class ContactCreate(BaseModel):
-    name: str
-    company: str
+    name: str = Field(min_length=1)
+    company: str = Field(min_length=1)
     role: str = "待确认"
     email: str = "contact@example.com"
     phone: str = "13800000000"
     owner: str = "未分配"
     status: str = "active"
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return validate_email_value(value) or ""
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return validate_phone_value(value) or ""
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        return validate_choice(value, CONTACT_STATUSES, "联系人状态") or ""
 
 
 class ContactUpdate(BaseModel):
@@ -313,6 +490,21 @@ class ContactUpdate(BaseModel):
     phone: str | None = None
     owner: str | None = None
     status: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        return validate_email_value(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        return validate_phone_value(value)
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        return validate_choice(value, CONTACT_STATUSES, "联系人状态")
 
 
 class CustomerActivityRead(BaseModel):
@@ -342,6 +534,16 @@ class CustomerActivityCreate(BaseModel):
     sentiment: str = "neutral"
     occurred_at: datetime | None = None
 
+    @field_validator("activity_type")
+    @classmethod
+    def validate_activity_type(cls, value: str) -> str:
+        return validate_choice(value, ACTIVITY_TYPES, "互动类型") or ""
+
+    @field_validator("sentiment")
+    @classmethod
+    def validate_sentiment(cls, value: str) -> str:
+        return validate_choice(value, ACTIVITY_SENTIMENTS, "互动信号") or ""
+
 
 class CustomerActivityUpdate(BaseModel):
     owner: str | None = None
@@ -352,6 +554,16 @@ class CustomerActivityUpdate(BaseModel):
     next_action: str | None = None
     sentiment: str | None = None
     occurred_at: datetime | None = None
+
+    @field_validator("activity_type")
+    @classmethod
+    def validate_activity_type(cls, value: str | None) -> str | None:
+        return validate_choice(value, ACTIVITY_TYPES, "互动类型")
+
+    @field_validator("sentiment")
+    @classmethod
+    def validate_sentiment(cls, value: str | None) -> str | None:
+        return validate_choice(value, ACTIVITY_SENTIMENTS, "互动信号")
 
 
 class LeadRead(BaseModel):
@@ -371,9 +583,9 @@ class LeadRead(BaseModel):
 
 
 class SalesLeadCreate(BaseModel):
-    title: str
-    customer_name: str
-    owner: str
+    title: str = Field(min_length=1)
+    customer_name: str = Field(min_length=1)
+    owner: str = Field(min_length=1)
     region: str = "华南"
     expected_amount: float = Field(default=0, ge=0)
     stage: LeadStage = LeadStage.new
@@ -409,13 +621,23 @@ class SupportCaseRead(BaseModel):
 
 
 class SupportCaseCreate(BaseModel):
-    title: str
-    account: str
-    owner: str
+    title: str = Field(min_length=1)
+    account: str = Field(min_length=1)
+    owner: str = Field(min_length=1)
     priority: str = "warm"
     status: str = "open"
     status_label: str = "Open"
     due_date: date = Field(default_factory=date.today)
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str) -> str:
+        return validate_choice(value, PRIORITIES, "优先级") or ""
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        return validate_choice(value, CASE_STATUSES, "工单状态") or ""
 
 
 class SupportCaseUpdate(BaseModel):
@@ -426,6 +648,16 @@ class SupportCaseUpdate(BaseModel):
     status: str | None = None
     status_label: str | None = None
     due_date: date | None = None
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str | None) -> str | None:
+        return validate_choice(value, PRIORITIES, "优先级")
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        return validate_choice(value, CASE_STATUSES, "工单状态")
 
 
 class TaskItemRead(BaseModel):
@@ -443,13 +675,23 @@ class TaskItemRead(BaseModel):
 
 
 class TaskItemCreate(BaseModel):
-    title: str
+    title: str = Field(min_length=1)
     description: str = ""
-    owner: str
+    owner: str = Field(min_length=1)
     due_date: str = "今天 18:00"
     priority: str = "warm"
     status: str = "week"
     status_label: str = "本周"
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str) -> str:
+        return validate_choice(value, PRIORITIES, "优先级") or ""
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        return validate_choice(value, TASK_STATUSES, "任务状态") or ""
 
 
 class TaskItemUpdate(BaseModel):
@@ -460,6 +702,16 @@ class TaskItemUpdate(BaseModel):
     priority: str | None = None
     status: str | None = None
     status_label: str | None = None
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str | None) -> str | None:
+        return validate_choice(value, PRIORITIES, "优先级")
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        return validate_choice(value, TASK_STATUSES, "任务状态")
 
 
 class SalesGoalRead(BaseModel):
@@ -476,10 +728,10 @@ class SalesGoalRead(BaseModel):
 
 
 class SalesGoalCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1)
     period: str = "2026 Q2"
     current: float = Field(default=0, ge=0)
-    target: float = Field(default=1, ge=0)
+    target: float = Field(default=1, gt=0)
     progress: int | None = Field(default=None, ge=0, le=100)
     note: str = ""
 
@@ -488,7 +740,7 @@ class SalesGoalUpdate(BaseModel):
     name: str | None = None
     period: str | None = None
     current: float | None = Field(default=None, ge=0)
-    target: float | None = Field(default=None, ge=0)
+    target: float | None = Field(default=None, gt=0)
     progress: int | None = Field(default=None, ge=0, le=100)
     note: str | None = None
 
@@ -541,7 +793,21 @@ class SalesOrderCreate(BaseModel):
     notes: str = ""
     created_by_ai: bool = False
     ai_confidence_score: float = Field(default=0, ge=0, le=1)
-    items: list[OrderItemPayload]
+    items: list[OrderItemPayload] = Field(min_length=1)
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, value: str) -> str:
+        text = clean_text(value).upper()
+        if not re.fullmatch(r"[A-Z]{3}", text):
+            raise ValueError("币种必须是 3 位大写字母代码")
+        return text
+
+    @model_validator(mode="after")
+    def validate_order_dates(self) -> "SalesOrderCreate":
+        if self.due_date < self.order_date:
+            raise ValueError("交付日期不能早于下单日期")
+        return self
 
 
 class SalesOrderUpdate(BaseModel):
@@ -550,7 +816,7 @@ class SalesOrderUpdate(BaseModel):
     status: OrderStatus | None = None
     due_date: date | None = None
     notes: str | None = None
-    items: list[OrderItemPayload] | None = None
+    items: list[OrderItemPayload] | None = Field(default=None, min_length=1)
 
 
 class OrderItemRead(BaseModel):
