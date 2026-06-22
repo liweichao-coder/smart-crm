@@ -52,9 +52,6 @@ import {
 } from 'react-router-dom'
 import avatar from './assets/vendor/unnamed.png'
 import {
-  orgs,
-} from './data/mockData.js'
-import {
   AUTH_STORAGE_KEY,
   fetchCases,
   fetchAiAuditLogs,
@@ -114,6 +111,7 @@ import {
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { buildClientRecord, createDraftFromColumns } from './resourceUtils.js'
+import { getSessionOrganizations, resolveSelectedOrg } from './sessionUtils.js'
 
 const STORAGE_KEY = 'huahenuancrm:selected-org'
 
@@ -1276,7 +1274,7 @@ function RegisterPage({ onLogin }) {
 function AppShell({ authSession, onLogout }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [selectedOrg, setSelectedOrg] = useState(loadStoredOrg())
+  const [selectedOrg, setSelectedOrg] = useState(() => loadStoredOrg(authSession))
   const [notifications, setNotifications] = useState([])
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [notificationError, setNotificationError] = useState('')
@@ -1286,6 +1284,7 @@ function AppShell({ authSession, onLogout }) {
   const currentPage = pageItems.find((item) => location.pathname.startsWith(item.path)) ?? navItems[0]
   const isProfilePage = location.pathname.startsWith('/profile')
   const activeProfile = buildUserProfile(authSession?.user)
+  const activeSelectedOrg = useMemo(() => resolveSelectedOrg(authSession, selectedOrg), [authSession, selectedOrg])
   const urgentNotificationCount = notifications.filter((item) => item.severity !== 'info').length
 
   useEffect(() => {
@@ -1293,8 +1292,8 @@ function AppShell({ authSession, onLogout }) {
   }, [currentPage.title])
 
   useEffect(() => {
-    persistOrg(selectedOrg)
-  }, [selectedOrg])
+    persistOrg(activeSelectedOrg)
+  }, [activeSelectedOrg])
 
   useEffect(() => {
     let mounted = true
@@ -1333,7 +1332,7 @@ function AppShell({ authSession, onLogout }) {
             <button className="crm-brand" type="button" onClick={() => navigate('/org')}>
               <div className="crm-brand-mark">深</div>
               <div className="crm-brand-copy">
-                <strong>{selectedOrg.name}</strong>
+                <strong>{activeSelectedOrg.name}</strong>
                 <span>CRM 平台</span>
               </div>
             </button>
@@ -1387,7 +1386,7 @@ function AppShell({ authSession, onLogout }) {
               <Menu size={18} />
             </button>
             <div className="crm-page-heading">
-              <span>{selectedOrg.name}</span>
+              <span>{activeSelectedOrg.name}</span>
               <h1>{currentPage.label}</h1>
             </div>
           </div>
@@ -1443,7 +1442,7 @@ function AppShell({ authSession, onLogout }) {
         </header>
 
         <section className="crm-content">
-          <Outlet context={{ selectedOrg, setSelectedOrg, userProfile: activeProfile, onLogout }} />
+          <Outlet context={{ selectedOrg: activeSelectedOrg, setSelectedOrg, userProfile: activeProfile, onLogout }} />
         </section>
       </main>
     </div>
@@ -1452,9 +1451,7 @@ function AppShell({ authSession, onLogout }) {
 
 function OrgSelectionPage({ authSession, onLogout }) {
   const navigate = useNavigate()
-  const availableOrgs = authSession?.organizations?.length
-    ? authSession.organizations.map((org) => ({ id: org.id, name: org.name, role: org.role }))
-    : orgs
+  const availableOrgs = getSessionOrganizations(authSession)
 
   useEffect(() => {
     document.title = '选择组织 | 深大 AI CRM'
@@ -1509,7 +1506,7 @@ function OrgSelectionPage({ authSession, onLogout }) {
           ))}
         </div>
 
-        <button className="crm-dashed-button" type="button">
+        <button className="crm-dashed-button" type="button" onClick={() => navigate('/register')}>
           <Plus size={16} />
           创建新的组织
         </button>
@@ -4657,15 +4654,15 @@ function clearStoredAuthSession() {
   return undefined
 }
 
-function loadStoredOrg() {
+function loadStoredOrg(authSession) {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) {
-      return orgs[0]
+      return resolveSelectedOrg(authSession)
     }
-    return JSON.parse(raw)
+    return resolveSelectedOrg(authSession, JSON.parse(raw))
   } catch {
-    return orgs[0]
+    return resolveSelectedOrg(authSession)
   }
 }
 
