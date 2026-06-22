@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlmodel import Session, select
 
 from .auth import hash_password
-from .models import AuthUser, Contact, Customer, InventoryMovement, LeadStage, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AuthUser, Contact, Customer, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 
 
 DEMO_AUTH_EMAIL = "demo@smart-crm.local"
@@ -232,5 +232,46 @@ def seed_data(session: Session) -> None:
         )
         session.add(product)
         session.add(order)
+
+    order_by_company: dict[str, SalesOrder] = {}
+    for order in orders:
+        for company, customer in customer_by_company.items():
+            if order.customer_id == customer.id:
+                order_by_company[company] = order
+                break
+    nanshan_order = order_by_company.get("南山科技")
+    beichen_order = order_by_company.get("北辰教育科技")
+    if nanshan_order:
+        session.add(
+            OrderApprovalRequest(
+                order_id=nanshan_order.id,
+                owner=nanshan_order.owner,
+                requester=nanshan_order.owner,
+                reviewer="销售经理",
+                status=OrderApprovalStatus.pending,
+                reason="AI Copilot 生成的高价值订单，需要经理复核私有化部署、库存和交付排期。",
+                risk_summary="订单金额超过 10 万元；AI 录单生成；包含私有化部署服务，需确认实施资源。",
+                requested_total=nanshan_order.total_amount,
+                previous_order_status=nanshan_order.status,
+                target_order_status=OrderStatus.confirmed,
+            )
+        )
+    if beichen_order:
+        session.add(
+            OrderApprovalRequest(
+                order_id=beichen_order.id,
+                owner=beichen_order.owner,
+                requester=beichen_order.owner,
+                reviewer="销售经理",
+                status=OrderApprovalStatus.approved,
+                reason="教育客户批量移动录单套件采购，需确认交付窗口。",
+                risk_summary="订单包含硬件与席位组合，需要复核库存扣减和交付日期。",
+                requested_total=beichen_order.total_amount,
+                previous_order_status=OrderStatus.draft,
+                target_order_status=OrderStatus.confirmed,
+                decision_comment="库存和交付窗口已核对，同意进入确认状态。",
+                decided_at=datetime.utcnow(),
+            )
+        )
 
     session.commit()

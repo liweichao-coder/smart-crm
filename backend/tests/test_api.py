@@ -121,12 +121,14 @@ def test_permission_matrix_payload() -> None:
     payload = response.json()
     assert payload["current_role"] == "管理员"
     permission_keys = {item["key"] for item in payload["permission_catalog"]}
-    assert {"crm:read", "reports:read", "permissions:read"} <= permission_keys
+    assert {"crm:read", "reports:read", "permissions:read", "approval:manage"} <= permission_keys
 
     roles = {role["role"]: role for role in payload["roles"]}
     assert roles["管理员"]["all_permissions"] is True
     assert "permissions:read" in roles["销售经理"]["permissions"]
+    assert "approval:manage" in roles["销售经理"]["permissions"]
     assert "catalog:manage" not in roles["销售"]["permissions"]
+    assert "approval:manage" not in roles["销售"]["permissions"]
 
     modules = {module["path"]: module for module in payload["modules"]}
     assert modules["/permissions"]["permission"] == "permissions:read"
@@ -625,6 +627,97 @@ def test_update_order_lifecycle_fields() -> None:
     assert payload["due_date"] == "2026-07-08"
     assert payload["notes"] == "订单状态已由运营复核更新。"
     assert payload["items"]
+
+
+def test_order_approval_workflow() -> None:
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        products = client.get("/api/products").json()
+        order_response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": customers[0]["id"],
+                "owner": "李伟超",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "draft",
+                "order_date": "2026-06-23",
+                "due_date": "2026-07-03",
+                "notes": "审批流测试订单",
+                "created_by_ai": True,
+                "ai_confidence_score": 0.82,
+                "items": [
+                    {
+                        "product_id": products[0]["id"],
+                        "quantity": 1,
+                        "unit_price": products[0]["unit_price"],
+                    }
+                ],
+            },
+        )
+        order_id = order_response.json()["id"]
+
+        approval_response = client.post(
+            f"/api/orders/{order_id}/approval-requests",
+            json={"reason": "高价值 AI 订单进入确认前需要经理复核。", "reviewer": "销售经理"},
+        )
+        duplicate_response = client.post(
+            f"/api/orders/{order_id}/approval-requests",
+            json={"reason": "重复提交审批"},
+        )
+        pending_approvals = client.get("/api/order-approvals?status=pending").json()
+
+        register_payload = {
+            "organization_name": "审批权限测试组",
+            "full_name": "李伟超",
+            "email": "approval-sales@smart-crm.local",
+            "phone": "18800003333",
+            "password": "Sales@2026",
+            "confirm_password": "Sales@2026",
+        }
+        created = client.post("/api/auth/register", json=register_payload)
+        assert created.status_code == 201
+        with Session(main_module.engine) as session:
+            user = session.exec(select(AuthUser).where(AuthUser.email == "approval-sales@smart-crm.local")).one()
+            user.role = "销售"
+            session.add(user)
+            session.commit()
+
+        sales_login = client.post("/api/auth/login", json={"account": "approval-sales@smart-crm.local", "password": "Sales@2026"})
+        sales_headers = {"Authorization": f"Bearer {sales_login.json()['token']}"}
+        denied_decision = client.post(
+            f"/api/order-approvals/{approval_response.json()['id']}/decision",
+            json={"decision": "approved"},
+            headers=sales_headers,
+        )
+        decision_response = client.post(
+            f"/api/order-approvals/{approval_response.json()['id']}/decision",
+            json={"decision": "approved", "comment": "库存与交付资源已复核，同意确认。"},
+        )
+        second_decision = client.post(
+            f"/api/order-approvals/{approval_response.json()['id']}/decision",
+            json={"decision": "rejected"},
+        )
+        orders_after = client.get("/api/orders").json()
+        audit_logs = client.get("/api/business-audit-logs?entity_type=order_approval").json()
+
+    assert order_response.status_code == 201
+    assert approval_response.status_code == 201
+    approval_payload = approval_response.json()
+    assert approval_payload["status"] == "pending"
+    assert approval_payload["order_id"] == order_id
+    assert approval_payload["owner"] == "李伟超"
+    assert "AI" in approval_payload["risk_summary"]
+    assert duplicate_response.status_code == 400
+    assert any(item["id"] == approval_payload["id"] for item in pending_approvals)
+    assert denied_decision.status_code == 403
+    assert decision_response.status_code == 200
+    assert decision_response.json()["status"] == "approved"
+    assert second_decision.status_code == 400
+    assert next(order for order in orders_after if order["id"] == order_id)["status"] == "confirmed"
+    audit_actions = {(log["entity_type"], log["action"]) for log in audit_logs}
+    assert ("order_approval", "submit_approval") in audit_actions
+    assert ("order_approval", "approve") in audit_actions
 
 
 def test_update_order_items_reprices_and_adjusts_inventory() -> None:

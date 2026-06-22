@@ -55,6 +55,7 @@ The course exam requires a full software engineering process package, not only c
 - Added Copilot recommendation-to-task conversion with `/api/copilot/recommendations/{id}/task`; it creates a real task, updates the linked lead's next action, and writes business audit logs.
 - Added a data-driven notification center with `/api/notifications` and a real topbar bell panel for overdue/today tasks, inventory risk, key opportunities, Copilot actions, and AI fallback calls.
 - Added owner data-scope enforcement for sales users across contacts, leads/opportunities, cases, tasks, orders, dashboard metrics, notifications, and Copilot recommendation flows. `/api/auth/me` and `/api/admin/permission-matrix` now expose `data_scope` so the frontend can explain all-data vs own-data access.
+- Added a real order approval workflow with `OrderApprovalRequest`, `/api/order-approvals`, `/api/orders/{id}/approval-requests`, `/api/order-approvals/{id}/decision`, seeded pending/approved approval records, order-center approval actions, `approval:manage` permission, notification-center approval reminders, and business audit logs.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -94,6 +95,7 @@ The course exam requires a full software engineering process package, not only c
 - After Copilot recommendation-to-task upgrade, `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_api.py -q`: 29 passed.
 - After notification center upgrade, `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_api.py -q`: 30 passed.
 - After owner data-scope upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 30 passed.
+- After order approval workflow upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 31 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -129,9 +131,10 @@ The course exam requires a full software engineering process package, not only c
 - Sales BI report regression succeeded: `/api/reports/sales-performance` returns real metrics, revenue trend, owner/region breakdowns, funnel, AI impact, inventory risks, filter echoing, invalid date-range rejection, and sales-role 403.
 - Permission matrix regression succeeded: `/api/admin/permission-matrix` returns the backend permission catalog, role matrix, module access matrix, and sales-role 403.
 - Owner data-scope regression succeeded: a sales role sees only `李伟超` owner records for leads, tasks, orders, and Copilot recommendations; cross-owner lead/order/task updates and Copilot task conversion return 403.
+- Order approval workflow regression succeeded: a draft order can be submitted for approval, duplicate pending approvals are rejected, sales users cannot approve, approval managers can approve, the order status advances to `confirmed`, and `order_approval` business audit logs are written.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps
 
-- Add stricter field-level validation, fuller end-to-end browser smoke coverage, approval workflow hooks, and URL-synced table filter state.
+- Add stricter field-level validation, fuller end-to-end browser smoke coverage, richer approval policies, and URL-synced table filter state.
 - Capture screenshots and export Word/PPT final materials.

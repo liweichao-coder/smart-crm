@@ -335,8 +335,29 @@ export function fetchOrders(params) {
   return request(`/api/orders${buildQueryString(params)}`)
 }
 
+export function fetchOrderApprovals(params) {
+  return request(`/api/order-approvals${buildQueryString(params)}`)
+}
+
+export function submitOrderApproval(orderId, payload) {
+  return request(`/api/orders/${orderId}/approval-requests`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function decideOrderApproval(approvalId, payload) {
+  return request(`/api/order-approvals/${approvalId}/decision`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function exportOrdersCsv() {
-  const response = await fetch(`${API_BASE_URL}/api/orders/export.csv`)
+  const token = readStoredAuthToken()
+  const response = await fetch(`${API_BASE_URL}/api/orders/export.csv`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
   if (!response.ok) {
     const payload = await readResponsePayload(response)
     throw new Error(typeof payload === 'string' ? payload : payload?.detail ?? '订单导出失败')

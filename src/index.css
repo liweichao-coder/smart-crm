@@ -793,6 +793,13 @@ p {
   font-size: 22px;
 }
 
+.crm-approval-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  min-width: 138px;
+}
+
 .crm-stack-inline {
   display: flex;
   flex-wrap: wrap;

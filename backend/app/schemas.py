@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import LeadStage, OrderStatus
+from .models import LeadStage, OrderApprovalStatus, OrderStatus
 
 T = TypeVar("T")
 
@@ -514,6 +514,38 @@ class SalesOrderRead(BaseModel):
     total_amount: float
     created_at: datetime
     items: list[OrderItemRead]
+
+
+class OrderApprovalCreate(BaseModel):
+    reason: str = ""
+    reviewer: str = "销售经理"
+    target_order_status: OrderStatus = OrderStatus.confirmed
+
+
+class OrderApprovalDecision(BaseModel):
+    decision: Literal["approved", "rejected"]
+    comment: str = ""
+    reviewer: str = ""
+
+
+class OrderApprovalRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_id: int
+    customer_name: str
+    owner: str
+    requester: str
+    reviewer: str
+    status: OrderApprovalStatus
+    reason: str
+    risk_summary: str
+    requested_total: float
+    previous_order_status: OrderStatus
+    target_order_status: OrderStatus
+    decision_comment: str
+    decided_at: datetime | None
+    created_at: datetime
 
 
 class DashboardMetric(BaseModel):

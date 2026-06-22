@@ -73,6 +73,7 @@ import {
   createOrder,
   createProduct,
   createTask,
+  decideOrderApproval,
   deleteCase,
   deleteContact,
   deleteCustomer,
@@ -89,6 +90,7 @@ import {
   fetchInventoryMovements,
   fetchLeads,
   fetchOrderInventoryMovements,
+  fetchOrderApprovals,
   fetchOrders,
   fetchProducts,
   fetchRestockAlerts,
@@ -99,6 +101,7 @@ import {
   logout,
   register,
   restockProduct,
+  submitOrderApproval,
   updateCase,
   updateContact,
   updateCustomer,
@@ -165,6 +168,9 @@ const statusToneMap = {
   draft: 'warning',
   confirmed: 'accent',
   fulfilled: 'success',
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
   llm: 'success',
   fallback: 'warning',
 }
@@ -228,6 +234,12 @@ const orderStatusLabelMap = {
   fulfilled: '已履约',
 }
 
+const approvalStatusLabelMap = {
+  pending: '待审批',
+  approved: '已通过',
+  rejected: '已驳回',
+}
+
 const inventorySourceLabelMap = {
   manual_restock: '人工补货',
   order_deduction: '订单扣减',
@@ -247,6 +259,9 @@ const businessActionLabelMap = {
   update: '更新',
   delete: '删除',
   restock: '补货',
+  submit_approval: '提交审批',
+  approve: '审批通过',
+  reject: '审批驳回',
 }
 
 const businessEntityLabelMap = {
@@ -2890,7 +2905,9 @@ function CapturePage() {
 
 function OrdersPage() {
   const navigate = useNavigate()
+  const { userProfile: activeProfile } = useOutletContext()
   const [orders, setOrders] = useState([])
+  const [orderApprovals, setOrderApprovals] = useState([])
   const [products, setProducts] = useState([])
   const [restockAlerts, setRestockAlerts] = useState([])
   const [inventoryMovements, setInventoryMovements] = useState([])
@@ -2902,15 +2919,18 @@ function OrdersPage() {
   const [exportSaving, setExportSaving] = useState(false)
   const [orderEditOpen, setOrderEditOpen] = useState(false)
   const [orderSaving, setOrderSaving] = useState(false)
+  const [approvalSavingId, setApprovalSavingId] = useState(null)
+  const [approvalDecisionId, setApprovalDecisionId] = useState(null)
   const [orderDraft, setOrderDraft] = useState(() => buildOrderDraft(null))
   const [error, setError] = useState('')
 
   useEffect(() => {
     let mounted = true
-    Promise.all([fetchOrders(), fetchProducts(), fetchRestockAlerts(), fetchInventoryMovements()])
-      .then(([nextOrders, nextProducts, nextRestockAlerts, nextInventoryMovements]) => {
+    Promise.all([fetchOrders(), fetchProducts(), fetchRestockAlerts(), fetchInventoryMovements(), fetchOrderApprovals()])
+      .then(([nextOrders, nextProducts, nextRestockAlerts, nextInventoryMovements, nextOrderApprovals]) => {
         if (mounted) {
           setOrders(nextOrders)
+          setOrderApprovals(nextOrderApprovals)
           setProducts(nextProducts)
           setRestockAlerts(nextRestockAlerts)
           setInventoryMovements(nextInventoryMovements)
@@ -2945,6 +2965,11 @@ function OrdersPage() {
     setInventoryMovements(nextInventoryMovements)
   }
 
+  const refreshOrderApprovals = async () => {
+    const nextOrderApprovals = await fetchOrderApprovals()
+    setOrderApprovals(nextOrderApprovals)
+  }
+
   const refreshSelectedOrderMovements = async (orderId) => {
     if (!orderId) {
       setSelectedOrderMovements([])
@@ -2967,7 +2992,7 @@ function OrdersPage() {
       await restockProduct(product.id, {
         quantity,
         reason: '订单中心低库存建议补货',
-        operator: userProfile.name,
+        operator: activeProfile.name,
       })
       await refreshInventoryState()
     } catch (nextError) {
@@ -3031,6 +3056,45 @@ function OrdersPage() {
     }
   }
 
+  const handleSubmitOrderApproval = async () => {
+    if (!selectedOrder) {
+      return
+    }
+    setApprovalSavingId(selectedOrder.id)
+    setError('')
+    try {
+      await submitOrderApproval(selectedOrder.id, {
+        reviewer: '销售经理',
+        target_order_status: 'confirmed',
+        reason: selectedOrder.created_by_ai
+          ? 'AI 智能录单生成的订单，确认前需要经理复核客户、商品、数量和交付风险。'
+          : '订单确认前需要经理复核商务条款、库存和交付风险。',
+      })
+      await refreshOrderApprovals()
+    } catch (nextError) {
+      setError(nextError.message || '提交审批失败')
+    } finally {
+      setApprovalSavingId(null)
+    }
+  }
+
+  const handleDecisionOrderApproval = async (approval, decision) => {
+    setApprovalDecisionId(`${approval.id}-${decision}`)
+    setError('')
+    try {
+      await decideOrderApproval(approval.id, {
+        decision,
+        comment: decision === 'approved' ? '审批通过，订单可进入确认状态。' : '审批驳回，请销售补充客户确认或交付材料。',
+      })
+      const [nextOrders] = await Promise.all([fetchOrders(), refreshOrderApprovals()])
+      setOrders(nextOrders)
+    } catch (nextError) {
+      setError(nextError.message || '审批处理失败')
+    } finally {
+      setApprovalDecisionId(null)
+    }
+  }
+
   const summary = useMemo(() => summarizeOrders(orders), [orders])
   const visibleOrders = useMemo(() => filterOrders(orders, activeTab), [activeTab, orders])
   const selectedOrder = useMemo(() => {
@@ -3066,6 +3130,21 @@ function OrdersPage() {
   const lowStockProducts = useMemo(() => pickLowStockProducts(products), [products])
   const restockAlertMap = useMemo(() => new Map(restockAlerts.map((alert) => [alert.product_id, alert])), [restockAlerts])
   const criticalAlertCount = useMemo(() => restockAlerts.filter((alert) => alert.priority === 'critical').length, [restockAlerts])
+  const pendingApprovalCount = useMemo(() => orderApprovals.filter((approval) => approval.status === 'pending').length, [orderApprovals])
+  const canApproveOrders = useMemo(() => {
+    const permissions = activeProfile.permissions ?? []
+    return permissions.includes('*') || permissions.includes('approval:manage')
+  }, [activeProfile.permissions])
+  const selectedOrderApprovals = useMemo(() => {
+    if (!selectedOrder) {
+      return []
+    }
+    return orderApprovals.filter((approval) => approval.order_id === selectedOrder.id)
+  }, [orderApprovals, selectedOrder])
+  const selectedPendingApproval = useMemo(() => {
+    return selectedOrderApprovals.find((approval) => approval.status === 'pending') ?? null
+  }, [selectedOrderApprovals])
+  const canSubmitSelectedOrderApproval = Boolean(selectedOrder && selectedOrder.status === 'draft' && !selectedPendingApproval)
   const maxStock = useMemo(() => Math.max(1, ...products.map((product) => Number(product.stock ?? 0))), [products])
   const orderEditColumns = useMemo(() => [
     { key: 'owner', label: '负责人' },
@@ -3137,7 +3216,7 @@ function OrdersPage() {
         onTabChange={setActiveTab}
         onCreate={() => navigate('/capture')}
       />
-      <ResourceSyncState loading={loading || Boolean(restockSavingId) || exportSaving || orderSaving} error={error} />
+      <ResourceSyncState loading={loading || Boolean(restockSavingId) || exportSaving || orderSaving || Boolean(approvalSavingId) || Boolean(approvalDecisionId)} error={error} />
 
       <section className="crm-metric-grid">
         <article className="crm-panel crm-metric-card">
@@ -3167,7 +3246,7 @@ function OrdersPage() {
           <div>
             <span>草稿待确认</span>
             <strong>{summary.draftCount}</strong>
-            <small>可从智能录单继续提交</small>
+            <small>{pendingApprovalCount} 个审批中 / 可从智能录单继续提交</small>
           </div>
         </article>
         <article className="crm-panel crm-metric-card">
@@ -3257,6 +3336,59 @@ function OrdersPage() {
                   <span>{selectedOrder.notes || '暂无备注'}</span>
                 </div>
                 <StatusBadge value={formatPercent(selectedOrder.ai_confidence_score ?? 0)} tone={selectedOrder.created_by_ai ? 'accent' : 'neutral'} />
+              </div>
+              <div className="crm-order-audit-block">
+                <div className="crm-order-audit-head">
+                  <strong>订单审批流</strong>
+                  <small>{selectedOrderApprovals.length ? `${selectedOrderApprovals.length} 条记录` : '可提交经理复核'}</small>
+                </div>
+                <div className="crm-toolbar-actions">
+                  <button
+                    className="crm-primary-button"
+                    type="button"
+                    onClick={handleSubmitOrderApproval}
+                    disabled={!canSubmitSelectedOrderApproval || approvalSavingId === selectedOrder.id}
+                  >
+                    <CheckSquare size={16} />
+                    {approvalSavingId === selectedOrder.id ? '提交中' : selectedPendingApproval ? '审批中' : selectedOrder.status === 'draft' ? '提交审批' : '无需审批'}
+                  </button>
+                  {selectedPendingApproval ? <StatusBadge value="待经理处理" tone="warning" /> : null}
+                </div>
+                {selectedOrderApprovals.length ? selectedOrderApprovals.map((approval) => (
+                  <div key={approval.id} className="crm-list-item">
+                    <div>
+                      <strong>{approvalStatusLabelMap[approval.status] ?? approval.status}</strong>
+                      <span>{approval.reason}</span>
+                      <small>{approval.risk_summary}</small>
+                      {approval.decision_comment ? <small>{approval.reviewer}：{approval.decision_comment}</small> : null}
+                    </div>
+                    <div className="crm-approval-actions">
+                      <StatusBadge value={formatCurrency(approval.requested_total)} tone={approval.requested_total >= 100000 ? 'warning' : 'neutral'} />
+                      {approval.status === 'pending' && canApproveOrders ? (
+                        <div className="crm-stack-inline">
+                          <button
+                            className="crm-ghost-button"
+                            type="button"
+                            onClick={() => handleDecisionOrderApproval(approval, 'rejected')}
+                            disabled={approvalDecisionId === `${approval.id}-rejected`}
+                          >
+                            驳回
+                          </button>
+                          <button
+                            className="crm-primary-button"
+                            type="button"
+                            onClick={() => handleDecisionOrderApproval(approval, 'approved')}
+                            disabled={approvalDecisionId === `${approval.id}-approved`}
+                          >
+                            通过
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )) : (
+                  <EmptyState icon={CheckSquare} title="暂无审批记录" subtitle="草稿订单可提交经理复核，审批结果会写入操作审计。" />
+                )}
               </div>
               {selectedOrder.items.map((item) => (
                 <div key={item.id} className="crm-list-item">

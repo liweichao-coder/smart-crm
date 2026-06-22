@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from .auth import generate_session_token, hash_password, hash_session_token, verify_password
 from .config import settings
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, InventoryMovement, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, InventoryMovement, OrderApprovalRequest, OrderApprovalStatus, OrderItem, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     AIInteractionLogRead,
     AuthAuditLogRead,
@@ -48,6 +48,9 @@ from .schemas import (
     InventoryRestockAlertRead,
     LeadRead,
     OrderItemRead,
+    OrderApprovalCreate,
+    OrderApprovalDecision,
+    OrderApprovalRead,
     NotificationRead,
     PaginatedResponse,
     ModulePermissionRead,
@@ -93,6 +96,7 @@ RESTOCK_WARNING_THRESHOLD = 300
 AUTH_SESSION_DAYS = 7
 ALL_PERMISSIONS = "*"
 KNOWN_PERMISSIONS = {
+    "approval:manage",
     "ai:use",
     "audit:read",
     "catalog:manage",
@@ -107,7 +111,7 @@ KNOWN_PERMISSIONS = {
 ROLE_PERMISSIONS = {
     "管理员": {ALL_PERMISSIONS},
     "销售": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read"},
-    "销售经理": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read", "reports:read", "audit:read", "permissions:read"},
+    "销售经理": {"crm:read", "crm:write", "order:manage", "approval:manage", "ai:use", "dashboard:read", "reports:read", "audit:read", "permissions:read"},
     "支持": {"crm:read", "case:write", "task:write", "dashboard:read"},
     "审计员": {"crm:read", "reports:read", "audit:read", "dashboard:read", "permissions:read"},
 }
@@ -120,6 +124,7 @@ ROLE_DESCRIPTIONS = {
 }
 OWN_DATA_SCOPE_ROLES = {"销售"}
 PERMISSION_CATALOG = {
+    "approval:manage": ("审批", "订单审批", "审批或驳回订单确认申请，并推进订单状态。"),
     "ai:use": ("AI 能力", "AI 副驾与智能录单", "调用 Copilot、跟进话术、订单草稿和智能录单接口。"),
     "audit:read": ("审计", "审计读取", "查看认证审计、AI 审计和业务操作审计。"),
     "catalog:manage": ("商品", "商品目录维护", "创建、编辑和删除商品目录与 SKU。"),
@@ -724,6 +729,28 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int =
             )
         )
 
+    approvals = session.exec(
+        select(OrderApprovalRequest)
+        .where(OrderApprovalRequest.status == OrderApprovalStatus.pending)
+        .order_by(OrderApprovalRequest.created_at.desc())
+    ).all()
+    approvals = filter_by_owner_scope(approvals, current_user)[:6]
+    for approval in approvals:
+        notifications.append(
+            make_notification(
+                notification_id=f"order-approval-{approval.id}",
+                category="审批",
+                severity="warning" if approval.requested_total >= 100000 else "info",
+                title=f"订单审批：#{approval.order_id}",
+                message=f"{approval.owner} 提交，金额 {approval.requested_total:.0f} 元，待 {approval.reviewer or '销售经理'} 处理。",
+                href="/orders",
+                action_label="查看审批",
+                entity_type="order_approval",
+                entity_id=approval.id,
+                created_at=approval.created_at,
+            )
+        )
+
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc(), SalesLead.expected_amount.desc())).all()
     leads = filter_by_owner_scope(leads, current_user)
     for lead in leads:
@@ -849,6 +876,52 @@ def serialize_order(order: SalesOrder, session: Session) -> SalesOrderRead:
         created_at=order.created_at,
         items=serialized_items,
     )
+
+
+def build_order_approval_risk_summary(order: SalesOrder) -> str:
+    risk_flags: list[str] = []
+    if order.total_amount >= 100000:
+        risk_flags.append(f"订单金额 {order.total_amount:.0f} 元，建议经理复核商务条款")
+    if order.created_by_ai:
+        risk_flags.append("订单由 AI 智能录单生成，需要确认客户、商品和数量")
+        if order.ai_confidence_score < 0.85:
+            risk_flags.append(f"AI 置信度 {order.ai_confidence_score:.0%}，建议人工复核原始材料")
+    days_to_delivery = (order.due_date - date.today()).days
+    if days_to_delivery <= 7:
+        risk_flags.append(f"交付窗口 {days_to_delivery} 天，需确认库存和实施排期")
+    if order.status != "draft":
+        risk_flags.append(f"当前订单状态为 {order.status.value}，审批后将推进到目标状态")
+    return "；".join(risk_flags) or "订单金额、交付周期和 AI 置信度均未触发高风险规则。"
+
+
+def serialize_order_approval(approval: OrderApprovalRequest, session: Session) -> OrderApprovalRead:
+    order = session.get(SalesOrder, approval.order_id)
+    customer = session.get(Customer, order.customer_id) if order else None
+    return OrderApprovalRead(
+        id=approval.id or 0,
+        order_id=approval.order_id,
+        customer_name=customer.company if customer else "未知客户",
+        owner=approval.owner,
+        requester=approval.requester,
+        reviewer=approval.reviewer,
+        status=approval.status,
+        reason=approval.reason,
+        risk_summary=approval.risk_summary,
+        requested_total=approval.requested_total,
+        previous_order_status=approval.previous_order_status,
+        target_order_status=approval.target_order_status,
+        decision_comment=approval.decision_comment,
+        decided_at=approval.decided_at,
+        created_at=approval.created_at,
+    )
+
+
+def find_pending_order_approval(session: Session, order_id: int) -> OrderApprovalRequest | None:
+    return session.exec(
+        select(OrderApprovalRequest)
+        .where(OrderApprovalRequest.order_id == order_id)
+        .where(OrderApprovalRequest.status == OrderApprovalStatus.pending)
+    ).first()
 
 
 def replace_order_items(order: SalesOrder, payload_items, session: Session) -> None:
@@ -2017,6 +2090,118 @@ def list_orders(
     )
     serialized_orders = filter_bool(serialized_orders, "created_by_ai", created_by_ai)
     return paginate_or_list(serialized_orders, page=page, per_page=per_page)
+
+
+@app.get("/api/order-approvals", response_model=list[OrderApprovalRead] | PaginatedResponse[OrderApprovalRead])
+def list_order_approvals(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    owner: str = "",
+    status: str = "",
+    reviewer: str = "",
+) -> list[OrderApprovalRead] | dict:
+    approvals = session.exec(select(OrderApprovalRequest).order_by(OrderApprovalRequest.created_at.desc())).all()
+    approvals = filter_by_owner_scope(approvals, current_user)
+    serialized_approvals = [serialize_order_approval(approval, session) for approval in approvals]
+    serialized_approvals = filter_records(
+        serialized_approvals,
+        q=q,
+        fields=("customer_name", "owner", "requester", "reviewer", "status", "reason", "risk_summary", "decision_comment"),
+        owner=owner,
+        status=status,
+        reviewer=reviewer,
+    )
+    return paginate_or_list(serialized_approvals, page=page, per_page=per_page)
+
+
+@app.post("/api/orders/{order_id}/approval-requests", response_model=OrderApprovalRead, status_code=201)
+def submit_order_approval_request(
+    order_id: int,
+    payload: OrderApprovalCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
+) -> OrderApprovalRead:
+    order = session.get(SalesOrder, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    require_owner_scope(current_user, order.owner)
+    if order.status == "fulfilled":
+        raise HTTPException(status_code=400, detail="已履约订单不需要提交审批")
+    if payload.target_order_status == order.status:
+        raise HTTPException(status_code=400, detail="目标状态与当前订单状态一致")
+    if find_pending_order_approval(session, order_id):
+        raise HTTPException(status_code=400, detail="该订单已有待审批申请")
+
+    reason = payload.reason.strip() or "订单确认前需要经理复核商务条款、库存和交付风险。"
+    approval = OrderApprovalRequest(
+        order_id=order.id or order_id,
+        owner=order.owner,
+        requester=current_user.full_name,
+        reviewer=payload.reviewer.strip() or "销售经理",
+        status=OrderApprovalStatus.pending,
+        reason=summarize_text(reason, limit=360),
+        risk_summary=summarize_text(build_order_approval_risk_summary(order), limit=500),
+        requested_total=order.total_amount,
+        previous_order_status=order.status,
+        target_order_status=payload.target_order_status,
+    )
+    session.add(approval)
+    session.flush()
+    add_business_audit(
+        session,
+        action="submit_approval",
+        entity_type="order_approval",
+        entity_id=approval.id,
+        operator=current_user.full_name,
+        summary=f"提交订单 #{order.id} 审批",
+        detail=f"目标状态 {payload.target_order_status.value}；{approval.risk_summary}",
+    )
+    session.commit()
+    session.refresh(approval)
+    return serialize_order_approval(approval, session)
+
+
+@app.post("/api/order-approvals/{approval_id}/decision", response_model=OrderApprovalRead)
+def decide_order_approval_request(
+    approval_id: int,
+    payload: OrderApprovalDecision,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("approval:manage"))],
+) -> OrderApprovalRead:
+    approval = session.get(OrderApprovalRequest, approval_id)
+    if not approval:
+        raise HTTPException(status_code=404, detail="审批申请不存在")
+    if approval.status != OrderApprovalStatus.pending:
+        raise HTTPException(status_code=400, detail="审批申请已处理")
+    order = session.get(SalesOrder, approval.order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="关联订单不存在")
+
+    decision_status = OrderApprovalStatus.approved if payload.decision == "approved" else OrderApprovalStatus.rejected
+    approval.status = decision_status
+    approval.reviewer = payload.reviewer.strip() or current_user.full_name
+    approval.decision_comment = summarize_text(payload.comment.strip() or ("审批通过" if decision_status == OrderApprovalStatus.approved else "审批驳回"), limit=360)
+    approval.decided_at = datetime.utcnow()
+    if decision_status == OrderApprovalStatus.approved:
+        order.status = approval.target_order_status
+        session.add(order)
+
+    session.add(approval)
+    add_business_audit(
+        session,
+        action="approve" if decision_status == OrderApprovalStatus.approved else "reject",
+        entity_type="order_approval",
+        entity_id=approval.id,
+        operator=approval.reviewer,
+        summary=f"{'通过' if decision_status == OrderApprovalStatus.approved else '驳回'}订单 #{approval.order_id} 审批",
+        detail=approval.decision_comment,
+    )
+    session.commit()
+    session.refresh(approval)
+    return serialize_order_approval(approval, session)
 
 
 @app.get("/api/orders/export.csv")

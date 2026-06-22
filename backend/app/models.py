@@ -22,6 +22,12 @@ class OrderStatus(str, Enum):
     fulfilled = "fulfilled"
 
 
+class OrderApprovalStatus(str, Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
 class OrganizationBase(SQLModel):
     name: str = Field(index=True)
     slug: str = Field(index=True, sa_column_kwargs={"unique": True})
@@ -276,6 +282,26 @@ class SalesOrderBase(SQLModel):
 class SalesOrder(SalesOrderBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     total_amount: float = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class OrderApprovalRequestBase(SQLModel):
+    order_id: int = Field(foreign_key="salesorder.id", index=True)
+    owner: str = Field(index=True)
+    requester: str = Field(index=True)
+    reviewer: str = ""
+    status: OrderApprovalStatus = Field(default=OrderApprovalStatus.pending, index=True)
+    reason: str = ""
+    risk_summary: str = ""
+    requested_total: float = 0
+    previous_order_status: OrderStatus = Field(default=OrderStatus.draft)
+    target_order_status: OrderStatus = Field(default=OrderStatus.confirmed)
+    decision_comment: str = ""
+
+
+class OrderApprovalRequest(OrderApprovalRequestBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    decided_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
