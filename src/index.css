@@ -1623,6 +1623,28 @@ body {
   font-size: 18px;
 }
 
+.crm-order-audit-block {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 14px;
+}
+
+.crm-order-audit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crm-order-audit-head small,
+.crm-list-item small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .crm-copilot-hero {
   align-items: flex-start;
   justify-content: space-between;

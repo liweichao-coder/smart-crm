@@ -77,6 +77,7 @@ import {
   fetchGoals,
   fetchInventoryMovements,
   fetchLeads,
+  fetchOrderInventoryMovements,
   fetchOrders,
   fetchProducts,
   fetchRestockAlerts,
@@ -195,6 +196,13 @@ const orderStatusLabelMap = {
   draft: '草稿',
   confirmed: '已确认',
   fulfilled: '已履约',
+}
+
+const inventorySourceLabelMap = {
+  manual_restock: '人工补货',
+  order_deduction: '订单扣减',
+  seed_order_deduction: '演示订单扣减',
+  order_adjustment: '订单调整',
 }
 
 const aiOperationLabelMap = {
@@ -1949,6 +1957,7 @@ function OrdersPage() {
   const [products, setProducts] = useState([])
   const [restockAlerts, setRestockAlerts] = useState([])
   const [inventoryMovements, setInventoryMovements] = useState([])
+  const [selectedOrderMovements, setSelectedOrderMovements] = useState([])
   const [activeTab, setActiveTab] = useState('all')
   const [selectedOrderId, setSelectedOrderId] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -1997,6 +2006,20 @@ function OrdersPage() {
     setProducts(nextProducts)
     setRestockAlerts(nextRestockAlerts)
     setInventoryMovements(nextInventoryMovements)
+  }
+
+  const refreshSelectedOrderMovements = async (orderId) => {
+    if (!orderId) {
+      setSelectedOrderMovements([])
+      return
+    }
+    try {
+      const movements = await fetchOrderInventoryMovements(orderId)
+      setSelectedOrderMovements(movements)
+    } catch (nextError) {
+      setSelectedOrderMovements([])
+      setError(nextError.message || '订单库存审计加载失败')
+    }
   }
 
   const handleRestockProduct = async (product, alert) => {
@@ -2062,6 +2085,7 @@ function OrdersPage() {
       setOrders((currentOrders) => currentOrders.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)))
       setSelectedOrderId(updatedOrder.id)
       await refreshInventoryState()
+      await refreshSelectedOrderMovements(updatedOrder.id)
       setOrderEditOpen(false)
     } catch (nextError) {
       setError(nextError.message || '订单更新失败')
@@ -2075,6 +2099,33 @@ function OrdersPage() {
   const selectedOrder = useMemo(() => {
     return visibleOrders.find((order) => order.id === selectedOrderId) ?? visibleOrders[0] ?? orders[0] ?? null
   }, [orders, selectedOrderId, visibleOrders])
+
+  useEffect(() => {
+    let mounted = true
+    if (!selectedOrder?.id) {
+      setSelectedOrderMovements([])
+      return () => {
+        mounted = false
+      }
+    }
+
+    fetchOrderInventoryMovements(selectedOrder.id)
+      .then((movements) => {
+        if (mounted) {
+          setSelectedOrderMovements(movements)
+        }
+      })
+      .catch((nextError) => {
+        if (mounted) {
+          setSelectedOrderMovements([])
+          setError(nextError.message || '订单库存审计加载失败')
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [selectedOrder?.id])
   const lowStockProducts = useMemo(() => pickLowStockProducts(products), [products])
   const restockAlertMap = useMemo(() => new Map(restockAlerts.map((alert) => [alert.product_id, alert])), [restockAlerts])
   const criticalAlertCount = useMemo(() => restockAlerts.filter((alert) => alert.priority === 'critical').length, [restockAlerts])
@@ -2279,6 +2330,26 @@ function OrdersPage() {
                   <div className="crm-list-value">{formatCurrency(item.line_total)}</div>
                 </div>
               ))}
+              <div className="crm-order-audit-block">
+                <div className="crm-order-audit-head">
+                  <strong>本订单库存审计</strong>
+                  <small>{selectedOrderMovements.length} 条流水</small>
+                </div>
+                {selectedOrderMovements.length ? selectedOrderMovements.slice(0, 6).map((movement) => (
+                  <div key={movement.id} className="crm-list-item">
+                    <div>
+                      <strong>{movement.product_name}</strong>
+                      <span>{inventorySourceLabelMap[movement.source] ?? movement.source} · {movement.before_stock} → {movement.after_stock}</span>
+                      <small>{movement.reason}</small>
+                    </div>
+                    <div className="crm-list-value">
+                      {movement.change_quantity > 0 ? '+' : ''}{movement.change_quantity}
+                    </div>
+                  </div>
+                )) : (
+                  <EmptyState icon={Shield} title="暂无库存审计" subtitle="订单创建或明细调整后会显示库存变化。" />
+                )}
+              </div>
             </div>
           ) : (
             <EmptyState icon={Activity} title="暂无订单明细" subtitle="后端订单数据同步后会显示在这里。" />
@@ -2352,7 +2423,7 @@ function OrdersPage() {
               <div key={movement.id} className="crm-list-item">
                 <div>
                   <strong>{movement.product_name}</strong>
-                  <span>{movement.source === 'manual_restock' ? '人工补货' : '订单扣减'} · {movement.reason}</span>
+                  <span>{inventorySourceLabelMap[movement.source] ?? movement.source} · {movement.reason}</span>
                 </div>
                 <div className="crm-list-value">
                   {movement.change_quantity > 0 ? '+' : ''}{movement.change_quantity}

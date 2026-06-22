@@ -39,6 +39,7 @@ The course exam requires a full software engineering process package, not only c
 - Added an Orders page edit modal so the selected order can be maintained from the frontend without leaving the order detail panel.
 - Extended order PATCH to accept order items, recalculate order totals, and write `order_adjustment` inventory movements for stock deltas.
 - Added an order item editor in the Orders modal with product selection, quantity, price, line totals, and recalculated order total.
+- Added `GET /api/orders/{order_id}/inventory-movements` and a selected-order inventory audit panel in the Orders page.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -67,6 +68,7 @@ The course exam requires a full software engineering process package, not only c
 - After product catalog CRUD upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 16 passed.
 - After order lifecycle edit upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 17 passed.
 - After order item edit and inventory adjustment upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 19 passed.
+- After selected-order inventory audit upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 20 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -93,9 +95,10 @@ The course exam requires a full software engineering process package, not only c
 - AI audit smoke succeeded: Copilot summary and follow-up returned `fallback_used=false`, `/api/ai-audit-logs` returned 2 `llm` records, and the AI Audit page rendered the persisted rows.
 - Order lifecycle edit smoke succeeded: PATCH updated owner, region, status, due date, and notes for a real order; the returned order still included persisted item details.
 - Order item edit regression succeeded: PATCH replaced item rows, recalculated `total_amount`, deducted new product stock, restored removed product stock, and wrote `order_adjustment` movements.
+- Order inventory audit regression succeeded: selected-order endpoint returned only movements containing `订单 #{id}` and included both seed deductions and later order adjustments.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps
 
-- Add table pagination, order adjustment audit details, and stricter field-level validation for larger demo datasets.
+- Add table pagination, stricter field-level validation, and richer permission audit for larger demo datasets.
 - Capture screenshots and export Word/PPT final materials.

@@ -312,6 +312,7 @@ def test_update_order_lifecycle_fields() -> None:
 def test_update_order_items_reprices_and_adjusts_inventory() -> None:
     with TestClient(app) as client:
         order = next(item for item in client.get("/api/orders").json() if len(item["items"]) >= 2)
+        initial_audit = client.get(f"/api/orders/{order['id']}/inventory-movements").json()
         temp_product = client.post(
             "/api/products",
             json={
@@ -340,8 +341,12 @@ def test_update_order_items_reprices_and_adjusts_inventory() -> None:
         )
         products_after = {product["id"]: product for product in client.get("/api/products").json()}
         movements = client.get("/api/inventory/movements?limit=80").json()
+        order_audit = client.get(f"/api/orders/{order['id']}/inventory-movements")
 
+    assert initial_audit
+    assert all(f"订单 #{order['id']} " in movement["reason"] for movement in initial_audit)
     assert response.status_code == 200
+    assert order_audit.status_code == 200
     payload = response.json()
     assert len(payload["items"]) == 1
     assert payload["items"][0]["product_id"] == temp_product["id"]
@@ -354,6 +359,16 @@ def test_update_order_items_reprices_and_adjusts_inventory() -> None:
     adjustment_product_ids = {movement["product_id"] for movement in movements if movement["source"] == "order_adjustment"}
     assert temp_product["id"] in adjustment_product_ids
     assert set(old_quantities) <= adjustment_product_ids
+    audit_sources = {movement["source"] for movement in order_audit.json()}
+    assert {"seed_order_deduction", "order_adjustment"} <= audit_sources
+
+
+def test_order_inventory_movements_rejects_missing_order() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/orders/99999/inventory-movements")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "订单不存在"
 
 
 def test_update_order_items_rejects_insufficient_stock() -> None:

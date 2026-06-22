@@ -734,6 +734,20 @@ def export_orders_csv(session: SessionDep) -> Response:
     )
 
 
+@app.get("/api/orders/{order_id}/inventory-movements", response_model=list[InventoryMovementRead])
+def get_order_inventory_movements(order_id: int, session: SessionDep) -> list[InventoryMovementRead]:
+    order = session.get(SalesOrder, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    order_marker = f"订单 #{order_id} "
+    movements = session.exec(
+        select(InventoryMovement)
+        .where(InventoryMovement.reason.contains(order_marker))
+        .order_by(InventoryMovement.created_at.desc())
+    ).all()
+    return [serialize_inventory_movement(movement, session) for movement in movements]
+
+
 @app.patch("/api/orders/{order_id}", response_model=SalesOrderRead)
 def update_order(order_id: int, payload: SalesOrderUpdate, session: SessionDep) -> SalesOrderRead:
     order = session.get(SalesOrder, order_id)
