@@ -168,11 +168,12 @@ def test_permission_matrix_payload() -> None:
     payload = response.json()
     assert payload["current_role"] == "管理员"
     permission_keys = {item["key"] for item in payload["permission_catalog"]}
-    assert {"crm:read", "reports:read", "permissions:read", "approval:manage"} <= permission_keys
+    assert {"crm:read", "reports:read", "permissions:read", "approval:manage", "team:manage"} <= permission_keys
 
     roles = {role["role"]: role for role in payload["roles"]}
     assert roles["管理员"]["all_permissions"] is True
     assert "permissions:read" in roles["销售经理"]["permissions"]
+    assert "team:manage" in roles["销售经理"]["permissions"]
     assert "approval:manage" in roles["销售经理"]["permissions"]
     assert "catalog:manage" not in roles["销售"]["permissions"]
     assert "approval:manage" not in roles["销售"]["permissions"]
@@ -181,6 +182,9 @@ def test_permission_matrix_payload() -> None:
     assert modules["/permissions"]["permission"] == "permissions:read"
     assert "销售" not in modules["/permissions"]["roles"]
     assert "管理员" in modules["/permissions"]["roles"]
+    assert modules["/team"]["permission"] == "team:manage"
+    assert "销售经理" in modules["/team"]["roles"]
+    assert "销售" not in modules["/team"]["roles"]
 
 
 def test_resource_collection_payloads() -> None:
@@ -254,6 +258,81 @@ def test_auth_register_new_workspace() -> None:
     assert "已注册" in duplicate.json()["detail"]
     assert me.status_code == 200
     assert me.json()["user"]["organization_name"] == "课程答辩测试组"
+
+
+def test_team_member_management_and_status_login_guard() -> None:
+    with TestClient(app) as client:
+        me = client.get("/api/auth/me")
+        self_id = me.json()["user"]["id"]
+        created = client.post(
+            "/api/admin/users",
+            json={
+                "full_name": "团队演示销售",
+                "email": "team-sales@smart-crm.local",
+                "phone": "18800005555",
+                "role": "销售",
+                "position": "课程演示销售",
+                "department": "客户增长中心",
+                "location": "深圳 · 粤海",
+                "status": "active",
+                "password": "Team@2026",
+                "confirm_password": "Team@2026",
+            },
+        )
+        duplicate = client.post(
+            "/api/admin/users",
+            json={
+                "full_name": "重复成员",
+                "email": "team-sales@smart-crm.local",
+                "password": "Team@2026",
+                "confirm_password": "Team@2026",
+            },
+        )
+        members = client.get("/api/admin/users?role=销售")
+        updated = client.patch(
+            f"/api/admin/users/{created.json()['id']}",
+            json={
+                "role": "销售经理",
+                "status": "inactive",
+                "position": "销售小组长",
+                "password": "TeamNew@2026",
+                "confirm_password": "TeamNew@2026",
+            },
+        )
+        inactive_login = client.post("/api/auth/login", json={"account": "team-sales@smart-crm.local", "password": "TeamNew@2026"})
+        self_profile_update = client.patch(f"/api/admin/users/{self_id}", json={"phone": "18600002048", "role": "管理员", "status": "active"})
+        self_update = client.patch(f"/api/admin/users/{self_id}", json={"status": "inactive"})
+        manager_login = client.post("/api/auth/login", json={"account": "manager@smart-crm.local", "password": "SmartCRM@2026"})
+        manager_headers = {"Authorization": f"Bearer {manager_login.json()['token']}"}
+        manager_admin_create = client.post(
+            "/api/admin/users",
+            json={
+                "full_name": "越权管理员",
+                "email": "manager-admin@smart-crm.local",
+                "role": "管理员",
+                "password": "Team@2026",
+                "confirm_password": "Team@2026",
+            },
+            headers=manager_headers,
+        )
+        audit_logs = client.get("/api/auth/audit-logs?q=team-sales@smart-crm.local").json()
+
+    assert created.status_code == 201
+    assert created.json()["role"] == "销售"
+    assert created.json()["data_scope"] == "own"
+    assert duplicate.status_code == 400
+    assert members.status_code == 200
+    assert any(member["email"] == "team-sales@smart-crm.local" for member in members.json())
+    assert updated.status_code == 200
+    assert updated.json()["role"] == "销售经理"
+    assert updated.json()["status"] == "inactive"
+    assert updated.json()["data_scope"] == "all"
+    assert inactive_login.status_code == 403
+    assert self_profile_update.status_code == 200
+    assert self_update.status_code == 400
+    assert manager_admin_create.status_code == 403
+    assert any(log["event"] == "team_create" for log in audit_logs)
+    assert any(log["event"] == "team_update" for log in audit_logs)
 
 
 def test_rbac_rejects_unauthenticated_business_api() -> None:
@@ -443,6 +522,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
         denied_audit = client.get("/api/business-audit-logs", headers=headers)
         denied_report = client.get("/api/reports/sales-performance", headers=headers)
         denied_matrix = client.get("/api/admin/permission-matrix", headers=headers)
+        denied_team = client.get("/api/admin/users", headers=headers)
 
     assert login.status_code == 200
     assert me.json()["user"]["role"] == "销售"
@@ -491,6 +571,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert denied_audit.status_code == 403
     assert denied_report.status_code == 403
     assert denied_matrix.status_code == 403
+    assert denied_team.status_code == 403
 
 
 def test_paginated_collection_queries() -> None:

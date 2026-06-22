@@ -151,6 +151,24 @@ export function fetchPermissionMatrix() {
   return request('/api/admin/permission-matrix')
 }
 
+export function fetchTeamMembers(params) {
+  return request(`/api/admin/users${buildQueryString(params)}`)
+}
+
+export function createTeamMember(payload) {
+  return request('/api/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateTeamMember(userId, payload) {
+  return request(`/api/admin/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchCustomers(params) {
   return request(`/api/customers${buildQueryString(params)}`)
 }

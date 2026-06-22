@@ -13,30 +13,36 @@ DEMO_AUTH_PASSWORD = "SmartCRM@2026"
 
 
 def ensure_auth_seed(session: Session) -> None:
-    existing_user = session.exec(select(AuthUser).where(AuthUser.email == DEMO_AUTH_EMAIL)).first()
-    if existing_user:
-        return
-
     organization = session.exec(select(Organization).where(Organization.slug == "szu-ai-crm-course")).first()
     if not organization:
         organization = Organization(name="深大 AI CRM 课程组", slug="szu-ai-crm-course", plan="course", status="active")
         session.add(organization)
         session.flush()
 
-    session.add(
-        AuthUser(
-            organization_id=organization.id,
-            full_name="李伟超",
-            email=DEMO_AUTH_EMAIL,
-            phone="18600002048",
-            role="管理员",
-            position="CRM 运营管理员",
-            department="客户增长中心",
-            location="深圳 · 南山",
-            status="active",
-            password_hash=hash_password(DEMO_AUTH_PASSWORD),
+    auth_users = [
+        ("李伟超", DEMO_AUTH_EMAIL, "18600002048", "管理员", "CRM 运营管理员", "客户增长中心"),
+        ("王蕾", "manager@smart-crm.local", "18600002049", "销售经理", "销售团队主管", "客户增长中心"),
+        ("赵可", "sales@smart-crm.local", "18600002050", "销售", "客户经理", "华南销售组"),
+        ("刘涵", "support@smart-crm.local", "18600002051", "支持", "实施支持工程师", "客户成功中心"),
+        ("孙梦琪", "audit@smart-crm.local", "18600002052", "审计员", "项目审计专员", "质量与审计组"),
+    ]
+    for full_name, email, phone, role, position, department in auth_users:
+        if session.exec(select(AuthUser).where(AuthUser.email == email)).first():
+            continue
+        session.add(
+            AuthUser(
+                organization_id=organization.id,
+                full_name=full_name,
+                email=email,
+                phone=phone,
+                role=role,
+                position=position,
+                department=department,
+                location="深圳 · 南山",
+                status="active",
+                password_hash=hash_password(DEMO_AUTH_PASSWORD),
+            )
         )
-    )
 
 
 def seed_data(session: Session) -> None:

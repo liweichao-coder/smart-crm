@@ -63,13 +63,26 @@ Current demo dataset scale:
 - 12 seeded orders
 - 22 order items, with product stock deducted
 - 22 inventory movements and 2 order approval records
+- 1 demo organization and 5 role-based users
 
 This scale is intentionally larger than a toy example but still small enough for stable classroom demos.
 
-Default demo login:
+Default demo logins:
 
 ```text
 Account: demo@smart-crm.local
+Password: SmartCRM@2026
+
+Account: manager@smart-crm.local
+Password: SmartCRM@2026
+
+Account: sales@smart-crm.local
+Password: SmartCRM@2026
+
+Account: support@smart-crm.local
+Password: SmartCRM@2026
+
+Account: audit@smart-crm.local
 Password: SmartCRM@2026
 ```
 

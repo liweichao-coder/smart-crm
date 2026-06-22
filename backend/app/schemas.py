@@ -110,6 +110,32 @@ class PermissionMatrixResponse(BaseModel):
     modules: list[ModulePermissionRead]
 
 
+class TeamMemberCreate(BaseModel):
+    full_name: str = Field(min_length=2)
+    email: str = Field(min_length=5)
+    phone: str = ""
+    role: str = "销售"
+    position: str = "销售顾问"
+    department: str = "客户增长中心"
+    location: str = "深圳 · 南山"
+    status: str = "active"
+    password: str = Field(min_length=6)
+    confirm_password: str = Field(min_length=6)
+
+
+class TeamMemberUpdate(BaseModel):
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    role: str | None = None
+    position: str | None = None
+    department: str | None = None
+    location: str | None = None
+    status: str | None = None
+    password: str | None = Field(default=None, min_length=6)
+    confirm_password: str | None = Field(default=None, min_length=6)
+
+
 class AuthAuditLogRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

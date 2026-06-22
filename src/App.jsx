@@ -72,6 +72,7 @@ import {
   createLead,
   createOrder,
   createProduct,
+  createTeamMember,
   createTask,
   decideOrderApproval,
   deleteCase,
@@ -87,6 +88,7 @@ import {
   fetchDashboard,
   fetchSalesPerformanceReport,
   fetchPermissionMatrix,
+  fetchTeamMembers,
   fetchGoals,
   fetchInventoryMovements,
   fetchLeads,
@@ -110,6 +112,7 @@ import {
   updateLead,
   updateOrder,
   updateProduct,
+  updateTeamMember,
   updateTask,
 } from './api.js'
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
@@ -123,6 +126,7 @@ const STORAGE_KEY = 'huahenuancrm:selected-org'
 const navItems = [
   { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM', permission: 'dashboard:read' },
   { path: '/reports', label: '销售报表', icon: BarChart3, title: 'Reports | 深大 AI CRM', permission: 'reports:read' },
+  { path: '/team', label: '团队成员', icon: Users, title: 'Team | 深大 AI CRM', permission: 'team:manage' },
   { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM', permission: 'ai:use' },
   { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/business-audit', label: '操作审计', icon: ClipboardList, title: 'Business Audit | 深大 AI CRM', permission: 'audit:read' },
@@ -142,9 +146,11 @@ const navItems = [
 const pageItems = [...navItems, { path: '/profile', label: '个人主页', title: 'Profile | 深大 AI CRM' }]
 
 const userProfile = {
+  id: null,
   name: 'ZRC 673468472',
   email: 'zrc673468472@gmail.com',
   phone: '+86 186 0000 2048',
+  role: '管理员',
   position: 'CRM 运营管理员',
   department: '客户增长中心',
   location: '上海 · 浦东',
@@ -155,6 +161,7 @@ const userProfile = {
 
 const statusToneMap = {
   active: 'success',
+  inactive: 'neutral',
   nurturing: 'neutral',
   proposal: 'accent',
   won: 'success',
@@ -182,6 +189,25 @@ const dataScopeLabelMap = {
   all: '全量数据',
   own: '本人数据',
 }
+
+const teamRoleOptions = ['管理员', '销售经理', '销售', '支持', '审计员']
+
+const teamStatusOptions = ['active', 'inactive']
+
+const teamStatusLabelMap = {
+  active: '启用',
+  inactive: '停用',
+}
+
+const teamMemberExportColumns = [
+  { key: 'fullName', label: '姓名' },
+  { key: 'email', label: '邮箱' },
+  { key: 'phone', label: '手机' },
+  { key: 'role', label: '角色' },
+  { key: 'status', label: '状态' },
+  { key: 'department', label: '部门' },
+  { key: 'position', label: '岗位' },
+]
 
 const boardToneMap = {
   New: 'new',
@@ -253,6 +279,7 @@ const inventorySourceLabelMap = {
 const aiOperationLabelMap = {
   copilot_summary: '副驾摘要',
   copilot_follow_up: '跟进话术',
+  copilot_ask: '经营问答',
   copilot_order_draft: '订单草稿',
   vision_extract: '智能录单',
 }
@@ -516,6 +543,39 @@ function buildProductPayload(draft) {
   }
 }
 
+function buildTeamMemberPayload(draft, isEditing = false) {
+  const payload = {
+    full_name: toDraftText(draft.fullName, '新成员'),
+    email: toDraftText(draft.email, 'member@demo.smart-crm.local'),
+    phone: toDraftText(draft.phone),
+    role: toDraftText(draft.role, '销售'),
+    position: toDraftText(draft.position, '销售顾问'),
+    department: toDraftText(draft.department, '客户增长中心'),
+    location: toDraftText(draft.location, '深圳 · 南山'),
+    status: toDraftText(draft.status, 'active'),
+  }
+  if (!isEditing || draft.password || draft.confirmPassword) {
+    payload.password = draft.password
+    payload.confirm_password = draft.confirmPassword
+  }
+  return payload
+}
+
+function createTeamMemberDraft(member = null) {
+  return {
+    fullName: member?.fullName ?? '',
+    email: member?.email ?? '',
+    phone: member?.phone ?? '',
+    role: member?.role ?? '销售',
+    position: member?.position ?? '销售顾问',
+    department: member?.department ?? '客户增长中心',
+    location: member?.location ?? '深圳 · 南山',
+    status: member?.status ?? 'active',
+    password: '',
+    confirmPassword: '',
+  }
+}
+
 function buildOrderDraft(order, ownerFallback = userProfile.name) {
   return {
     owner: order?.owner ?? ownerFallback,
@@ -663,6 +723,24 @@ function mapGoalRecord(goal) {
     target: goal.target,
     progress: goal.progress,
     note: goal.note,
+  }
+}
+
+function mapTeamMemberRecord(member) {
+  return {
+    id: member.id,
+    fullName: member.full_name,
+    email: member.email,
+    phone: member.phone,
+    role: member.role,
+    status: member.status,
+    dataScope: member.data_scope,
+    position: member.position,
+    department: member.department,
+    location: member.location,
+    permissions: member.permissions ?? [],
+    lastLoginAt: member.last_login_at,
+    createdAt: member.created_at,
   }
 }
 
@@ -814,6 +892,7 @@ function App() {
       >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/team" element={<TeamMembersPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/ai-audit" element={<AiAuditPage />} />
         <Route path="/business-audit" element={<BusinessAuditPage />} />
@@ -866,6 +945,220 @@ function ProductsPage() {
         { key: 'low', label: '低库存', predicate: (item) => Number(item.stock) <= 300 },
       ]}
     />
+  )
+}
+
+function TeamMembersPage() {
+  const { userProfile: activeProfile } = useOutletContext()
+  const [members, setMembers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+  const [activeTab, setActiveTab] = useState('all')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingMember, setEditingMember] = useState(null)
+  const [draft, setDraft] = useState(() => createTeamMemberDraft())
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+  const searchInputRef = useRef(null)
+
+  const loadMembers = async () => {
+    setLoading(true)
+    try {
+      const payload = await fetchTeamMembers()
+      const items = Array.isArray(payload) ? payload : payload.items ?? []
+      setMembers(items.map(mapTeamMemberRecord))
+      setError('')
+    } catch (requestError) {
+      setError(requestError.message || '团队成员加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadMembers()
+  }, [])
+
+  const tabs = useMemo(() => [
+    { key: 'all', label: '全部', predicate: () => true },
+    { key: 'active', label: '启用', predicate: (member) => member.status === 'active' },
+    { key: 'manager', label: '管理角色', predicate: (member) => ['管理员', '销售经理'].includes(member.role) },
+    { key: 'sales', label: '销售', predicate: (member) => member.role === '销售' },
+  ], [])
+
+  const visibleMembers = useMemo(() => {
+    const tab = tabs.find((item) => item.key === activeTab)
+    return members.filter((member) => {
+      if (tab?.predicate && !tab.predicate(member)) {
+        return false
+      }
+      if (!query.trim()) {
+        return true
+      }
+      const keyword = query.toLowerCase()
+      return [member.fullName, member.email, member.phone, member.role, member.position, member.department, member.location, member.status]
+        .some((value) => String(value ?? '').toLowerCase().includes(keyword))
+    })
+  }, [activeTab, members, query, tabs])
+
+  const handleOpenCreate = () => {
+    setEditingMember(null)
+    setDraft(createTeamMemberDraft())
+    setFormError('')
+    setModalOpen(true)
+  }
+
+  const handleOpenEdit = (member) => {
+    setEditingMember(member)
+    setDraft(createTeamMemberDraft(member))
+    setFormError('')
+    setModalOpen(true)
+  }
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    setFormError('')
+    try {
+      const payload = buildTeamMemberPayload(draft, Boolean(editingMember))
+      const saved = editingMember
+        ? await updateTeamMember(editingMember.id, payload)
+        : await createTeamMember(payload)
+      const mapped = mapTeamMemberRecord(saved)
+      setMembers((currentMembers) => (
+        editingMember
+          ? currentMembers.map((member) => (member.id === mapped.id ? mapped : member))
+          : [mapped, ...currentMembers]
+      ))
+      setModalOpen(false)
+      setEditingMember(null)
+    } catch (requestError) {
+      setFormError(requestError.message || '团队成员保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const activeCount = members.filter((member) => member.status === 'active').length
+  const managerCount = members.filter((member) => ['管理员', '销售经理'].includes(member.role)).length
+  const ownDataCount = members.filter((member) => member.dataScope === 'own').length
+
+  return (
+    <div className="crm-page-stack">
+      <ResourceHeader
+        title="团队成员"
+        subtitle="组织成员、角色权限、账号状态和数据范围集中维护。"
+        icon={Users}
+        createLabel="新增成员"
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onCreate={handleOpenCreate}
+        onFocusSearch={() => searchInputRef.current?.focus()}
+        onExport={() => downloadResourceCsv('团队成员', visibleMembers, teamMemberExportColumns)}
+        exportDisabled={!visibleMembers.length}
+      />
+      <ResourceSyncState loading={loading || saving} error={error || formError} />
+
+      <section className="crm-metric-grid">
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-qualified"><Users size={18} /></div>
+          <div>
+            <span>团队人数</span>
+            <strong>{members.length}</strong>
+            <small>{activeCount} 个账号启用</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-proposal"><KeyRound size={18} /></div>
+          <div>
+            <span>管理角色</span>
+            <strong>{managerCount}</strong>
+            <small>管理员与销售经理</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-new"><Shield size={18} /></div>
+          <div>
+            <span>本人数据范围</span>
+            <strong>{ownDataCount}</strong>
+            <small>销售角色自动限制 owner 数据</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-won"><Building2 size={18} /></div>
+          <div>
+            <span>当前操作人</span>
+            <strong>{activeProfile.name}</strong>
+            <small>{activeProfile.role} / {dataScopeLabelMap[activeProfile.dataScope] ?? activeProfile.dataScope}</small>
+          </div>
+        </article>
+      </section>
+
+      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={7} inputRef={searchInputRef} />
+      <section className="crm-panel">
+        <div className="crm-table-wrap">
+          <table className="crm-table">
+            <thead>
+              <tr>
+                <th>姓名</th>
+                <th>邮箱/手机</th>
+                <th>角色</th>
+                <th>数据范围</th>
+                <th>岗位</th>
+                <th>状态</th>
+                <th>最近登录</th>
+                <th className="crm-table-actions-cell">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleMembers.map((member) => {
+                const canEditMember = activeProfile.role === '管理员' || member.role !== '管理员'
+                return (
+                  <tr key={member.id}>
+                    <td>
+                      <strong>{member.fullName}</strong>
+                      <span>{member.department}</span>
+                    </td>
+                    <td>
+                      <strong>{member.email}</strong>
+                      <span>{member.phone || '未填写手机'}</span>
+                    </td>
+                    <td><StatusBadge value={member.role} tone={member.role === '管理员' ? 'success' : member.role === '销售经理' ? 'accent' : 'neutral'} /></td>
+                    <td><StatusBadge value={dataScopeLabelMap[member.dataScope] ?? member.dataScope} tone={member.dataScope === 'own' ? 'warning' : 'success'} /></td>
+                    <td>
+                      <strong>{member.position}</strong>
+                      <span>{member.location}</span>
+                    </td>
+                    <td><StatusBadge value={teamStatusLabelMap[member.status] ?? member.status} tone={statusToneMap[member.status] ?? 'neutral'} /></td>
+                    <td>{member.lastLoginAt ? formatDateTime(member.lastLoginAt) : '尚未登录'}</td>
+                    <td className="crm-table-actions-cell">
+                      <button className="crm-icon-button" type="button" aria-label="编辑成员" title={canEditMember ? '编辑' : '仅管理员可编辑管理员账号'} onClick={() => handleOpenEdit(member)} disabled={!canEditMember}>
+                        <Pencil size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {!loading && !error && !visibleMembers.length ? <EmptyState icon={Users} title="暂无团队成员" subtitle="新增成员后会在这里维护角色和账号状态。" /> : null}
+
+      <TeamMemberModal
+        open={modalOpen}
+        editingMember={editingMember}
+        draft={draft}
+        currentUserId={activeProfile.id}
+        currentUserRole={activeProfile.role}
+        onDraftChange={setDraft}
+        onClose={() => setModalOpen(false)}
+        onSubmit={handleSubmit}
+        submitting={saving}
+      />
+    </div>
   )
 }
 
@@ -1903,7 +2196,7 @@ function OrgSelectionPage({ authSession, onLogout }) {
       <main className="crm-org-main">
         <div className="crm-org-copy">
           <h1>选择一个组织</h1>
-          <p>组织来自后端认证会话，选择后进入对应工作台；后续可继续扩展多组织成员权限。</p>
+          <p>组织来自后端认证会话，管理员可在团队成员页维护账号、角色、状态和数据范围。</p>
         </div>
 
         <div className="crm-org-list">
@@ -4993,6 +5286,93 @@ function OrderItemsEditor({ products, items, totalAmount, onAddItem, onRemoveIte
   )
 }
 
+function TeamMemberModal({ open, editingMember, draft, currentUserId, currentUserRole, onDraftChange, onClose, onSubmit, submitting = false }) {
+  if (!open) {
+    return null
+  }
+
+  const editableRoles = currentUserRole === '管理员'
+    ? teamRoleOptions
+    : teamRoleOptions.filter((role) => role !== '管理员')
+  const isSelf = editingMember?.id === currentUserId
+
+  const handleChange = (key, value) => {
+    onDraftChange((currentDraft) => ({ ...currentDraft, [key]: value }))
+  }
+
+  return (
+    <div className="crm-modal-backdrop" role="presentation">
+      <form className="crm-modal" onSubmit={onSubmit}>
+        <div className="crm-modal-head">
+          <div>
+            <span className="crm-overline">组织成员</span>
+            <h3>{editingMember ? '编辑团队成员' : '新增团队成员'}</h3>
+          </div>
+          <button className="crm-icon-button" type="button" aria-label="关闭" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="crm-form-grid">
+          <label className="crm-field">
+            <span>姓名</span>
+            <input value={draft.fullName} onChange={(event) => handleChange('fullName', event.target.value)} required />
+          </label>
+          <label className="crm-field">
+            <span>邮箱</span>
+            <input type="email" value={draft.email} onChange={(event) => handleChange('email', event.target.value)} required />
+          </label>
+          <label className="crm-field">
+            <span>手机</span>
+            <input value={draft.phone} onChange={(event) => handleChange('phone', event.target.value)} />
+          </label>
+          <label className="crm-field">
+            <span>角色</span>
+            <select value={draft.role} onChange={(event) => handleChange('role', event.target.value)} disabled={isSelf}>
+              {editableRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+            </select>
+          </label>
+          <label className="crm-field">
+            <span>岗位</span>
+            <input value={draft.position} onChange={(event) => handleChange('position', event.target.value)} required />
+          </label>
+          <label className="crm-field">
+            <span>部门</span>
+            <input value={draft.department} onChange={(event) => handleChange('department', event.target.value)} required />
+          </label>
+          <label className="crm-field">
+            <span>地点</span>
+            <input value={draft.location} onChange={(event) => handleChange('location', event.target.value)} required />
+          </label>
+          <label className="crm-field">
+            <span>账号状态</span>
+            <select value={draft.status} onChange={(event) => handleChange('status', event.target.value)} disabled={isSelf}>
+              {teamStatusOptions.map((status) => <option key={status} value={status}>{teamStatusLabelMap[status]}</option>)}
+            </select>
+          </label>
+          <label className="crm-field">
+            <span>{editingMember ? '新密码' : '登录密码'}</span>
+            <input type="password" value={draft.password} onChange={(event) => handleChange('password', event.target.value)} required={!editingMember} minLength={6} />
+          </label>
+          <label className="crm-field">
+            <span>{editingMember ? '确认新密码' : '确认密码'}</span>
+            <input type="password" value={draft.confirmPassword} onChange={(event) => handleChange('confirmPassword', event.target.value)} required={!editingMember} minLength={6} />
+          </label>
+        </div>
+
+        <div className="crm-modal-actions">
+          <button className="crm-ghost-button" type="button" onClick={onClose}>
+            取消
+          </button>
+          <button className="crm-primary-button" type="submit" disabled={submitting}>
+            {submitting ? '保存中' : '保存成员'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function CreateRecordModal({ open, title, columns, workflowField, draft, onDraftChange, onClose, onSubmit, submitting = false, children }) {
   if (!open) {
     return null
@@ -5187,9 +5567,11 @@ function buildUserProfile(user) {
     return userProfile
   }
   return {
+    id: user.id ?? userProfile.id,
     name: user.full_name || userProfile.name,
     email: user.email || userProfile.email,
     phone: user.phone || userProfile.phone,
+    role: user.role || userProfile.role,
     position: user.position || user.role || userProfile.position,
     department: user.department || userProfile.department,
     location: user.location || userProfile.location,

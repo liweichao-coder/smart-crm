@@ -67,6 +67,7 @@ The course exam requires a full software engineering process package, not only c
 - Added real customer activity records with `CustomerActivity`, `/api/customer-activities`, `/api/customers/{customer_id}/activities`, seeded touchpoints, workspace activity creation, business audit logging, owner-scope checks, and account-plan context.
 - Added customer activity-to-task conversion with `POST /api/customer-activities/{activity_id}/task`; it creates a real follow-up task from the activity next action, avoids duplicate tasks with a `CustomerActivity#id` marker, respects owner data scope, and writes business audit logs.
 - Added CRM Skill business Q&A with `POST /api/copilot/ask`; it gathers scoped CRM context from customers, activities, leads, orders, tasks, cases, and Copilot recommendations, calls the OpenAI-compatible LLM when configured, returns evidence plus next actions, and writes AI audit logs.
+- Added real team member management with `/api/admin/users`, a new `/team` frontend page, `team:manage` RBAC permission, role/status updates, PBKDF2 password creation, disabled-account login guard, and auth audit logs. Demo seed data now includes 5 role-based users.
 
 ## Report Changes
 
@@ -114,10 +115,11 @@ The course exam requires a full software engineering process package, not only c
 - After customer activity-to-task upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 37 passed; the existing customer activity tests now also cover activity conversion, duplicate prevention, task audit logging, and sales owner-scope rejection.
 - After CRM Skill Q&A upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 38 passed; `npm test -- --run`: 24 passed; `npm run lint`: passed; `npm run build`: passed.
 - CRM Skill real LLM smoke succeeded with the configured DeepSeek-compatible key: `/api/copilot/ask` returned `fallback_used=false`, a non-empty answer, 3 evidence items, and 5 next actions.
+- After team member management upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 39 passed; `npm test -- --run`: 24 passed; `npm run lint`: passed; `npm run build`: passed. Coverage includes permission matrix exposure, member create/update, disabled-account login rejection, self role/status protection, sales manager administrator-guard, and sales-role access denial.
 - `npm run lint`: passed.
 - `npm test`: 24 passed.
 - `npm run build`: passed.
-- Demo database reset succeeded with 12 customers, 10 products, 12 contacts, 16 customer activities, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, and 22 order items.
+- Demo database seed and doctor succeeded with 1 organization, 5 role-based users, 12 customers, 10 products, 12 contacts, 16 customer activities, 15 leads/opportunities, 8 cases, 8 tasks, 4 goals, 12 seeded orders, 22 order items, 22 inventory movements, and 2 order approval records.
 - DeepSeek OpenAI-compatible smoke succeeded: summary and follow-up returned `fallback_used=false`.
 - Browser smoke succeeded at `/copilot`: backend leads loaded and follow-up generation updated the UI.
 - Browser DOM smoke succeeded for real resource pages:

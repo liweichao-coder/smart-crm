@@ -88,6 +88,8 @@ from .schemas import (
     TaskItemCreate,
     TaskItemRead,
     TaskItemUpdate,
+    TeamMemberCreate,
+    TeamMemberUpdate,
     VisionExtractResponse,
 )
 from .seed import seed_data
@@ -114,11 +116,12 @@ KNOWN_PERMISSIONS = {
     "order:manage",
     "permissions:read",
     "reports:read",
+    "team:manage",
 }
 ROLE_PERMISSIONS = {
     "管理员": {ALL_PERMISSIONS},
     "销售": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read"},
-    "销售经理": {"crm:read", "crm:write", "order:manage", "approval:manage", "ai:use", "dashboard:read", "reports:read", "audit:read", "permissions:read"},
+    "销售经理": {"crm:read", "crm:write", "order:manage", "approval:manage", "ai:use", "dashboard:read", "reports:read", "audit:read", "permissions:read", "team:manage"},
     "支持": {"crm:read", "case:write", "task:write", "dashboard:read"},
     "审计员": {"crm:read", "reports:read", "audit:read", "dashboard:read", "permissions:read"},
 }
@@ -142,10 +145,12 @@ PERMISSION_CATALOG = {
     "order:manage": ("订单", "订单管理", "创建、编辑、导出订单并查看订单库存审计。"),
     "permissions:read": ("权限", "权限矩阵查看", "查看角色、权限和模块访问矩阵。"),
     "reports:read": ("BI", "销售报表查看", "查看销售 BI 报表和聚合指标。"),
+    "team:manage": ("组织", "团队成员管理", "创建成员、调整角色和停用账号。"),
 }
 MODULE_PERMISSIONS = [
     ("/dashboard", "仪表盘", "dashboard:read"),
     ("/reports", "销售报表", "reports:read"),
+    ("/team", "团队成员", "team:manage"),
     ("/copilot", "AI 副驾", "ai:use"),
     ("/ai-audit", "AI 审计", "audit:read"),
     ("/business-audit", "操作审计", "audit:read"),
@@ -298,6 +303,22 @@ def permissions_for_role(role: str) -> list[str]:
 def role_has_permission(role: str, permission: str) -> bool:
     permissions = ROLE_PERMISSIONS.get(role, {"crm:read"})
     return ALL_PERMISSIONS in permissions or permission in permissions
+
+
+def validate_team_role(role: str, current_user: AuthUser) -> str:
+    normalized_role = str(role or "").strip()
+    if normalized_role not in ROLE_PERMISSIONS:
+        raise HTTPException(status_code=400, detail="无效角色")
+    if normalized_role == "管理员" and current_user.role != "管理员":
+        raise HTTPException(status_code=403, detail="只有管理员可以授予管理员角色")
+    return normalized_role
+
+
+def validate_user_status(status: str) -> str:
+    normalized_status = str(status or "").strip() or "active"
+    if normalized_status not in {"active", "inactive"}:
+        raise HTTPException(status_code=400, detail="无效账号状态")
+    return normalized_status
 
 
 def data_scope_for_role(role: str) -> str:
@@ -1424,6 +1445,126 @@ def get_permission_matrix(
         roles=roles,
         modules=modules,
     )
+
+
+@app.get("/api/admin/users", response_model=list[AuthUserRead] | PaginatedResponse[AuthUserRead])
+def list_team_members(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("team:manage"))],
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    q: str = "",
+    role: str = "",
+    status: str = "",
+) -> list[AuthUserRead] | dict:
+    organization = session.get(Organization, current_user.organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="组织不存在")
+    users = session.exec(select(AuthUser).where(AuthUser.organization_id == current_user.organization_id).order_by(AuthUser.created_at.desc())).all()
+    users = filter_records(
+        users,
+        q=q,
+        fields=("full_name", "email", "phone", "role", "position", "department", "location", "status"),
+        role=role,
+        status=status,
+    )
+    payload = [serialize_auth_user(user, organization) for user in users]
+    return paginate_or_list(payload, page=page, per_page=per_page)
+
+
+@app.post("/api/admin/users", response_model=AuthUserRead, status_code=201)
+def create_team_member(
+    payload: TeamMemberCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("team:manage"))],
+) -> AuthUserRead:
+    organization = session.get(Organization, current_user.organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="组织不存在")
+    email = normalize_account(payload.email)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="请输入有效邮箱")
+    if payload.password != payload.confirm_password:
+        raise HTTPException(status_code=400, detail="两次输入的密码不一致")
+    if session.exec(select(AuthUser).where(AuthUser.email == email)).first():
+        record_auth_audit(session, event="team_create", account=email, status="failed", detail="邮箱已注册", user=current_user)
+        session.commit()
+        raise HTTPException(status_code=400, detail="邮箱已注册")
+
+    role = validate_team_role(payload.role, current_user)
+    status = validate_user_status(payload.status)
+    user = AuthUser(
+        organization_id=current_user.organization_id,
+        full_name=payload.full_name.strip(),
+        email=email,
+        phone=normalize_account(payload.phone),
+        role=role,
+        position=payload.position.strip() or ROLE_DESCRIPTIONS.get(role, "团队成员"),
+        department=payload.department.strip() or "客户增长中心",
+        location=payload.location.strip() or "深圳 · 南山",
+        status=status,
+        password_hash=hash_password(payload.password),
+    )
+    session.add(user)
+    session.flush()
+    record_auth_audit(session, event="team_create", account=email, status="success", detail=f"{current_user.full_name} 创建团队成员，角色 {role}", user=user)
+    session.commit()
+    session.refresh(user)
+    return serialize_auth_user(user, organization)
+
+
+@app.patch("/api/admin/users/{user_id}", response_model=AuthUserRead)
+def update_team_member(
+    user_id: int,
+    payload: TeamMemberUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("team:manage"))],
+) -> AuthUserRead:
+    organization = session.get(Organization, current_user.organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="组织不存在")
+    user = session.get(AuthUser, user_id)
+    if not user or user.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="成员不存在")
+    if user.role == "管理员" and current_user.role != "管理员":
+        raise HTTPException(status_code=403, detail="只有管理员可以维护管理员账号")
+
+    updates = patch_values(payload)
+    if user.id == current_user.id and (
+        ("role" in updates and updates["role"] != user.role)
+        or ("status" in updates and updates["status"] != user.status)
+    ):
+        raise HTTPException(status_code=400, detail="不能修改自己的角色或状态")
+    if "email" in updates:
+        email = normalize_account(updates["email"])
+        if "@" not in email:
+            raise HTTPException(status_code=400, detail="请输入有效邮箱")
+        existing = session.exec(select(AuthUser).where(AuthUser.email == email)).first()
+        if existing and existing.id != user.id:
+            raise HTTPException(status_code=400, detail="邮箱已注册")
+        updates["email"] = email
+    if "phone" in updates:
+        updates["phone"] = normalize_account(updates["phone"])
+    if "role" in updates:
+        updates["role"] = validate_team_role(updates["role"], current_user)
+    if "status" in updates:
+        updates["status"] = validate_user_status(updates["status"])
+    if "password" in updates or "confirm_password" in updates:
+        password = updates.pop("password", None)
+        confirm_password = updates.pop("confirm_password", None)
+        if not password or password != confirm_password:
+            raise HTTPException(status_code=400, detail="两次输入的密码不一致")
+        updates["password_hash"] = hash_password(password)
+
+    for field in ("full_name", "position", "department", "location"):
+        if field in updates:
+            updates[field] = str(updates[field] or "").strip()
+    apply_updates(user, updates)
+    session.add(user)
+    record_auth_audit(session, event="team_update", account=user.email, status="success", detail=f"{current_user.full_name} 更新团队成员：{', '.join(sorted(updates.keys())) or '成员资料'}", user=user)
+    session.commit()
+    session.refresh(user)
+    return serialize_auth_user(user, organization)
 
 
 @app.get("/api/notifications", response_model=list[NotificationRead])

@@ -30,7 +30,7 @@ from .seed import seed_data
 
 DEMO_DATA_TARGETS = [
     ("organizations", Organization, 1),
-    ("users", AuthUser, 1),
+    ("users", AuthUser, 5),
     ("customers", Customer, 12),
     ("products", Product, 10),
     ("contacts", Contact, 12),
