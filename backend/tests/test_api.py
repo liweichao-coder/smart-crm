@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app import database
 from app.config import settings
 import app.main as main_module
-from app.models import AuthUser, CopilotRecommendation, SalesLead, SalesOrder, TaskItem
+from app.models import AuthUser, CopilotRecommendation, Customer, SalesLead, SalesOrder, TaskItem
 from app.seed import seed_data
 
 
@@ -53,6 +53,53 @@ def test_health_check() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_customer_owner_lightweight_migration_backfills_from_contacts(monkeypatch) -> None:
+    migration_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    with migration_engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE customer (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                company VARCHAR NOT NULL,
+                industry VARCHAR NOT NULL,
+                city VARCHAR NOT NULL,
+                contact_person VARCHAR NOT NULL,
+                phone VARCHAR NOT NULL,
+                email VARCHAR NOT NULL,
+                source VARCHAR NOT NULL,
+                level VARCHAR NOT NULL,
+                annual_revenue FLOAT NOT NULL,
+                status VARCHAR NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.exec_driver_sql("CREATE TABLE contact (id INTEGER PRIMARY KEY, company VARCHAR NOT NULL, owner VARCHAR NOT NULL)")
+        connection.exec_driver_sql(
+            """
+            INSERT INTO customer
+            (id, name, company, industry, city, contact_person, phone, email, source, level, annual_revenue, status, created_at)
+            VALUES (1, '周宁', '南山科技', '人工智能', '深圳', '周宁', '13200008888', 'zhouning@nanshan.ai', '校企合作', 'S', 1680000, 'active', '2026-06-23 00:00:00')
+            """
+        )
+        connection.exec_driver_sql("INSERT INTO contact (id, company, owner) VALUES (1, '南山科技', '李伟超')")
+
+    monkeypatch.setattr(database, "engine", migration_engine)
+    database.run_lightweight_migrations()
+
+    with migration_engine.connect() as connection:
+        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(customer)").fetchall()}
+        owner = connection.exec_driver_sql("SELECT owner FROM customer WHERE id = 1").scalar_one()
+
+    assert "owner" in columns
+    assert owner == "李伟超"
 
 
 def test_dashboard_payload() -> None:
@@ -248,6 +295,11 @@ def test_rbac_sales_role_permissions() -> None:
         tasks = client.get("/api/tasks", headers=headers)
         orders = client.get("/api/orders", headers=headers)
         created_customer = client.post("/api/customers", json={"company": "销售权限客户", "contact_person": "销售员"}, headers=headers)
+        denied_customer_create = client.post(
+            "/api/customers",
+            json={"company": "越权客户", "contact_person": "销售员", "owner": "王蕾"},
+            headers=headers,
+        )
         denied_lead_create = client.post(
             "/api/leads",
             json={"title": "越权商机", "customer_name": "越权客户", "owner": "王蕾", "due_date": "2026-06-30"},
@@ -255,12 +307,15 @@ def test_rbac_sales_role_permissions() -> None:
         )
 
         with Session(main_module.engine) as session:
+            other_customer = session.exec(select(Customer).where(Customer.owner != "李伟超")).first()
             other_lead = session.exec(select(SalesLead).where(SalesLead.owner != "李伟超")).first()
             other_order = session.exec(select(SalesOrder).where(SalesOrder.owner != "李伟超")).first()
             other_task = session.exec(select(TaskItem).where(TaskItem.owner != "李伟超")).first()
+            assert other_customer is not None
             assert other_lead is not None
             assert other_order is not None
             assert other_task is not None
+            other_customer_id = other_customer.id
             other_lead_id = other_lead.id
             other_order_id = other_order.id
             other_task_id = other_task.id
@@ -296,9 +351,27 @@ def test_rbac_sales_role_permissions() -> None:
             own_recommendation_id = own_recommendation.id
             other_recommendation_id = other_recommendation.id
 
+        denied_customer_update = client.patch(f"/api/customers/{other_customer_id}", json={"industry": "越权修改"}, headers=headers)
         denied_lead_update = client.patch(f"/api/leads/{other_lead_id}", json={"stage": "won"}, headers=headers)
         denied_order_update = client.patch(f"/api/orders/{other_order_id}", json={"status": "fulfilled"}, headers=headers)
         denied_task_update = client.patch(f"/api/tasks/{other_task_id}", json={"status": "today"}, headers=headers)
+        products = client.get("/api/products", headers=headers).json()
+        denied_order_for_other_customer = client.post(
+            "/api/orders",
+            json={
+                "customer_id": other_customer_id,
+                "owner": "李伟超",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "draft",
+                "order_date": "2026-06-23",
+                "due_date": "2026-07-03",
+                "notes": "越权客户订单",
+                "created_by_ai": False,
+                "items": [{"product_id": products[0]["id"], "quantity": 1, "unit_price": products[0]["unit_price"]}],
+            },
+            headers=headers,
+        )
         recommendations = client.get("/api/copilot/recommendations", headers=headers)
         denied_recommendation_task = client.post(
             f"/api/copilot/recommendations/{other_recommendation_id}/task",
@@ -323,9 +396,11 @@ def test_rbac_sales_role_permissions() -> None:
     assert tasks.status_code == 200
     assert orders.status_code == 200
     assert recommendations.status_code == 200
+    assert customers.json()
     assert leads.json()
     assert tasks.json()
     assert orders.json()
+    assert all(item["owner"] == "李伟超" for item in customers.json())
     assert all(item["owner"] == "李伟超" for item in leads.json())
     assert all(item["owner"] == "李伟超" for item in tasks.json())
     assert all(item["owner"] == "李伟超" for item in orders.json())
@@ -333,6 +408,10 @@ def test_rbac_sales_role_permissions() -> None:
     assert any(item["id"] == own_recommendation_id for item in recommendations.json())
     assert all(item["id"] != other_recommendation_id for item in recommendations.json())
     assert created_customer.status_code == 201
+    assert created_customer.json()["owner"] == "李伟超"
+    assert denied_customer_create.status_code == 403
+    assert denied_customer_update.status_code == 403
+    assert denied_order_for_other_customer.status_code == 403
     assert denied_lead_create.status_code == 403
     assert denied_lead_update.status_code == 403
     assert denied_order_update.status_code == 403

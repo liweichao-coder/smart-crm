@@ -88,6 +88,7 @@ class AuthAuditLog(AuthAuditLogBase, table=True):
 class CustomerBase(SQLModel):
     name: str = Field(index=True)
     company: str
+    owner: str = Field(default="李伟超", index=True)
     industry: str
     city: str
     contact_person: str

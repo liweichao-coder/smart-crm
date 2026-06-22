@@ -411,9 +411,10 @@ function buildCustomerPayload(draft) {
   const owner = toDraftText(draft.owner, '未分配')
   return {
     company,
-    name: owner,
+    name: toDraftText(draft.contactPerson, owner),
+    owner,
     industry: toDraftText(draft.industry, '待补充'),
-    contact_person: owner,
+    contact_person: toDraftText(draft.contactPerson, owner),
     annual_revenue: toDraftNumber(draft.revenue),
     status: toDraftText(draft.status, 'active'),
     city: '深圳',
@@ -556,7 +557,7 @@ function mapCustomerRecord(customer) {
     id: customer.id,
     name: customer.company,
     industry: customer.industry,
-    owner: customer.contact_person,
+    owner: customer.owner ?? customer.contact_person,
     revenue: customer.annual_revenue,
     status: customer.status,
   }

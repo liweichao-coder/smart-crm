@@ -1258,22 +1258,26 @@ def list_auth_audit_logs(
     return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/customers", response_model=list[CustomerRead] | PaginatedResponse[CustomerRead], dependencies=[Depends(require_permission("crm:read"))])
+@app.get("/api/customers", response_model=list[CustomerRead] | PaginatedResponse[CustomerRead])
 def list_customers(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
     q: str = "",
+    owner: str = "",
     status: str = "",
     level: str = "",
     city: str = "",
     industry: str = "",
 ) -> list[Customer] | dict:
     customers = session.exec(select(Customer).order_by(Customer.created_at.desc())).all()
+    customers = filter_by_owner_scope(customers, current_user)
     customers = filter_records(
         customers,
         q=q,
-        fields=("name", "company", "industry", "city", "contact_person", "phone", "email", "source"),
+        fields=("name", "company", "owner", "industry", "city", "contact_person", "phone", "email", "source"),
+        owner=owner,
         status=status,
         level=level,
         city=city,
@@ -1282,12 +1286,19 @@ def list_customers(
     return paginate_or_list(customers, page=page, per_page=per_page)
 
 
-@app.post("/api/customers", response_model=CustomerRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
-def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
+@app.post("/api/customers", response_model=CustomerRead, status_code=201)
+def create_customer(
+    payload: CustomerCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> Customer:
+    owner = payload.owner or current_user.full_name
+    require_payload_owner_scope(current_user, owner)
     contact_person = payload.contact_person or payload.name or payload.company
     customer = Customer(
         name=payload.name or contact_person,
         company=payload.company,
+        owner=owner,
         industry=payload.industry,
         city=payload.city,
         contact_person=contact_person,
@@ -1305,7 +1316,7 @@ def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
         action="create",
         entity_type="customer",
         entity_id=customer.id,
-        operator=customer.contact_person,
+        operator=customer.owner,
         summary=f"新建客户 {customer.company}",
         detail=f"行业 {customer.industry}，城市 {customer.city}，等级 {customer.level}",
     )
@@ -1314,36 +1325,52 @@ def create_customer(payload: CustomerCreate, session: SessionDep) -> Customer:
     return customer
 
 
-@app.patch("/api/customers/{customer_id}", response_model=CustomerRead, dependencies=[Depends(require_permission("crm:write"))])
-def update_customer(customer_id: int, payload: CustomerUpdate, session: SessionDep) -> Customer:
+@app.patch("/api/customers/{customer_id}", response_model=CustomerRead)
+def update_customer(
+    customer_id: int,
+    payload: CustomerUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> Customer:
     customer = session.get(Customer, customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
-    apply_updates(customer, patch_values(payload))
+    require_owner_scope(current_user, customer.owner)
+    updates = patch_values(payload)
+    if "owner" in updates:
+        require_payload_owner_scope(current_user, updates["owner"])
+    apply_updates(customer, updates)
     if not customer.contact_person:
         customer.contact_person = customer.name or customer.company
     if not customer.name:
         customer.name = customer.contact_person or customer.company
+    if not customer.owner:
+        customer.owner = customer.contact_person or customer.name or customer.company
     session.add(customer)
     add_business_audit(
         session,
         action="update",
         entity_type="customer",
         entity_id=customer.id,
-        operator=customer.contact_person,
+        operator=customer.owner,
         summary=f"更新客户 {customer.company}",
-        detail=", ".join(sorted(patch_values(payload).keys())) or "更新客户资料",
+        detail=", ".join(sorted(updates.keys())) or "更新客户资料",
     )
     session.commit()
     session.refresh(customer)
     return customer
 
 
-@app.delete("/api/customers/{customer_id}", dependencies=[Depends(require_permission("crm:write"))])
-def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+@app.delete("/api/customers/{customer_id}")
+def delete_customer(
+    customer_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> dict[str, bool | int | str]:
     customer = session.get(Customer, customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
+    require_owner_scope(current_user, customer.owner)
     order = session.exec(select(SalesOrder).where(SalesOrder.customer_id == customer_id)).first()
     if order:
         raise HTTPException(status_code=400, detail="客户已有订单，不能直接删除")
@@ -1352,7 +1379,7 @@ def delete_customer(customer_id: int, session: SessionDep) -> dict[str, bool | i
         action="delete",
         entity_type="customer",
         entity_id=customer_id,
-        operator=customer.contact_person,
+        operator=customer.owner,
         summary=f"删除客户 {customer.company}",
         detail=f"客户 ID {customer_id}",
     )
@@ -2285,6 +2312,7 @@ def create_order(
     customer = session.get(Customer, payload.customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
+    require_owner_scope(current_user, customer.owner)
 
     product_ids = [item.product_id for item in payload.items]
     products = session.exec(select(Product).where(Product.id.in_(product_ids))).all()
@@ -2528,12 +2556,17 @@ async def copilot_follow_up(
     return result
 
 
-@app.post("/api/copilot/order-draft", response_model=CopilotOrderDraftResponse, dependencies=[Depends(require_permission("ai:use"))])
-async def copilot_order_draft(payload: CopilotOrderDraftRequest, session: SessionDep) -> CopilotOrderDraftResponse:
+@app.post("/api/copilot/order-draft", response_model=CopilotOrderDraftResponse)
+async def copilot_order_draft(
+    payload: CopilotOrderDraftRequest,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+) -> CopilotOrderDraftResponse:
     start_time = perf_counter()
     customer = session.get(Customer, payload.customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="客户不存在")
+    require_owner_scope(current_user, customer.owner)
 
     if payload.product_ids:
         products = session.exec(select(Product).where(Product.id.in_(payload.product_ids))).all()
@@ -2687,6 +2720,7 @@ def get_dashboard(
     customers = session.exec(select(Customer)).all()
     orders = filter_by_owner_scope(orders, current_user)
     leads = filter_by_owner_scope(leads, current_user)
+    customers = filter_by_owner_scope(customers, current_user)
 
     total_revenue = sum(order.total_amount for order in orders)
     ai_orders = [order for order in orders if order.created_by_ai]

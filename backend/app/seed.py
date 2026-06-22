@@ -97,6 +97,12 @@ def seed_data(session: Session) -> None:
     ]
     session.add_all(contacts)
     session.flush()
+    owner_by_company: dict[str, str] = {}
+    for contact in contacts:
+        owner_by_company.setdefault(contact.company, contact.owner)
+    for customer in customers:
+        customer.owner = owner_by_company.get(customer.company, customer.contact_person)
+        session.add(customer)
 
     products = [
         Product(name="智能巡检终端", sku="AI-DEVICE-001", category="硬件", unit_price=16800, stock=80),

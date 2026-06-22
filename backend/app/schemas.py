@@ -129,6 +129,7 @@ class CustomerRead(BaseModel):
     id: int
     name: str
     company: str
+    owner: str
     industry: str
     city: str
     contact_person: str
@@ -144,6 +145,7 @@ class CustomerRead(BaseModel):
 class CustomerCreate(BaseModel):
     name: str = ""
     company: str
+    owner: str = ""
     industry: str = "待补充"
     city: str = "深圳"
     contact_person: str = ""
@@ -158,6 +160,7 @@ class CustomerCreate(BaseModel):
 class CustomerUpdate(BaseModel):
     name: str | None = None
     company: str | None = None
+    owner: str | None = None
     industry: str | None = None
     city: str | None = None
     contact_person: str | None = None
