@@ -135,15 +135,13 @@ p {
 }
 
 .crm-brand-mark {
-  display: grid;
+  display: block;
   height: 44px;
   width: 44px;
-  place-items: center;
   border-radius: 999px;
-  background: var(--color-primary-default);
-  color: white;
-  font-size: 18px;
-  font-weight: 800;
+  object-fit: contain;
+  background: #fff8ef;
+  box-shadow: 0 0 0 1px rgba(181, 36, 42, 0.18);
 }
 
 .crm-brand-copy,
@@ -1743,9 +1741,8 @@ body {
   border: 2px solid #ffffff;
   border-radius: 999px;
   outline: 1px solid rgba(181, 36, 42, 0.26);
-  background: #b5242a;
+  background: #fff8ef;
   box-shadow: none;
-  font-family: 'KaiTi', 'STKaiti', 'Segoe UI', sans-serif;
 }
 
 .crm-sidebar-inner,
@@ -2471,8 +2468,7 @@ body {
 
 .crm-brand-mark {
   border-radius: 999px;
-  background: var(--color-primary-default);
-  color: #fff;
+  background: #fff8ef;
   box-shadow: none;
 }
 

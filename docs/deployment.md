@@ -21,6 +21,12 @@ SMART_CRM_LLM_TIMEOUT_SECONDS=20
 
 Do not commit `.env`; it is ignored by Git.
 
+If the frontend port changes, add the new origin here before starting the backend. For example, a frontend running at `http://127.0.0.1:5277` needs:
+
+```env
+SMART_CRM_CORS_ORIGINS=["http://localhost:5277","http://127.0.0.1:5277"]
+```
+
 ## 2. Install Dependencies
 
 ```powershell
@@ -31,6 +37,13 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 ```powershell
 cd D:\LwcCode\personal-project\smart-crm
 npm install
+Copy-Item .env.example .env
+```
+
+Root `.env` is used by Vite. Keep it aligned with the backend port:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 ## 3. Reset Demo Database
@@ -101,6 +114,11 @@ Frontend:
 cd D:\LwcCode\personal-project\smart-crm
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
+
+If login fails with `Failed to fetch`, verify these two values first:
+
+- `VITE_API_BASE_URL` in the root `.env` points to the actual backend port.
+- `SMART_CRM_CORS_ORIGINS` in `backend/.env` includes the exact frontend origin.
 
 Open:
 

@@ -66,21 +66,7 @@
 
 ## 快速开始
 
-### 1. 启动前端
-
-```powershell
-cd D:\LwcCode\personal-project\smart-crm
-npm install
-npm run dev
-```
-
-默认开发地址：
-
-```text
-http://127.0.0.1:5173
-```
-
-### 2. 启动后端
+### 1. 启动后端
 
 ```powershell
 cd D:\LwcCode\personal-project\smart-crm\backend
@@ -96,6 +82,23 @@ Copy-Item .env.example .env
 ```text
 http://127.0.0.1:8000/health
 ```
+
+### 2. 启动前端
+
+```powershell
+cd D:\LwcCode\personal-project\smart-crm
+Copy-Item .env.example .env
+npm install
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+默认开发地址：
+
+```text
+http://127.0.0.1:5173
+```
+
+前端 `.env` 的 `VITE_API_BASE_URL` 必须指向正在运行的后端，例如 `http://127.0.0.1:8000`。如果临时更换前端端口，也要把 `backend/.env` 里的 `SMART_CRM_CORS_ORIGINS` 同步加入该前端地址，否则浏览器登录会被 CORS 拦截。
 
 默认演示账号：
 

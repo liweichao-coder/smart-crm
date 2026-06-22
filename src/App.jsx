@@ -52,6 +52,7 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import avatar from './assets/vendor/unnamed.png'
+import szuEmblem from './assets/szu-emblem.svg'
 import {
   AUTH_STORAGE_KEY,
   assignOrderApproval,
@@ -181,6 +182,10 @@ const userProfile = {
   joinDate: '2024 年 2 月 18 日',
   permissions: ['*'],
   dataScope: 'all',
+}
+
+function BrandMark() {
+  return <img className="crm-brand-mark" src={szuEmblem} alt="" aria-hidden="true" />
 }
 
 const statusToneMap = {
@@ -1083,7 +1088,7 @@ function App() {
         <main className="crm-auth-shell crm-auth-shell--compact">
           <section className="crm-auth-panel">
             <div className="crm-auth-brand crm-auth-brand--panel">
-              <div className="crm-brand-mark">深</div>
+              <BrandMark />
               <div>
                 <strong>深大 AI CRM</strong>
                 <span>正在校验登录状态</span>
@@ -1967,7 +1972,7 @@ function LoginPage({ onLogin }) {
       <main className="crm-auth-shell">
         <section className="crm-auth-showcase">
           <div className="crm-auth-brand">
-            <div className="crm-brand-mark">深</div>
+            <BrandMark />
             <div>
               <strong>深大 AI CRM</strong>
               <span>销售、客户与任务协同平台</span>
@@ -2088,7 +2093,7 @@ function RegisterPage({ onLogin }) {
       <main className="crm-auth-shell crm-auth-shell--compact">
         <section className="crm-auth-panel">
           <div className="crm-auth-brand crm-auth-brand--panel">
-            <div className="crm-brand-mark">深</div>
+            <BrandMark />
             <div>
               <strong>深大 AI CRM</strong>
               <span>管理员注册</span>
@@ -2258,7 +2263,7 @@ function AppShell({ authSession, onLogout }) {
         <div className="crm-sidebar-inner">
           <div className="crm-sidebar-header">
             <button className="crm-brand" type="button" onClick={() => navigate('/org')}>
-              <div className="crm-brand-mark">深</div>
+              <BrandMark />
               <div className="crm-brand-copy">
                 <strong>{activeSelectedOrg.name}</strong>
                 <span>CRM 平台</span>
@@ -2389,7 +2394,7 @@ function OrgSelectionPage({ authSession, onLogout }) {
     <div className="crm-org-page">
       <header className="crm-org-header">
         <div className="crm-org-brand">
-          <div className="crm-brand-mark">深</div>
+          <BrandMark />
           <strong>深大 AI CRM</strong>
         </div>
         <button

@@ -136,7 +136,7 @@ The course exam requires a full software engineering process package, not only c
 - DeepSeek OpenAI-compatible smoke succeeded: summary and follow-up returned `fallback_used=false`.
 - Browser smoke succeeded at `/copilot`: backend leads loaded and follow-up generation updated the UI.
 - Browser DOM smoke succeeded for real resource pages:
-  - `/accounts`: 12 rows, brand mark `深`.
+  - `/accounts`: 12 rows, Shenzhen University-style SVG emblem.
   - `/contacts`: 12 rows.
   - `/leads`: 15 rows.
   - `/cases`: 8 rows.
@@ -189,6 +189,8 @@ The course exam requires a full software engineering process package, not only c
 - Frontend utility regression now covers 30 tests, adding selection toggles and bulk-settled result summaries.
 - Added bulk table editing: selected table rows can update checked fields through each resource's existing real PATCH API; successful rows are refreshed and deselected, while failed rows stay selected for retry.
 - Frontend utility regression now covers 31 tests, adding bulk-edit patch generation and numeric normalization.
+- Replaced the temporary text brand mark with a local Shenzhen University inspired SVG emblem, updated the favicon and browser title, and reused the emblem across login, registration, organization selection, loading, and sidebar brand surfaces.
+- Added a root `.env.example` and clarified deployment docs so teammates keep `VITE_API_BASE_URL` aligned with the backend port and `SMART_CRM_CORS_ORIGINS` aligned with the frontend port. Browser smoke on clean ports verified login, organization selection, and dashboard sidebar rendering with the SVG emblem.
 
 ## Next Steps
 
