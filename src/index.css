@@ -1079,6 +1079,49 @@ p {
   border: 1px solid var(--border-default);
 }
 
+.crm-column-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 620px;
+}
+
+.crm-column-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.crm-column-choice input {
+  accent-color: var(--color-primary-default);
+}
+
+.crm-table-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+}
+
+.crm-table-sort-button small {
+  color: var(--color-primary-default);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .crm-table {
   width: 100%;
   border-collapse: collapse;

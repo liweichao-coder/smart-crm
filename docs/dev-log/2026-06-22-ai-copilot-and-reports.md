@@ -183,8 +183,10 @@ The course exam requires a full software engineering process package, not only c
 - Targeted feedback regression succeeded: a sales user can submit feedback for own Copilot recommendations, cross-owner feedback returns 403, and the AI quality regression verifies the new human-feedback metrics in `/api/reports/ai-quality`.
 - Added backend-synced view preferences: `/api/preferences/{namespace}` persists each authenticated user's resource-list query, active tab, and list/board view in `UserPreference`; resource pages restore the saved preference when the URL has no explicit state and show preference sync status in the toolbar.
 - User preference regression succeeded: unauthenticated preference reads return 401, a logged-in user can save and reload `resource:orders`, invalid namespaces return 400, and another registered user sees an empty isolated preference. Full backend pytest now covers 46 tests.
+- Added table view personalization: table resource pages can hide/show columns, sort by a column, export only visible columns, and persist `visibleColumnKeys` plus `sort` through the existing backend preference API.
+- Frontend utility regression now covers 29 tests, including visible-column normalization and persisted table sorting.
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, column/sort preferences, feedback note editing, and more operating BI dimensions.
+- Add fuller end-to-end browser smoke coverage, batch actions, feedback note editing, and more operating BI dimensions.
 - Capture screenshots and export Word/PPT final materials.

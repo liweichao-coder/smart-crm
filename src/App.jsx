@@ -127,7 +127,17 @@ import {
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { toDraftOwner } from './ownerUtils.js'
-import { buildClientRecord, buildCsvContent, createCsvFilename, createDraftFromColumns, parseListSearchState, patchListSearchParams } from './resourceUtils.js'
+import {
+  buildClientRecord,
+  buildCsvContent,
+  createCsvFilename,
+  createDraftFromColumns,
+  normalizeSortState,
+  normalizeVisibleColumnKeys,
+  parseListSearchState,
+  patchListSearchParams,
+  sortRecordsByColumn,
+} from './resourceUtils.js'
 import { getSessionOrganizations, resolveSelectedOrg } from './sessionUtils.js'
 
 const STORAGE_KEY = 'huahenuancrm:selected-org'
@@ -852,6 +862,7 @@ function useResourceUrlState({
 } = {}) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [preferenceStatus, setPreferenceStatus] = useState(preferenceNamespace ? '加载偏好' : '')
+  const [preferenceValue, setPreferenceValue] = useState({})
   const saveTimerRef = useRef(null)
   const state = parseListSearchState(searchParams, {
     tabKeys,
@@ -873,6 +884,7 @@ function useResourceUrlState({
           return
         }
         const value = preference?.value ?? {}
+        setPreferenceValue(value)
         const hasSavedState = Boolean(value.query || value.activeTab || value.tab || value.view)
         if (hasSavedState) {
           setSearchParams(
@@ -921,10 +933,12 @@ function useResourceUrlState({
       clearTimeout(saveTimerRef.current)
     }
     const nextPreference = {
+      ...preferenceValue,
       query: updates.q ?? state.query,
       activeTab: updates.tab ?? state.tab,
       view: updates.view ?? state.view,
     }
+    setPreferenceValue(nextPreference)
     setPreferenceStatus('保存偏好')
     saveTimerRef.current = setTimeout(() => {
       saveUserPreference(preferenceNamespace, nextPreference)
@@ -947,12 +961,37 @@ function useResourceUrlState({
     }
   }
 
+  const savePreferencePatch = (patch) => {
+    if (!preferenceNamespace) {
+      return
+    }
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+    }
+    const nextPreference = {
+      ...preferenceValue,
+      query: state.query,
+      activeTab: state.tab,
+      view: state.view,
+      ...patch,
+    }
+    setPreferenceValue(nextPreference)
+    setPreferenceStatus('保存偏好')
+    saveTimerRef.current = setTimeout(() => {
+      saveUserPreference(preferenceNamespace, nextPreference)
+        .then(() => setPreferenceStatus('偏好已保存'))
+        .catch(() => setPreferenceStatus('偏好保存失败'))
+    }, 350)
+  }
+
   return {
     query: state.query,
     activeTab: state.tab,
     view: state.view,
     selectedId: state.selectedId,
     preferenceStatus,
+    preferenceValue,
+    savePreferencePatch,
     setQuery: (query) => updateUrlState({ q: query }),
     setActiveTab: (tab) => updateUrlState({ tab }),
     setView: (view) => updateUrlState({ view }),
@@ -4821,17 +4860,29 @@ function TableResourcePage({
   const [draft, setDraft] = useState(createInitialDraft)
   const searchInputRef = useRef(null)
   const hasActions = Boolean(getRecordHref || onUpdateRecord || onDeleteRecord)
-  const { query, setQuery, activeTab, setActiveTab, preferenceStatus } = useResourceUrlState({
+  const { query, setQuery, activeTab, setActiveTab, preferenceStatus, preferenceValue, savePreferencePatch } = useResourceUrlState({
     tabKeys: tabs.map((tab) => tab.key),
     defaultTab: tabs[0].key,
     preferenceNamespace,
   })
+  const visibleColumnKeys = useMemo(
+    () => normalizeVisibleColumnKeys(columns, preferenceValue.visibleColumnKeys),
+    [columns, preferenceValue.visibleColumnKeys],
+  )
+  const visibleColumns = useMemo(
+    () => columns.filter((column) => visibleColumnKeys.includes(column.key)),
+    [columns, visibleColumnKeys],
+  )
+  const sortState = useMemo(
+    () => normalizeSortState(columns, preferenceValue.sort),
+    [columns, preferenceValue.sort],
+  )
 
   useEffect(() => {
     setRows(records)
   }, [records])
 
-  const visibleRecords = useMemo(() => {
+  const filteredRecords = useMemo(() => {
     const tab = tabs.find((item) => item.key === activeTab)
     return rows.filter((record) => {
       const matchesTab = tab?.predicate ? tab.predicate(record) : true
@@ -4844,6 +4895,10 @@ function TableResourcePage({
       return Object.values(record).some((value) => String(value).toLowerCase().includes(query.toLowerCase()))
     })
   }, [activeTab, query, rows, tabs])
+  const visibleRecords = useMemo(
+    () => sortRecordsByColumn(filteredRecords, sortState.key, sortState.direction),
+    [filteredRecords, sortState.direction, sortState.key],
+  )
 
   const handleOpenCreate = () => {
     setEditingRecord(null)
@@ -4903,7 +4958,26 @@ function TableResourcePage({
   }
 
   const handleExportCsv = () => {
-    downloadResourceCsv(title, visibleRecords, columns)
+    downloadResourceCsv(title, visibleRecords, visibleColumns)
+  }
+
+  const handleToggleColumn = (columnKey) => {
+    const nextKeys = visibleColumnKeys.includes(columnKey)
+      ? visibleColumnKeys.filter((key) => key !== columnKey)
+      : columns.map((column) => column.key).filter((key) => key === columnKey || visibleColumnKeys.includes(key))
+    if (!nextKeys.length) {
+      return
+    }
+    savePreferencePatch({ visibleColumnKeys: nextKeys })
+  }
+
+  const handleSortColumn = (columnKey) => {
+    const nextSort = sortState.key !== columnKey
+      ? { key: columnKey, direction: 'asc' }
+      : sortState.direction === 'asc'
+        ? { key: columnKey, direction: 'desc' }
+        : { key: '', direction: 'asc' }
+    savePreferencePatch({ sort: nextSort })
   }
 
   return (
@@ -4922,14 +4996,33 @@ function TableResourcePage({
         exportDisabled={!visibleRecords.length}
       />
       <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
-      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} inputRef={searchInputRef} preferenceStatus={preferenceStatus} />
+      <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={visibleColumns.length} inputRef={searchInputRef} preferenceStatus={preferenceStatus}>
+        <div className="crm-column-picker" aria-label="列显示">
+          {columns.map((column) => (
+            <label key={column.key} className="crm-column-choice">
+              <input
+                type="checkbox"
+                checked={visibleColumnKeys.includes(column.key)}
+                disabled={visibleColumnKeys.length === 1 && visibleColumnKeys.includes(column.key)}
+                onChange={() => handleToggleColumn(column.key)}
+              />
+              <span>{column.label}</span>
+            </label>
+          ))}
+        </div>
+      </ResourceToolbar>
       <div className="crm-panel">
         <div className="crm-table-wrap">
           <table className="crm-table">
             <thead>
               <tr>
-                {columns.map((column) => (
-                  <th key={column.key}>{column.label}</th>
+                {visibleColumns.map((column) => (
+                  <th key={column.key}>
+                    <button className="crm-table-sort-button" type="button" onClick={() => handleSortColumn(column.key)}>
+                      <span>{column.label}</span>
+                      {sortState.key === column.key ? <small>{sortState.direction === 'asc' ? '升序' : '降序'}</small> : null}
+                    </button>
+                  </th>
                 ))}
                 {hasActions ? <th className="crm-table-actions-cell">操作</th> : null}
               </tr>
@@ -4937,7 +5030,7 @@ function TableResourcePage({
             <tbody>
               {visibleRecords.map((record) => (
                 <tr key={record.id}>
-                  {columns.map((column) => (
+                  {visibleColumns.map((column) => (
                     <td key={column.key}>{renderCell(record[column.key], column)}</td>
                   ))}
                   {hasActions ? (

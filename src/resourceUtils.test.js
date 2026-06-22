@@ -7,8 +7,11 @@ import {
   createCsvFilename,
   createDraftFromColumns,
   normalizeDraftValue,
+  normalizeSortState,
+  normalizeVisibleColumnKeys,
   parseListSearchState,
   patchListSearchParams,
+  sortRecordsByColumn,
 } from './resourceUtils.js'
 
 test('createDraftFromColumns builds sensible defaults for resource forms', () => {
@@ -121,4 +124,33 @@ test('patchListSearchParams updates list URL state while preserving unrelated pa
   })
 
   assert.equal(params.toString(), 'page=2&q=%E5%8C%BB%E7%96%97&tab=active')
+})
+
+test('normalizeVisibleColumnKeys restores valid saved column preferences', () => {
+  const columns = [
+    { key: 'name', label: '客户' },
+    { key: 'owner', label: '负责人' },
+    { key: 'status', label: '状态' },
+  ]
+
+  assert.deepEqual(normalizeVisibleColumnKeys(columns, ['owner', 'missing', 'name']), ['owner', 'name'])
+  assert.deepEqual(normalizeVisibleColumnKeys(columns, ['missing']), ['name', 'owner', 'status'])
+  assert.deepEqual(normalizeVisibleColumnKeys(columns), ['name', 'owner', 'status'])
+})
+
+test('normalizeSortState and sortRecordsByColumn apply saved table sorting', () => {
+  const columns = [
+    { key: 'name', label: '客户' },
+    { key: 'amount', label: '金额' },
+  ]
+  const records = [
+    { name: '云舟', amount: 1200 },
+    { name: '北辰', amount: 3200 },
+    { name: '南山', amount: 900 },
+  ]
+
+  assert.deepEqual(normalizeSortState(columns, { key: 'amount', direction: 'desc' }), { key: 'amount', direction: 'desc' })
+  assert.deepEqual(normalizeSortState(columns, { key: 'missing', direction: 'desc' }), { key: '', direction: 'desc' })
+  assert.deepEqual(sortRecordsByColumn(records, 'amount', 'desc').map((record) => record.name), ['北辰', '云舟', '南山'])
+  assert.deepEqual(sortRecordsByColumn(records, 'name', 'asc').map((record) => record.name), ['北辰', '南山', '云舟'])
 })

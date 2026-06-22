@@ -128,3 +128,48 @@ export function patchListSearchParams(searchParams, updates = {}, defaults = {})
 
   return nextParams
 }
+
+export function normalizeVisibleColumnKeys(columns, savedKeys) {
+  const allKeys = columns.map((column) => column.key)
+  if (!Array.isArray(savedKeys)) {
+    return allKeys
+  }
+  const visibleKeys = savedKeys.filter((key) => allKeys.includes(key))
+  return visibleKeys.length ? visibleKeys : allKeys
+}
+
+export function normalizeSortState(columns, savedSort = {}) {
+  const allKeys = columns.map((column) => column.key)
+  const key = allKeys.includes(savedSort?.key) ? savedSort.key : ''
+  const direction = savedSort?.direction === 'desc' ? 'desc' : 'asc'
+  return { key, direction }
+}
+
+function normalizeSortValue(value) {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  const numberValue = Number(value)
+  if (Number.isFinite(numberValue) && String(value).trim() !== '') {
+    return numberValue
+  }
+  return String(value).toLowerCase()
+}
+
+export function sortRecordsByColumn(records, sortKey, sortDirection = 'asc') {
+  if (!sortKey) {
+    return records
+  }
+  const directionMultiplier = sortDirection === 'desc' ? -1 : 1
+  return [...records].sort((leftRecord, rightRecord) => {
+    const leftValue = normalizeSortValue(leftRecord[sortKey])
+    const rightValue = normalizeSortValue(rightRecord[sortKey])
+    if (leftValue === rightValue) {
+      return 0
+    }
+    if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+      return (leftValue - rightValue) * directionMultiplier
+    }
+    return String(leftValue).localeCompare(String(rightValue), 'zh-Hans-CN') * directionMultiplier
+  })
+}
