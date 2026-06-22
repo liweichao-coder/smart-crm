@@ -49,6 +49,7 @@ The course exam requires a full software engineering process package, not only c
 - Added server-side RBAC permission policies for business APIs, including 401 for unauthenticated access and 403 for roles without catalog or audit permissions.
 - Added permission-aware frontend navigation so users only see modules allowed by the permission list returned from `/api/auth/me`.
 - Added root `pytest.ini` so backend tests can be run from the repository root with `backend/.venv/Scripts/python.exe -m pytest`.
+- Added real sales BI reporting with `/api/reports/sales-performance`, `reports:read` permission, and a frontend Reports page for revenue trend, owner/region performance, sales funnel, AI revenue impact, and inventory risks.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
 
 ## Report Changes
@@ -82,6 +83,7 @@ The course exam requires a full software engineering process package, not only c
 - After paginated list query upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 22 passed.
 - After real authentication upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 24 passed.
 - After RBAC upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 26 passed.
+- After sales BI report upgrade, `backend/.venv/Scripts/python.exe -m pytest`: 27 passed.
 - `npm run lint`: passed.
 - `npm test`: 16 passed.
 - `npm run build`: passed.
@@ -114,9 +116,10 @@ The course exam requires a full software engineering process package, not only c
 - Paginated query regression succeeded: customers, products, leads, orders, and business audit logs return correct `items`, `total`, `page`, and filter-constrained rows when pagination parameters are supplied.
 - Authentication regression succeeded: demo login returns a Bearer token, `/api/auth/me` returns the current user and organization, logout revokes the token, registration creates a new organization, and duplicate emails are rejected.
 - RBAC regression succeeded: unauthenticated business API calls return 401, while a sales role can read/write customers but cannot manage products or read audit logs.
+- Sales BI report regression succeeded: `/api/reports/sales-performance` returns real metrics, revenue trend, owner/region breakdowns, funnel, AI impact, inventory risks, filter echoing, invalid date-range rejection, and sales-role 403.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps
 
-- Add data-scope permissions, stricter field-level validation, fuller end-to-end browser smoke coverage, and URL-synced table filter state.
+- Add data-scope permissions, stricter field-level validation, fuller end-to-end browser smoke coverage, permission matrix UI, and URL-synced table filter state.
 - Capture screenshots and export Word/PPT final materials.

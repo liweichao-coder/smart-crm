@@ -65,6 +65,33 @@ def test_dashboard_payload() -> None:
     assert "ai_orders_ratio" in payload
 
 
+def test_sales_performance_report_payload_and_filters() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/reports/sales-performance")
+        filtered = client.get("/api/reports/sales-performance?owner=李伟超&region=华南")
+        invalid_range = client.get("/api/reports/sales-performance?date_from=2026-07-01&date_to=2026-06-01")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["metrics"]) == 6
+    assert payload["owner_performance"]
+    assert payload["region_performance"]
+    assert {stage["stage"] for stage in payload["funnel"]} == {"new", "qualified", "proposal", "negotiation", "won", "lost"}
+    assert payload["ai_impact"]["ai_order_count"] > 0
+    assert payload["ai_impact"]["ai_revenue"] > 0
+    assert payload["inventory_risks"]
+
+    assert filtered.status_code == 200
+    filtered_payload = filtered.json()
+    assert filtered_payload["applied_filters"]["owner"] == "李伟超"
+    assert filtered_payload["applied_filters"]["region"] == "华南"
+    assert all(row["name"] == "李伟超" for row in filtered_payload["owner_performance"])
+    assert all(row["name"] == "华南" for row in filtered_payload["region_performance"])
+
+    assert invalid_range.status_code == 400
+    assert "开始日期" in invalid_range.json()["detail"]
+
+
 def test_resource_collection_payloads() -> None:
     endpoints = {
         "/api/customers": "company",
@@ -179,6 +206,7 @@ def test_rbac_sales_role_permissions() -> None:
             headers=headers,
         )
         denied_audit = client.get("/api/business-audit-logs", headers=headers)
+        denied_report = client.get("/api/reports/sales-performance", headers=headers)
 
     assert login.status_code == 200
     assert me.json()["user"]["role"] == "销售"
@@ -187,6 +215,7 @@ def test_rbac_sales_role_permissions() -> None:
     assert created_customer.status_code == 201
     assert denied_product.status_code == 403
     assert denied_audit.status_code == 403
+    assert denied_report.status_code == 403
 
 
 def test_paginated_collection_queries() -> None:

@@ -138,6 +138,15 @@ Invoke-WebRequest -UseBasicParsing -Headers $auth http://127.0.0.1:8000/api/task
 Invoke-WebRequest -UseBasicParsing -Headers $auth http://127.0.0.1:8000/api/goals
 ```
 
+Sales report smoke:
+
+```powershell
+Invoke-RestMethod -Headers $auth http://127.0.0.1:8000/api/reports/sales-performance
+Invoke-RestMethod -Headers $auth "http://127.0.0.1:8000/api/reports/sales-performance?owner=李伟超&region=华南"
+```
+
+The report response is aggregated from real orders, opportunities, AI order markers, and inventory risk rules. It includes `metrics`, `revenue_trend`, `owner_performance`, `region_performance`, `funnel`, `ai_impact`, and `inventory_risks`.
+
 RBAC smoke:
 
 ```powershell
@@ -149,7 +158,7 @@ try {
 # Expected: 401 without Authorization.
 
 # The default demo admin has all permissions. Pytest also covers a sales-role account:
-# customer read/write succeeds, while product create and audit-log read return 403.
+# customer read/write succeeds, while product create, sales report, and audit-log read return 403.
 ```
 
 Paginated search/filter smoke:

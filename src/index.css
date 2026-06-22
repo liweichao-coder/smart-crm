@@ -563,6 +563,92 @@ p {
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
 }
 
+.crm-report-filter-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  align-items: end;
+}
+
+.crm-report-filter-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.crm-report-metric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.crm-muted-label {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.crm-report-bars,
+.crm-report-breakdown-list,
+.crm-ai-impact {
+  display: grid;
+  gap: 14px;
+}
+
+.crm-report-bar-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: 12px;
+}
+
+.crm-report-bar-row > span,
+.crm-report-breakdown-foot,
+.crm-ai-impact span,
+.crm-ai-impact small {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.crm-report-bar-row > strong {
+  text-align: right;
+}
+
+.crm-ai-impact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.crm-ai-impact .crm-progress-track,
+.crm-ai-impact small {
+  grid-column: 1 / -1;
+}
+
+.crm-ai-impact strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.crm-report-breakdown-item {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.crm-report-breakdown-head,
+.crm-report-breakdown-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crm-report-breakdown-head span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
 .crm-three-col-grid,
 .crm-goal-grid,
 .crm-task-grid {
@@ -1802,6 +1888,10 @@ body {
   .crm-dashboard-grid {
     grid-template-columns: 1fr;
   }
+
+  .crm-report-filter-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
@@ -1905,7 +1995,8 @@ body {
   .crm-form-grid,
   .crm-copilot-grid,
   .crm-board-grid,
-  .crm-stock-grid {
+  .crm-stock-grid,
+  .crm-report-filter-bar {
     grid-template-columns: 1fr;
   }
 
@@ -1922,7 +2013,10 @@ body {
   .crm-org-header,
   .crm-org-card,
   .crm-activity-item,
-  .crm-profile-info-item {
+  .crm-profile-info-item,
+  .crm-report-filter-actions,
+  .crm-report-breakdown-head,
+  .crm-report-breakdown-foot {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1943,6 +2037,15 @@ body {
 
   .crm-search-box {
     width: 100%;
+  }
+
+  .crm-report-bar-row,
+  .crm-ai-impact {
+    grid-template-columns: 1fr;
+  }
+
+  .crm-report-bar-row > strong {
+    text-align: left;
   }
 
   .crm-modal {

@@ -122,6 +122,10 @@ export function fetchDashboard() {
   return request('/api/dashboard')
 }
 
+export function fetchSalesPerformanceReport(params) {
+  return request(`/api/reports/sales-performance${buildQueryString(params)}`)
+}
+
 export function fetchCustomers(params) {
   return request(`/api/customers${buildQueryString(params)}`)
 }

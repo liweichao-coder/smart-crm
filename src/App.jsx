@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   ArrowRight,
+  BarChart3,
   Bell,
   Bot,
   Briefcase,
@@ -78,6 +79,7 @@ import {
   exportOrdersCsv,
   fetchCustomers,
   fetchDashboard,
+  fetchSalesPerformanceReport,
   fetchGoals,
   fetchInventoryMovements,
   fetchLeads,
@@ -109,6 +111,7 @@ const STORAGE_KEY = 'huahenuancrm:selected-org'
 
 const navItems = [
   { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM', permission: 'dashboard:read' },
+  { path: '/reports', label: '销售报表', icon: BarChart3, title: 'Reports | 深大 AI CRM', permission: 'reports:read' },
   { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM', permission: 'ai:use' },
   { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/business-audit', label: '操作审计', icon: ClipboardList, title: 'Business Audit | 深大 AI CRM', permission: 'audit:read' },
@@ -199,6 +202,12 @@ const dashboardMetricMeta = {
   'AI 参与订单': { icon: Sparkles, tone: 'proposal' },
   在跟进商机: { icon: Target, tone: 'qualified' },
   客户总数: { icon: Users, tone: 'won' },
+  订单收入: { icon: BarChart3, tone: 'accent' },
+  平均客单价: { icon: TrendingUp, tone: 'qualified' },
+  'AI 收入占比': { icon: Sparkles, tone: 'proposal' },
+  在管商机额: { icon: Target, tone: 'negotiation' },
+  赢单商机额: { icon: Trophy, tone: 'won' },
+  库存风险: { icon: Package, tone: 'warning' },
 }
 
 const orderStatusLabelMap = {
@@ -756,6 +765,7 @@ function App() {
         )}
       >
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/ai-audit" element={<AiAuditPage />} />
         <Route path="/business-audit" element={<BusinessAuditPage />} />
@@ -1641,6 +1651,233 @@ function DashboardPage() {
           <EmptyState icon={Activity} title="暂无近期活动" subtitle="后端订单或商机更新后会自动显示。" />
         )}
       </section>
+    </div>
+  )
+}
+
+function ReportsPage() {
+  const emptyFilters = { date_from: '', date_to: '', owner: '', region: '' }
+  const [draftFilters, setDraftFilters] = useState(emptyFilters)
+  const [appliedFilters, setAppliedFilters] = useState(emptyFilters)
+  const [reportState, setReportState] = useState({
+    report: null,
+    loading: true,
+    error: '',
+  })
+
+  useEffect(() => {
+    let mounted = true
+    fetchSalesPerformanceReport(appliedFilters)
+      .then((report) => {
+        if (mounted) {
+          setReportState({ report, loading: false, error: '' })
+        }
+      })
+      .catch((error) => {
+        if (mounted) {
+          setReportState((current) => ({
+            ...current,
+            loading: false,
+            error: error.message || '销售报表加载失败',
+          }))
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [appliedFilters])
+
+  const { report, loading, error } = reportState
+  const metricCards = useMemo(() => buildDashboardMetrics(report), [report])
+  const revenueTrend = report?.revenue_trend ?? []
+  const ownerRows = report?.owner_performance ?? []
+  const regionRows = report?.region_performance ?? []
+  const funnelRows = report?.funnel ?? []
+  const maxTrendRevenue = Math.max(...revenueTrend.map((item) => item.revenue), 1)
+  const maxOwnerValue = Math.max(...ownerRows.map((item) => Math.max(item.revenue, item.pipeline_amount)), 1)
+
+  const handleFilterChange = (key, value) => {
+    setDraftFilters((current) => ({ ...current, [key]: value }))
+  }
+
+  const handleFilterSubmit = (event) => {
+    event.preventDefault()
+    setReportState((current) => ({ ...current, loading: true, error: '' }))
+    setAppliedFilters({ ...draftFilters })
+  }
+
+  const handleFilterReset = () => {
+    setDraftFilters({ ...emptyFilters })
+    setReportState((current) => ({ ...current, loading: true, error: '' }))
+    setAppliedFilters({ ...emptyFilters })
+  }
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel">
+        <div>
+          <span className="crm-overline">Sales Intelligence</span>
+          <h2>销售报表</h2>
+          <p>从真实订单、商机、AI 参与和库存风险聚合经营报表，用于主管复盘和答辩展示。</p>
+        </div>
+        {report?.generated_at ? <span className="crm-muted-label">生成时间 {formatDateTime(report.generated_at)}</span> : null}
+      </section>
+
+      <form className="crm-panel crm-report-filter-bar" onSubmit={handleFilterSubmit}>
+        <label className="crm-field">
+          <span>开始日期</span>
+          <input type="date" value={draftFilters.date_from} onChange={(event) => handleFilterChange('date_from', event.target.value)} />
+        </label>
+        <label className="crm-field">
+          <span>结束日期</span>
+          <input type="date" value={draftFilters.date_to} onChange={(event) => handleFilterChange('date_to', event.target.value)} />
+        </label>
+        <label className="crm-field">
+          <span>负责人</span>
+          <input placeholder="如 李伟超" value={draftFilters.owner} onChange={(event) => handleFilterChange('owner', event.target.value)} />
+        </label>
+        <label className="crm-field">
+          <span>区域</span>
+          <input placeholder="如 华南" value={draftFilters.region} onChange={(event) => handleFilterChange('region', event.target.value)} />
+        </label>
+        <div className="crm-report-filter-actions">
+          <button className="crm-primary-button" type="submit" disabled={loading}>
+            <Filter size={16} />
+            应用筛选
+          </button>
+          <button className="crm-ghost-button" type="button" onClick={handleFilterReset} disabled={loading}>
+            重置
+          </button>
+        </div>
+      </form>
+
+      <ResourceSyncState loading={loading} error={error} />
+
+      <section className="crm-metric-grid crm-report-metric-grid">
+        {metricCards.map((metric) => (
+          <article key={metric.label} className="crm-panel crm-metric-card">
+            <div className={`crm-metric-icon tone-${metric.tone}`}>
+              <metric.icon size={18} />
+            </div>
+            <div>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              <small>{metric.hint}</small>
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <section className="crm-dashboard-grid">
+        <div className="crm-panel">
+          <PanelHeader title="收入趋势" actionLabel="按订单日期聚合" />
+          <div className="crm-report-bars">
+            {revenueTrend.map((item) => (
+              <div key={item.month} className="crm-report-bar-row">
+                <span>{item.month}</span>
+                <div className="crm-progress-track">
+                  <div className="crm-progress-bar tone-accent" style={{ width: `${Math.max(6, (item.revenue / maxTrendRevenue) * 100)}%` }} />
+                </div>
+                <strong>{formatCurrency(item.revenue)}</strong>
+              </div>
+            ))}
+            {!loading && !error && !revenueTrend.length ? <EmptyState icon={BarChart3} title="暂无趋势数据" subtitle="当前筛选范围内没有订单收入。" /> : null}
+          </div>
+        </div>
+
+        <div className="crm-panel">
+          <PanelHeader title="AI 收入影响" actionLabel="按真实订单计算" />
+          {report?.ai_impact ? (
+            <div className="crm-ai-impact">
+              <div>
+                <span>AI 收入</span>
+                <strong>{formatCurrency(report.ai_impact.ai_revenue)}</strong>
+              </div>
+              <div>
+                <span>人工收入</span>
+                <strong>{formatCurrency(report.ai_impact.manual_revenue)}</strong>
+              </div>
+              <div className="crm-progress-track">
+                <div className="crm-progress-bar tone-proposal" style={{ width: `${Math.max(4, report.ai_impact.ai_revenue_ratio * 100)}%` }} />
+              </div>
+              <small>
+                AI 订单 {report.ai_impact.ai_order_count} 张，平均置信度 {formatPercent(report.ai_impact.average_ai_confidence)}
+              </small>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="crm-dashboard-grid">
+        <div className="crm-panel">
+          <PanelHeader title="销售漏斗" actionLabel="按商机阶段聚合" />
+          <div className="crm-progress-list">
+            {funnelRows.map((stage) => (
+              <div key={stage.stage} className="crm-progress-row">
+                <div className="crm-progress-meta">
+                  <div className={`crm-dot tone-${dashboardStageMeta[stage.stage]?.tone ?? 'neutral'}`} />
+                  <span>{stage.label}</span>
+                  <strong>{stage.lead_count} 个 / {formatCurrency(stage.expected_amount)}</strong>
+                </div>
+                <div className="crm-progress-track">
+                  <div className={`crm-progress-bar tone-${dashboardStageMeta[stage.stage]?.tone ?? 'neutral'}`} style={{ width: `${Math.max(4, stage.share * 100)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="crm-panel">
+          <PanelHeader title="库存风险联动" actionLabel="订单消耗 + 安全线" />
+          <div className="crm-list compact">
+            {(report?.inventory_risks ?? []).map((risk) => (
+              <article key={risk.product_id} className="crm-list-item">
+                <div>
+                  <strong>{risk.name}</strong>
+                  <span>{risk.sku} / 建议补货 {risk.recommended_restock} 件</span>
+                </div>
+                <StatusBadge value={`${risk.current_stock} 件`} tone={risk.priority === 'critical' ? 'danger' : 'warning'} />
+              </article>
+            ))}
+            {!loading && !error && !(report?.inventory_risks ?? []).length ? <EmptyState icon={Package} title="暂无库存风险" subtitle="商品库存高于安全线时会显示为空。" /> : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="crm-dashboard-grid">
+        <ReportBreakdownPanel title="负责人绩效" rows={ownerRows} maxValue={maxOwnerValue} />
+        <ReportBreakdownPanel title="区域绩效" rows={regionRows} maxValue={Math.max(...regionRows.map((item) => Math.max(item.revenue, item.pipeline_amount)), 1)} />
+      </section>
+    </div>
+  )
+}
+
+function ReportBreakdownPanel({ title, rows, maxValue }) {
+  return (
+    <div className="crm-panel">
+      <PanelHeader title={title} actionLabel="收入 / 在管商机" />
+      <div className="crm-report-breakdown-list">
+        {rows.map((row) => (
+          <article key={row.name} className="crm-report-breakdown-item">
+            <div className="crm-report-breakdown-head">
+              <div>
+                <strong>{row.name}</strong>
+                <span>{row.order_count} 单 / AI {row.ai_order_count} 单 / {row.open_leads} 个在管商机</span>
+              </div>
+              <div className="crm-list-value">{formatCurrency(row.revenue)}</div>
+            </div>
+            <div className="crm-progress-track">
+              <div className="crm-progress-bar tone-accent" style={{ width: `${Math.max(4, (row.revenue / maxValue) * 100)}%` }} />
+            </div>
+            <div className="crm-report-breakdown-foot">
+              <span>客单价 {formatCurrency(row.average_order_value)}</span>
+              <span>在管商机 {formatCurrency(row.pipeline_amount)}</span>
+            </div>
+          </article>
+        ))}
+        {!rows.length ? <EmptyState icon={BarChart3} title="暂无绩效数据" subtitle="当前筛选范围内没有订单或商机。" /> : null}
+      </div>
     </div>
   )
 }

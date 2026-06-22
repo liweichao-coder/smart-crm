@@ -491,6 +491,45 @@ class DashboardResponse(BaseModel):
     recent_orders: list[SalesOrderRead]
 
 
+class SalesReportBreakdown(BaseModel):
+    name: str
+    revenue: float
+    order_count: int
+    ai_order_count: int
+    average_order_value: float
+    pipeline_amount: float
+    open_leads: int
+
+
+class SalesReportFunnelStage(BaseModel):
+    stage: str
+    label: str
+    lead_count: int
+    expected_amount: float
+    share: float
+
+
+class SalesReportAiImpact(BaseModel):
+    ai_order_count: int
+    manual_order_count: int
+    ai_revenue: float
+    manual_revenue: float
+    average_ai_confidence: float
+    ai_revenue_ratio: float
+
+
+class SalesPerformanceReportResponse(BaseModel):
+    generated_at: datetime
+    metrics: list[DashboardMetric]
+    revenue_trend: list[RevenuePoint]
+    owner_performance: list[SalesReportBreakdown]
+    region_performance: list[SalesReportBreakdown]
+    funnel: list[SalesReportFunnelStage]
+    ai_impact: SalesReportAiImpact
+    inventory_risks: list[InventoryRestockAlertRead]
+    applied_filters: dict[str, str]
+
+
 class VisionExtractItem(BaseModel):
     product_name: str
     quantity: int

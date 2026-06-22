@@ -4,7 +4,7 @@ import csv
 import io
 from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from math import ceil
 from time import perf_counter
 from typing import Annotated
@@ -58,6 +58,10 @@ from .schemas import (
     SalesGoalUpdate,
     SalesLeadCreate,
     SalesLeadUpdate,
+    SalesPerformanceReportResponse,
+    SalesReportAiImpact,
+    SalesReportBreakdown,
+    SalesReportFunnelStage,
     SalesOrderCreate,
     SalesOrderRead,
     SalesOrderUpdate,
@@ -90,13 +94,22 @@ KNOWN_PERMISSIONS = {
     "dashboard:read",
     "inventory:manage",
     "order:manage",
+    "reports:read",
 }
 ROLE_PERMISSIONS = {
     "管理员": {ALL_PERMISSIONS},
     "销售": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read"},
-    "销售经理": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read", "audit:read"},
+    "销售经理": {"crm:read", "crm:write", "order:manage", "ai:use", "dashboard:read", "reports:read", "audit:read"},
     "支持": {"crm:read", "case:write", "task:write", "dashboard:read"},
-    "审计员": {"crm:read", "audit:read", "dashboard:read"},
+    "审计员": {"crm:read", "reports:read", "audit:read", "dashboard:read"},
+}
+REPORT_STAGE_LABELS = {
+    "new": "新线索",
+    "qualified": "资格确认",
+    "proposal": "方案提案",
+    "negotiation": "商务谈判",
+    "won": "已成交",
+    "lost": "已丢单",
 }
 CATEGORY_TARGET_STOCK = {
     "硬件": 600,
@@ -1712,6 +1725,123 @@ async def copilot_order_draft(payload: CopilotOrderDraftRequest, session: Sessio
         entity_id=customer.id,
     )
     return result
+
+
+def matches_report_filters(item, date_field: str, date_from: date | None, date_to: date | None, owner: str, region: str) -> bool:
+    item_date = getattr(item, date_field)
+    if date_from and item_date < date_from:
+        return False
+    if date_to and item_date > date_to:
+        return False
+    if owner and getattr(item, "owner", "") != owner:
+        return False
+    if region and getattr(item, "region", "") != region:
+        return False
+    return True
+
+
+def build_sales_breakdown(orders: list[SalesOrder], leads: list[SalesLead], group_field: str) -> list[SalesReportBreakdown]:
+    group_names = {getattr(order, group_field) for order in orders} | {getattr(lead, group_field) for lead in leads}
+    breakdowns: list[SalesReportBreakdown] = []
+    for name in sorted(group_names):
+        group_orders = [order for order in orders if getattr(order, group_field) == name]
+        group_leads = [lead for lead in leads if getattr(lead, group_field) == name]
+        revenue = sum(order.total_amount for order in group_orders)
+        open_leads = [lead for lead in group_leads if lead.stage.value not in {"won", "lost"}]
+        breakdowns.append(
+            SalesReportBreakdown(
+                name=name,
+                revenue=revenue,
+                order_count=len(group_orders),
+                ai_order_count=len([order for order in group_orders if order.created_by_ai]),
+                average_order_value=round(revenue / len(group_orders), 2) if group_orders else 0,
+                pipeline_amount=sum(lead.expected_amount for lead in open_leads),
+                open_leads=len(open_leads),
+            )
+        )
+    return sorted(breakdowns, key=lambda item: (item.revenue, item.pipeline_amount), reverse=True)
+
+
+@app.get("/api/reports/sales-performance", response_model=SalesPerformanceReportResponse, dependencies=[Depends(require_permission("reports:read"))])
+def get_sales_performance_report(
+    session: SessionDep,
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    owner: str = "",
+    region: str = "",
+) -> SalesPerformanceReportResponse:
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    all_orders = session.exec(select(SalesOrder)).all()
+    all_leads = session.exec(select(SalesLead)).all()
+    orders = [order for order in all_orders if matches_report_filters(order, "order_date", date_from, date_to, owner, region)]
+    leads = [lead for lead in all_leads if matches_report_filters(lead, "due_date", date_from, date_to, owner, region)]
+    ai_orders = [order for order in orders if order.created_by_ai]
+    manual_orders = [order for order in orders if not order.created_by_ai]
+    open_leads = [lead for lead in leads if lead.stage.value not in {"won", "lost"}]
+
+    total_revenue = sum(order.total_amount for order in orders)
+    ai_revenue = sum(order.total_amount for order in ai_orders)
+    manual_revenue = sum(order.total_amount for order in manual_orders)
+    pipeline_amount = sum(lead.expected_amount for lead in open_leads)
+    won_amount = sum(lead.expected_amount for lead in leads if lead.stage.value == "won")
+
+    metrics = [
+        DashboardMetric(label="订单收入", value=f"¥{total_revenue:,.0f}", hint=f"{len(orders)} 张订单"),
+        DashboardMetric(label="平均客单价", value=f"¥{(total_revenue / len(orders) if orders else 0):,.0f}", hint="按筛选订单计算"),
+        DashboardMetric(label="AI 收入占比", value=f"{round(ai_revenue / total_revenue * 100) if total_revenue else 0}%", hint=f"{len(ai_orders)} 张 AI 订单"),
+        DashboardMetric(label="在管商机额", value=f"¥{pipeline_amount:,.0f}", hint=f"{len(open_leads)} 个未关闭商机"),
+        DashboardMetric(label="赢单商机额", value=f"¥{won_amount:,.0f}", hint="按商机阶段统计"),
+        DashboardMetric(label="库存风险", value=str(len(list_restock_alerts(session))), hint="低库存补货建议项"),
+    ]
+
+    revenue_bucket: dict[str, float] = defaultdict(float)
+    for order in orders:
+        revenue_bucket[order.order_date.strftime("%Y-%m")] += order.total_amount
+    revenue_trend = [RevenuePoint(month=month, revenue=amount) for month, amount in sorted(revenue_bucket.items())]
+
+    total_leads = len(leads) or 1
+    funnel: list[SalesReportFunnelStage] = []
+    for stage, label in REPORT_STAGE_LABELS.items():
+        stage_leads = [lead for lead in leads if lead.stage.value == stage]
+        funnel.append(
+            SalesReportFunnelStage(
+                stage=stage,
+                label=label,
+                lead_count=len(stage_leads),
+                expected_amount=sum(lead.expected_amount for lead in stage_leads),
+                share=round(len(stage_leads) / total_leads, 2),
+            )
+        )
+
+    ai_impact = SalesReportAiImpact(
+        ai_order_count=len(ai_orders),
+        manual_order_count=len(manual_orders),
+        ai_revenue=ai_revenue,
+        manual_revenue=manual_revenue,
+        average_ai_confidence=round(sum(order.ai_confidence_score for order in ai_orders) / len(ai_orders), 2) if ai_orders else 0,
+        ai_revenue_ratio=round(ai_revenue / total_revenue, 2) if total_revenue else 0,
+    )
+
+    applied_filters = {
+        "date_from": date_from.isoformat() if date_from else "",
+        "date_to": date_to.isoformat() if date_to else "",
+        "owner": owner,
+        "region": region,
+    }
+
+    return SalesPerformanceReportResponse(
+        generated_at=datetime.utcnow(),
+        metrics=metrics,
+        revenue_trend=revenue_trend,
+        owner_performance=build_sales_breakdown(orders, leads, "owner"),
+        region_performance=build_sales_breakdown(orders, leads, "region"),
+        funnel=funnel,
+        ai_impact=ai_impact,
+        inventory_risks=list_restock_alerts(session)[:6],
+        applied_filters=applied_filters,
+    )
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse, dependencies=[Depends(require_permission("dashboard:read"))])
