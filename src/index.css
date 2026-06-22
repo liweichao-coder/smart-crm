@@ -1,41 +1,41 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family: 'Geist', 'Segoe UI', sans-serif;
-  --layout-section-gap: 32px;
-  --layout-card-gap: 24px;
-  --surface-sunken: #0c111b;
-  --surface-default: #111827;
-  --surface-raised: #151f2f;
-  --border-default: rgba(148, 163, 184, 0.16);
-  --border-strong: rgba(148, 163, 184, 0.32);
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #94a3b8;
-  --color-primary-default: #ff7a59;
-  --color-primary-dark: #e85d3e;
-  --color-primary-light: rgba(255, 122, 89, 0.14);
-  --color-success-default: #14b8a6;
-  --color-success-light: rgba(20, 184, 166, 0.14);
-  --shadow-sm: 0 10px 30px rgba(4, 8, 20, 0.24);
-  --shadow-md: 0 24px 48px rgba(4, 8, 20, 0.32);
-  --radius-lg: 20px;
-  --radius-xl: 28px;
-  --stage-new: #60a5fa;
-  --stage-new-bg: rgba(96, 165, 250, 0.14);
-  --stage-qualified: #22c55e;
-  --stage-qualified-bg: rgba(34, 197, 94, 0.14);
-  --stage-contacted: #06b6d4;
-  --stage-contacted-bg: rgba(6, 182, 212, 0.14);
-  --stage-proposal: #f59e0b;
-  --stage-proposal-bg: rgba(245, 158, 11, 0.14);
-  --stage-negotiation: #a855f7;
-  --stage-negotiation-bg: rgba(168, 85, 247, 0.14);
-  --stage-won: #10b981;
-  --stage-won-bg: rgba(16, 185, 129, 0.14);
-  --task-due-today: #fb7185;
-  --task-due-today-bg: rgba(251, 113, 133, 0.14);
-  --lead-hot: #f97316;
-  --lead-hot-bg: rgba(249, 115, 22, 0.14);
+  --layout-section-gap: 24px;
+  --layout-card-gap: 16px;
+  --surface-sunken: #f6f7f9;
+  --surface-default: #ffffff;
+  --surface-raised: #fbfcfd;
+  --border-default: rgba(24, 33, 43, 0.12);
+  --border-strong: rgba(24, 33, 43, 0.2);
+  --text-primary: #18212b;
+  --text-secondary: #53606d;
+  --text-tertiary: #7b8794;
+  --color-primary-default: #b5242a;
+  --color-primary-dark: #8f1d22;
+  --color-primary-light: rgba(181, 36, 42, 0.1);
+  --color-success-default: #087f72;
+  --color-success-light: rgba(8, 127, 114, 0.1);
+  --shadow-sm: 0 1px 2px rgba(24, 33, 43, 0.06), 0 10px 24px rgba(24, 33, 43, 0.04);
+  --shadow-md: 0 18px 42px rgba(24, 33, 43, 0.12);
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+  --stage-new: #2563eb;
+  --stage-new-bg: rgba(37, 99, 235, 0.1);
+  --stage-qualified: #087f72;
+  --stage-qualified-bg: rgba(8, 127, 114, 0.1);
+  --stage-contacted: #0f766e;
+  --stage-contacted-bg: rgba(15, 118, 110, 0.1);
+  --stage-proposal: #b45309;
+  --stage-proposal-bg: rgba(180, 83, 9, 0.11);
+  --stage-negotiation: #7c3aed;
+  --stage-negotiation-bg: rgba(124, 58, 237, 0.1);
+  --stage-won: #15803d;
+  --stage-won-bg: rgba(21, 128, 61, 0.1);
+  --task-due-today: #be123c;
+  --task-due-today-bg: rgba(190, 18, 60, 0.1);
+  --lead-hot: #c2410c;
+  --lead-hot-bg: rgba(194, 65, 12, 0.1);
 }
 
 * {
@@ -50,10 +50,7 @@ body,
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(255, 122, 89, 0.08), transparent 28%),
-    radial-gradient(circle at top right, rgba(14, 165, 233, 0.08), transparent 24%),
-    linear-gradient(180deg, #0a0f18 0%, #0c111b 55%, #0b1220 100%);
+  background: var(--surface-sunken);
   color: var(--text-primary);
 }
 
@@ -115,9 +112,8 @@ p {
   flex-direction: column;
   gap: 24px;
   border: 1px solid var(--border-default);
-  background: rgba(17, 24, 39, 0.92);
-  backdrop-filter: blur(18px);
-  border-radius: 28px;
+  background: var(--surface-default);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   padding: 20px 14px;
 }
@@ -143,12 +139,11 @@ p {
   height: 44px;
   width: 44px;
   place-items: center;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-primary-default), #ff9e6b);
+  border-radius: 999px;
+  background: var(--color-primary-default);
   color: white;
   font-size: 18px;
   font-weight: 800;
-  box-shadow: 0 12px 30px rgba(255, 122, 89, 0.28);
 }
 
 .crm-brand-copy,
@@ -325,14 +320,13 @@ p {
 .crm-topbar,
 .crm-content {
   border: 1px solid var(--border-default);
-  background: rgba(12, 17, 27, 0.72);
-  backdrop-filter: blur(18px);
+  background: var(--surface-default);
   box-shadow: var(--shadow-sm);
 }
 
 .crm-topbar {
   justify-content: space-between;
-  border-radius: 28px 28px 0 0;
+  border-radius: 8px 8px 0 0;
   padding: 18px 24px;
 }
 
@@ -342,7 +336,7 @@ p {
 
 .crm-notification-button.is-active {
   border-color: var(--border-default);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(181, 36, 42, 0.08);
 }
 
 .crm-notification-badge {
@@ -353,10 +347,10 @@ p {
   min-width: 18px;
   height: 18px;
   place-items: center;
-  border: 2px solid rgba(12, 17, 27, 0.92);
+  border: 2px solid #fff;
   border-radius: 999px;
-  background: #ff7a59;
-  color: #0f172a;
+  background: var(--color-primary-default);
+  color: #fff;
   font-size: 11px;
   font-weight: 900;
 }
@@ -370,9 +364,9 @@ p {
   max-height: min(680px, calc(100vh - 140px));
   overflow: auto;
   border: 1px solid var(--border-default);
-  border-radius: 18px;
+  border-radius: 8px;
   padding: 14px;
-  background: rgba(13, 18, 28, 0.98);
+  background: #fff;
   box-shadow: var(--shadow-lg);
 }
 
@@ -501,7 +495,7 @@ p {
   width: 100%;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-default);
-  background: rgba(21, 31, 47, 0.74);
+  background: var(--surface-default);
   box-shadow: var(--shadow-sm);
 }
 
@@ -520,15 +514,13 @@ p {
 
 .crm-sync-state.is-error {
   background: rgba(248, 113, 113, 0.12);
-  color: #fecaca;
+  color: #be123c;
 }
 
 .crm-hero-panel {
   justify-content: space-between;
   padding: 26px 28px;
-  background:
-    radial-gradient(circle at top right, rgba(255, 122, 89, 0.18), transparent 22%),
-    linear-gradient(135deg, rgba(21, 31, 47, 0.92), rgba(13, 20, 32, 0.94));
+  background: var(--surface-default);
 }
 
 .crm-focus-strip {
@@ -585,7 +577,7 @@ p {
 }
 
 .crm-stage-card {
-  border-radius: 20px;
+  border-radius: 8px;
   padding: 18px 20px;
   border: 1px solid var(--border-default);
 }
@@ -1167,16 +1159,16 @@ p {
 
 .crm-board-column {
   gap: 16px;
-  border-radius: 22px;
+  border-radius: 8px;
   border: 1px solid var(--border-default);
-  background: rgba(12, 17, 27, 0.56);
+  background: var(--surface-default);
   padding: 18px;
 }
 
 .crm-board-card {
-  border-radius: 18px;
+  border-radius: 8px;
   border: 1px solid var(--border-default);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-raised);
   padding: 16px;
 }
 
@@ -1225,10 +1217,10 @@ p {
 .crm-profile-avatar {
   height: 88px;
   width: 88px;
-  border-radius: 24px;
+  border-radius: 8px;
   border: 1px solid var(--border-strong);
   object-fit: cover;
-  box-shadow: 0 18px 40px rgba(4, 8, 20, 0.32);
+  box-shadow: var(--shadow-sm);
 }
 
 .crm-profile-copy {
@@ -1356,9 +1348,8 @@ p {
 .crm-auth-showcase,
 .crm-auth-panel {
   border: 1px solid var(--border-default);
-  border-radius: 32px;
-  background: rgba(12, 17, 27, 0.76);
-  backdrop-filter: blur(20px);
+  border-radius: 8px;
+  background: var(--surface-default);
   box-shadow: var(--shadow-md);
 }
 
@@ -1368,10 +1359,7 @@ p {
   justify-content: space-between;
   gap: 28px;
   padding: 40px;
-  background:
-    radial-gradient(circle at top left, rgba(255, 122, 89, 0.16), transparent 24%),
-    radial-gradient(circle at 80% 20%, rgba(34, 197, 94, 0.1), transparent 22%),
-    linear-gradient(160deg, rgba(21, 31, 47, 0.92), rgba(10, 15, 24, 0.96));
+  background: var(--surface-default);
 }
 
 .crm-auth-panel {
@@ -1518,8 +1506,8 @@ p {
 .crm-auth-stat-card {
   gap: 14px;
   border: 1px solid var(--border-default);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  background: var(--surface-raised);
   padding: 18px 20px;
 }
 
@@ -1534,29 +1522,6 @@ p {
 
 .crm-auth-stat-card strong {
   font-size: 32px;
-}
-
-.crm-auth-orb {
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(10px);
-  opacity: 0.7;
-}
-
-.crm-auth-orb--primary {
-  top: -120px;
-  left: -80px;
-  height: 320px;
-  width: 320px;
-  background: radial-gradient(circle, rgba(255, 122, 89, 0.2), transparent 70%);
-}
-
-.crm-auth-orb--secondary {
-  right: -120px;
-  bottom: -120px;
-  height: 360px;
-  width: 360px;
-  background: radial-gradient(circle, rgba(14, 165, 233, 0.14), transparent 72%);
 }
 
 .crm-org-header {
@@ -1630,10 +1595,6 @@ p {
 body {
   background: #f4f6f8;
   color: var(--text-primary);
-}
-
-.crm-auth-orb {
-  display: none;
 }
 
 .crm-brand-mark {
@@ -1807,8 +1768,8 @@ body {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(5px);
+  background: rgba(24, 33, 43, 0.28);
+  backdrop-filter: blur(3px);
 }
 
 .crm-modal {
@@ -1819,7 +1780,7 @@ body {
   border-radius: 8px;
   padding: 24px;
   background: var(--surface);
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.2);
+  box-shadow: var(--shadow-md);
 }
 
 .crm-modal-head,
@@ -1998,15 +1959,15 @@ body {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 16px;
-  background: rgba(15, 23, 42, 0.38);
+  background: var(--surface-raised);
   color: inherit;
   text-align: left;
 }
 
 .crm-copilot-item.is-active,
 .crm-copilot-item:hover {
-  border-color: rgba(255, 122, 89, 0.5);
-  background: rgba(255, 122, 89, 0.09);
+  border-color: rgba(181, 36, 42, 0.22);
+  background: rgba(181, 36, 42, 0.08);
 }
 
 .crm-copilot-item strong,
@@ -2095,7 +2056,7 @@ body {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 16px;
-  background: rgba(15, 23, 42, 0.34);
+  background: var(--surface-raised);
 }
 
 .crm-copilot-history-head {
@@ -2288,6 +2249,239 @@ body {
   margin-top: 14px;
 }
 
+/* Final presentation pass: calm light workspace with compact 8px surfaces. */
+.crm-sidebar-inner,
+.crm-topbar,
+.crm-content,
+.crm-hero-panel,
+.crm-toolbar-card,
+.crm-focus-strip,
+.crm-panel,
+.crm-resource-header,
+.crm-stage-card,
+.crm-list-item,
+.crm-activity-item,
+.crm-board-column,
+.crm-board-card,
+.crm-task-card,
+.crm-goal-card,
+.crm-stock-card,
+.crm-report-filter-bar,
+.crm-report-card,
+.crm-permission-role-card,
+.crm-profile-info-item,
+.crm-auth-showcase,
+.crm-auth-panel,
+.crm-auth-highlight-card,
+.crm-auth-stat-card,
+.crm-org-header,
+.crm-org-card,
+.crm-dashed-button,
+.crm-org-note,
+.crm-modal,
+.crm-order-lines-editor,
+.crm-copilot-item,
+.crm-copilot-history-card,
+.crm-account-plan-list,
+.crm-notification-panel,
+.crm-notification-item {
+  border-radius: 8px;
+  border-color: var(--border-default);
+  background: var(--surface-default);
+  box-shadow: var(--shadow-sm);
+}
+
+.crm-sidebar-inner,
+.crm-topbar,
+.crm-content,
+.crm-auth-showcase,
+.crm-auth-panel {
+  backdrop-filter: none;
+}
+
+.crm-auth-page,
+.crm-org-page,
+.crm-main {
+  background: var(--surface-sunken);
+}
+
+.crm-auth-shell {
+  align-items: center;
+}
+
+.crm-auth-showcase {
+  min-height: 100%;
+  justify-content: center;
+  gap: 36px;
+  background: var(--surface-default);
+}
+
+.crm-auth-copy h1,
+.crm-auth-panel-head h2 {
+  max-width: 12em;
+  font-size: 36px;
+  line-height: 1.08;
+}
+
+.crm-auth-panel-head h2 {
+  font-size: 30px;
+}
+
+.crm-brand-mark {
+  border-radius: 999px;
+  background: var(--color-primary-default);
+  color: #fff;
+  box-shadow: none;
+}
+
+.crm-sidebar {
+  padding: 12px 0 12px 12px;
+}
+
+.crm-sidebar-inner {
+  gap: 18px;
+  padding: 16px 12px;
+}
+
+.crm-nav {
+  gap: 4px;
+}
+
+.crm-nav-link,
+.crm-user-card,
+.crm-focus-chip,
+.crm-search-box,
+.crm-column-badge,
+.crm-pill,
+.crm-tabs button,
+.crm-ghost-button,
+.crm-link-button,
+.crm-icon-button,
+.crm-view-toggle button,
+.crm-primary-button,
+.crm-dashed-button,
+.crm-auth-field input,
+.crm-field input,
+.crm-field select,
+.crm-field textarea,
+.crm-order-line-control {
+  border-radius: 8px;
+}
+
+.crm-nav-link.is-active,
+.crm-nav-link:hover,
+.crm-user-card.is-active,
+.crm-user-card:hover,
+.crm-tabs button.is-active,
+.crm-pill.is-active,
+.crm-view-toggle button.is-active,
+.crm-notification-button.is-active {
+  border-color: rgba(181, 36, 42, 0.18);
+  background: rgba(181, 36, 42, 0.08);
+  color: var(--color-primary-dark);
+}
+
+.crm-nav-link--ghost,
+.crm-user-card,
+.crm-focus-chip,
+.crm-search-box,
+.crm-board-column,
+.crm-board-card,
+.crm-list-item,
+.crm-activity-item,
+.crm-profile-info-item,
+.crm-auth-field input,
+.crm-order-lines-editor,
+.crm-account-plan-list,
+.crm-copilot-item,
+.crm-copilot-history-card,
+.crm-notification-item,
+.crm-progress-track {
+  background: var(--surface-raised);
+}
+
+.crm-topbar {
+  border-radius: 8px 8px 0 0;
+}
+
+.crm-content {
+  border-radius: 0 0 8px 8px;
+}
+
+.crm-hero-panel {
+  background: var(--surface-default);
+}
+
+.crm-copilot-summary,
+.crm-ai-note,
+.crm-script-box {
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--text-secondary);
+}
+
+.crm-copilot-item.is-active,
+.crm-copilot-item:hover,
+.crm-notification-item:hover,
+.crm-focus-chip:hover,
+.crm-org-card:hover,
+.crm-dashed-button:hover,
+.crm-primary-button:hover,
+.crm-ghost-button:hover,
+.crm-icon-button:hover,
+.crm-link-button:hover {
+  border-color: var(--border-strong);
+  transform: none;
+}
+
+.crm-copilot-item.is-active,
+.crm-copilot-item:hover {
+  background: rgba(181, 36, 42, 0.08);
+}
+
+.crm-notification-panel {
+  background: #fff;
+}
+
+.crm-notification-badge {
+  border-color: #fff;
+  background: var(--color-primary-default);
+  color: #fff;
+}
+
+.crm-notification-item.tone-critical {
+  border-color: rgba(190, 18, 60, 0.24);
+}
+
+.crm-notification-item.tone-warning {
+  border-color: rgba(180, 83, 9, 0.24);
+}
+
+.crm-modal-backdrop {
+  background: rgba(24, 33, 43, 0.28);
+  backdrop-filter: blur(3px);
+}
+
+.crm-modal,
+.crm-field input,
+.crm-field select,
+.crm-field textarea,
+.crm-order-line-control {
+  background: #fff;
+  color: var(--text-primary);
+}
+
+.crm-auth-alert,
+.crm-ai-alert,
+.crm-form-error,
+.crm-sync-state.is-error {
+  color: #be123c;
+}
+
+.crm-ai-alert {
+  background: rgba(190, 18, 60, 0.08);
+}
+
 @media (max-width: 1200px) {
   .crm-stage-row,
   .crm-metric-grid,
@@ -2379,7 +2573,7 @@ body {
 @media (max-width: 640px) {
   .crm-auth-panel,
   .crm-auth-showcase {
-    border-radius: 24px;
+    border-radius: 8px;
     padding: 20px 18px;
   }
 

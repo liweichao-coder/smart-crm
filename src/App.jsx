@@ -1779,9 +1779,6 @@ function LoginPage({ onLogin }) {
 
   return (
     <div className="crm-auth-page">
-      <div className="crm-auth-orb crm-auth-orb--primary" />
-      <div className="crm-auth-orb crm-auth-orb--secondary" />
-
       <main className="crm-auth-shell">
         <section className="crm-auth-showcase">
           <div className="crm-auth-brand">
@@ -1795,12 +1792,6 @@ function LoginPage({ onLogin }) {
           <div className="crm-auth-copy">
             <span className="crm-overline">欢迎回来</span>
             <h1>登录后继续处理你的客户流程</h1>
-            
-          </div>
-
-          <div className="crm-auth-highlights">
-            
-           
           </div>
         </section>
 
@@ -1808,7 +1799,6 @@ function LoginPage({ onLogin }) {
           <div className="crm-auth-panel-head">
             <span className="crm-overline">登录</span>
             <h2>进入你的工作台</h2>
-            
           </div>
 
           <form
@@ -1910,24 +1900,19 @@ function RegisterPage({ onLogin }) {
 
   return (
     <div className="crm-auth-page">
-      <div className="crm-auth-orb crm-auth-orb--primary" />
-      <div className="crm-auth-orb crm-auth-orb--secondary" />
-
       <main className="crm-auth-shell crm-auth-shell--compact">
         <section className="crm-auth-panel">
           <div className="crm-auth-brand crm-auth-brand--panel">
             <div className="crm-brand-mark">深</div>
             <div>
               <strong>深大 AI CRM</strong>
-              <span>管理员
-                注册</span>
+              <span>管理员注册</span>
             </div>
           </div>
 
           <div className="crm-auth-panel-head">
-            <span className="crm-overline"></span>
+            <span className="crm-overline">注册</span>
             <h2>创建你的工作空间</h2>
-            
           </div>
 
           <form

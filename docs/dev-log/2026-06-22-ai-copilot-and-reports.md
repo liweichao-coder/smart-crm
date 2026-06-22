@@ -63,6 +63,7 @@ The course exam requires a full software engineering process package, not only c
 - Added real CSV export for generic resource pages; the header filter action now focuses the search box, and the export action downloads the currently visible customer/contact/lead/opportunity/case/task/goal rows with escaped CSV values.
 - Reworked panel-header actions so dashboard cards link to real modules, Copilot score rules expand inline, and informational labels render as non-clickable status text instead of inert buttons.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
+- Refined the presentation UI into a calmer Claude-inspired light workspace: removed hidden auth orbs and empty placeholder blocks, cleaned dark glass backgrounds, standardized key panels/buttons/cards to 8px radii, and kept the Shenzhen University-style `深` emblem as the brand mark.
 - Added `python -m app.manage doctor` for teammate deployment checks. It verifies demo data counts, database setup, and LLM configuration state, returning non-zero when the local database is below the classroom-demo target.
 - Added a Customer 360 workspace with `GET /api/customers/{customer_id}/workspace`, account-level metrics, contacts/leads/orders/cases/recommendations, a chronological timeline, owner-scope enforcement, and an OpenAI-compatible LLM account plan with deterministic fallback.
 - Added real customer activity records with `CustomerActivity`, `/api/customer-activities`, `/api/customers/{customer_id}/activities`, seeded touchpoints, workspace activity creation, business audit logging, owner-scope checks, and account-plan context.
@@ -121,6 +122,7 @@ The course exam requires a full software engineering process package, not only c
 - Added backend field-level validation for email, phone, status/category enums, goal targets, non-empty order lines, and order due-date ordering. Invalid CRM payloads now fail at the FastAPI/Pydantic layer with 422 instead of silently entering the database.
 - After field-level validation upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 40 passed.
 - After order approval policy enforcement, `backend/.venv/Scripts/python.exe -m pytest -q`: 41 passed. Coverage now verifies that a sales role can create a high-risk draft order, cannot directly confirm it, can submit approval, and a manager decision advances the order to `confirmed`.
+- After light workspace style refinement, browser visual smoke with system Chrome covered `/login` and `/dashboard`: auth orbs `0`, panel radius `8px`, desktop horizontal overflow `false`, mobile 390px horizontal overflow `false`, and mobile menu visible.
 - `npm run lint`: passed.
 - `npm test`: 27 passed.
 - `npm run build`: passed.
