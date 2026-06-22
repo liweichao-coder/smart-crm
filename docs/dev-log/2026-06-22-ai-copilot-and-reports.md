@@ -62,6 +62,7 @@ The course exam requires a full software engineering process package, not only c
 - Added real CSV export for generic resource pages; the header filter action now focuses the search box, and the export action downloads the currently visible customer/contact/lead/opportunity/case/task/goal rows with escaped CSV values.
 - Reworked panel-header actions so dashboard cards link to real modules, Copilot score rules expand inline, and informational labels render as non-clickable status text instead of inert buttons.
 - Refreshed the UI toward a cleaner light CRM workspace and replaced the original mark with a Shenzhen University-style `深` emblem for course presentation packaging.
+- Added `python -m app.manage doctor` for teammate deployment checks. It verifies demo data counts, database setup, and LLM configuration state, returning non-zero when the local database is below the classroom-demo target.
 
 ## Report Changes
 
@@ -103,6 +104,7 @@ The course exam requires a full software engineering process package, not only c
 - After order approval workflow upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 31 passed.
 - After customer owner-scope upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 32 passed.
 - After current-user owner default upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 32 passed.
+- After environment doctor upgrade, `backend/.venv/Scripts/python.exe -m pytest -q`: 34 passed.
 - `npm run lint`: passed.
 - `npm test`: 24 passed.
 - `npm run build`: passed.
@@ -141,6 +143,7 @@ The course exam requires a full software engineering process package, not only c
 - Order approval workflow regression succeeded: a draft order can be submitted for approval, duplicate pending approvals are rejected, sales users cannot approve, approval managers can approve, the order status advances to `confirmed`, and `order_approval` business audit logs are written.
 - Customer owner-scope regression succeeded: a sales role sees only `李伟超` customers, new customers default to the current salesperson, cross-owner customer create/update returns 403, and orders cannot be created against another salesperson's customer.
 - Current-user owner default regression succeeded: a sales role can create contact, lead, case, task, and order payloads with empty or placeholder owners, and the API persists `李伟超`; frontend unit tests cover owner placeholder normalization.
+- Environment doctor smoke succeeded: `python -m app.manage doctor` reported the local demo database ready with 12 customers, 10 products, 15 leads/opportunities, 12 orders, 22 order items, 22 inventory movements, and 2 approval records.
 - DeepSeek Copilot smoke succeeded with the local API key: `/api/copilot/summary` returned `fallback_used=false`, 15 insights, and a non-empty `llm_summary`.
 
 ## Next Steps

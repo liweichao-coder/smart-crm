@@ -78,6 +78,7 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m app.manage reset-db
+.\.venv\Scripts\python.exe -m app.manage doctor
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -108,6 +109,7 @@ npm run build
 ```powershell
 cd D:\LwcCode\personal-project\smart-crm\backend
 .\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m app.manage doctor
 ```
 
 ## 下一步建议

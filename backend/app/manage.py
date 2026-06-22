@@ -2,29 +2,92 @@ from __future__ import annotations
 
 import argparse
 
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session, SQLModel, select
 
-from .database import create_db_and_tables, engine
-from .models import BusinessAuditLog, CopilotRecommendation, Customer, InventoryMovement, OrderItem, Product, SalesLead, SalesOrder  # noqa: F401
+from . import database
+from .config import settings
+from .models import (  # noqa: F401
+    AIInteractionLog,
+    AuthUser,
+    BusinessAuditLog,
+    Contact,
+    CopilotRecommendation,
+    Customer,
+    InventoryMovement,
+    OrderApprovalRequest,
+    OrderItem,
+    Organization,
+    Product,
+    SalesGoal,
+    SalesLead,
+    SalesOrder,
+    SupportCase,
+    TaskItem,
+)
 from .seed import seed_data
 
 
+DEMO_DATA_TARGETS = [
+    ("organizations", Organization, 1),
+    ("users", AuthUser, 1),
+    ("customers", Customer, 12),
+    ("products", Product, 10),
+    ("contacts", Contact, 12),
+    ("leads_opportunities", SalesLead, 15),
+    ("support_cases", SupportCase, 8),
+    ("tasks", TaskItem, 8),
+    ("sales_goals", SalesGoal, 4),
+    ("orders", SalesOrder, 12),
+    ("order_items", OrderItem, 22),
+    ("inventory_movements", InventoryMovement, 22),
+    ("order_approvals", OrderApprovalRequest, 2),
+]
+
+
 def reset_db() -> None:
-    SQLModel.metadata.drop_all(engine)
-    create_db_and_tables()
-    with Session(engine) as session:
+    SQLModel.metadata.drop_all(database.engine)
+    database.create_db_and_tables()
+    with Session(database.engine) as session:
         seed_data(session)
 
 
 def seed_db() -> None:
-    create_db_and_tables()
-    with Session(engine) as session:
+    database.create_db_and_tables()
+    with Session(database.engine) as session:
         seed_data(session)
+
+
+def collect_demo_stats(session: Session) -> list[tuple[str, int, int]]:
+    return [(label, len(session.exec(select(model)).all()), minimum) for label, model, minimum in DEMO_DATA_TARGETS]
+
+
+def doctor() -> int:
+    database.create_db_and_tables()
+    with Session(database.engine) as session:
+        stats = collect_demo_stats(session)
+
+    print("Smart CRM environment doctor")
+    print(f"- database_url: {settings.database_url}")
+    print(f"- llm_base_url: {settings.llm_base_url}")
+    print(f"- llm_model: {settings.llm_model}")
+    print(f"- llm_api_key: {'configured' if settings.llm_api_key else 'not configured, rule fallback enabled'}")
+    print("- demo data:")
+    for label, count, minimum in stats:
+        status = "OK" if count >= minimum else "LOW"
+        print(f"  {label}: {count} / target {minimum} [{status}]")
+
+    missing = [(label, count, minimum) for label, count, minimum in stats if count < minimum]
+    if missing:
+        print("Doctor result: demo data is below target. Run `python -m app.manage reset-db` before a presentation.")
+        return 1
+
+    print("Doctor result: environment is ready for a classroom demo.")
+    return 0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Smart CRM database management")
-    parser.add_argument("command", choices=["reset-db", "seed-db"], help="Database command to run")
+    parser.add_argument("command", choices=["reset-db", "seed-db", "doctor"], help="Database command to run")
     args = parser.parse_args()
 
     if args.command == "reset-db":
@@ -33,6 +96,8 @@ def main() -> None:
     elif args.command == "seed-db":
         seed_db()
         print("Smart CRM demo database seeded if it was empty.")
+    elif args.command == "doctor":
+        raise SystemExit(doctor())
 
 
 if __name__ == "__main__":

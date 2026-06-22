@@ -42,6 +42,14 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 .\.venv\Scripts\python.exe -m app.manage reset-db
 ```
 
+Run the environment doctor after resetting or receiving a teammate's checkout:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.manage doctor
+```
+
+The doctor checks database tables, demo-data scale, and LLM configuration state. It exits with a non-zero code when the database is empty or below the classroom-demo target, so teammates can quickly know when to run `reset-db`.
+
 Current demo dataset scale:
 
 - 12 customers
