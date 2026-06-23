@@ -1347,8 +1347,15 @@ class CaptureDraftRead(BaseModel):
 
 
 class CaptureDraftUpdate(BaseModel):
-    status: Literal["draft", "submitted", "discarded"]
+    status: Literal["draft", "submitted", "discarded"] | None = None
     submitted_order_id: int | None = None
+    customer_id: int | None = None
+    customer_name: str | None = None
+    company: str | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    summary: str | None = None
+    suggested_notes: str | None = None
+    items: list[VisionExtractItem] | None = None
 
 
 class CopilotOpportunityInsight(BaseModel):

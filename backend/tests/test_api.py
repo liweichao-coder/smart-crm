@@ -2240,24 +2240,44 @@ def test_capture_draft_history_marks_submitted_order(monkeypatch) -> None:
             files={"file": ("order.txt", order_text.encode("utf-8"), "text/plain")},
         )
         extract_payload = extract_response.json()
+        product = client.get("/api/products").json()[1]
+        review_update_response = client.patch(
+            f"/api/vision-extract/drafts/{extract_payload['capture_draft_id']}",
+            json={
+                "company": "云川医疗复核版",
+                "customer_name": "陈敏",
+                "confidence": 0.88,
+                "summary": "人工复核后保留 1 条商品。",
+                "suggested_notes": "人工复核备注会进入订单。",
+                "items": [
+                    {
+                        "product_id": product["id"],
+                        "product_name": product["name"],
+                        "quantity": 2,
+                        "unit_price": product["unit_price"],
+                    }
+                ],
+            },
+        )
+        reviewed_payload = review_update_response.json()
         order_response = client.post(
             "/api/orders",
             json={
-                "customer_id": extract_payload["customer_id"],
+                "customer_id": reviewed_payload["customer_id"],
                 "owner": "李伟超",
                 "region": "华南",
                 "currency": "CNY",
                 "status": "draft",
                 "order_date": "2026-06-22",
                 "due_date": "2026-06-29",
-                "notes": extract_payload["suggested_notes"],
+                "notes": reviewed_payload["suggested_notes"],
                 "created_by_ai": True,
-                "ai_confidence_score": extract_payload["confidence"],
+                "ai_confidence_score": reviewed_payload["confidence"],
                 "items": [
                     {
-                        "product_id": extract_payload["items"][0]["product_id"],
-                        "quantity": extract_payload["items"][0]["quantity"],
-                        "unit_price": extract_payload["items"][0]["unit_price"],
+                        "product_id": reviewed_payload["items"][0]["product_id"],
+                        "quantity": reviewed_payload["items"][0]["quantity"],
+                        "unit_price": reviewed_payload["items"][0]["unit_price"],
                     }
                 ],
             },
@@ -2266,6 +2286,10 @@ def test_capture_draft_history_marks_submitted_order(monkeypatch) -> None:
         update_response = client.patch(
             f"/api/vision-extract/drafts/{extract_payload['capture_draft_id']}",
             json={"status": "submitted", "submitted_order_id": order_payload["id"]},
+        )
+        closed_edit_response = client.patch(
+            f"/api/vision-extract/drafts/{extract_payload['capture_draft_id']}",
+            json={"summary": "已提交草稿不允许继续修改"},
         )
         paged_response = client.get("/api/vision-extract/drafts?page=1&per_page=5&status=submitted")
         discard_extract_response = client.post(
@@ -2281,10 +2305,18 @@ def test_capture_draft_history_marks_submitted_order(monkeypatch) -> None:
         draft_list_response = client.get("/api/vision-extract/drafts?page=1&per_page=5&status=draft")
 
     assert extract_response.status_code == 200
+    assert review_update_response.status_code == 200
     assert order_response.status_code == 201
     assert update_response.status_code == 200
+    assert closed_edit_response.status_code == 422
     assert discard_extract_response.status_code == 200
     assert discard_response.status_code == 200
+    assert reviewed_payload["company"] == "云川医疗复核版"
+    assert reviewed_payload["confidence"] == 0.88
+    assert reviewed_payload["summary"] == "人工复核后保留 1 条商品。"
+    assert reviewed_payload["suggested_notes"] == "人工复核备注会进入订单。"
+    assert reviewed_payload["items"][0]["product_id"] == product["id"]
+    assert reviewed_payload["items"][0]["quantity"] == 2
     updated_draft = update_response.json()
     assert updated_draft["status"] == "submitted"
     assert updated_draft["submitted_order_id"] == order_payload["id"]

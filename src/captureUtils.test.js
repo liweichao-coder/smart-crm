@@ -57,6 +57,21 @@ test('buildOrderPayloadFromCapture creates backend order payload', () => {
   assert.equal(payload.due_date, '2026-06-29')
   assert.equal(payload.items[0].product_id, 10)
   assert.equal(payload.items[0].quantity, 2)
+  assert.equal(payload.notes, 'AI Capture 生成：抽取到 2 个订单条目。；来源 llm_text。')
+})
+
+test('buildOrderPayloadFromCapture uses reviewed notes when present', () => {
+  const payload = buildOrderPayloadFromCapture({
+    captureResult: {
+      ...captureResult,
+      suggested_notes: '人工复核后确认数量和交付风险。',
+    },
+    customers,
+    products,
+    owner: '李伟超',
+  })
+
+  assert.equal(payload.notes, '人工复核后确认数量和交付风险。')
 })
 
 test('buildOrderPayloadFromCapture uses backend matched ids before fuzzy names', () => {

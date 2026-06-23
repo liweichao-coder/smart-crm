@@ -93,7 +93,7 @@ export function buildOrderPayloadFromCapture({
     status: 'draft',
     order_date: today,
     due_date: addDays(today, 7),
-    notes: `AI Capture 生成：${captureResult.summary || '智能录单草稿'}；来源 ${captureResult.source || 'unknown'}。`,
+    notes: captureResult.suggested_notes || `AI Capture 生成：${captureResult.summary || '智能录单草稿'}；来源 ${captureResult.source || 'unknown'}。`,
     created_by_ai: true,
     ai_confidence_score: Number(captureResult.confidence ?? 0),
     items,

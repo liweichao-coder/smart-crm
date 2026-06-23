@@ -1288,6 +1288,24 @@ p {
   font-size: 12px;
 }
 
+.crm-table input,
+.crm-table select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-primary);
+  font: inherit;
+  padding: 0 10px;
+}
+
+.crm-table input:disabled,
+.crm-table select:disabled {
+  background: var(--surface-sunken);
+  color: var(--text-tertiary);
+}
+
 .crm-stock-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
