@@ -5759,6 +5759,7 @@ function TableResourcePage({
   const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
   const [selectedRowIds, setSelectedRowIds] = useState([])
+  const [confirmRequest, setConfirmRequest] = useState(null)
   const createInitialDraft = () => ({
     ...createDraftFromColumns(columns),
     ...defaultDraftValues,
@@ -5862,19 +5863,28 @@ function TableResourcePage({
   }
 
   const handleDeleteRecord = async (record) => {
-    if (!onDeleteRecord || !window.confirm(`确认删除 ${record.name ?? record.title ?? '这条记录'}？`)) {
+    if (!onDeleteRecord) {
       return
     }
-    setDeleteSaving(true)
-    setCreateError('')
-    try {
-      await onDeleteRecord(record.id)
-      setRows((currentRows) => currentRows.filter((item) => item.id !== record.id))
-    } catch (nextError) {
-      setCreateError(nextError.message || '删除记录失败')
-    } finally {
-      setDeleteSaving(false)
-    }
+    const recordName = record.name ?? record.title ?? '这条记录'
+    setConfirmRequest({
+      title: `删除${title}`,
+      message: `确认删除 ${recordName}？系统会调用后端 DELETE 接口，若存在订单、库存或权限关联，后端会拒绝删除并保留记录。`,
+      confirmLabel: '确认删除',
+      onConfirm: async () => {
+        setDeleteSaving(true)
+        setCreateError('')
+        try {
+          await onDeleteRecord(record.id)
+          setRows((currentRows) => currentRows.filter((item) => item.id !== record.id))
+          setConfirmRequest(null)
+        } catch (nextError) {
+          setCreateError(nextError.message || '删除记录失败')
+        } finally {
+          setDeleteSaving(false)
+        }
+      },
+    })
   }
 
   const handleFocusSearch = () => {
@@ -5917,26 +5927,34 @@ function TableResourcePage({
   }
 
   const handleBulkDelete = async () => {
-    if (!onDeleteRecord || !selectedRecords.length || !window.confirm(`确认删除选中的 ${selectedRecords.length} 条记录？`)) {
+    if (!onDeleteRecord || !selectedRecords.length) {
       return
     }
-    setDeleteSaving(true)
-    setCreateError('')
     const targetRecords = [...selectedRecords]
-    try {
-      const results = await Promise.allSettled(targetRecords.map((record) => onDeleteRecord(record.id)))
-      const summary = summarizeBulkSettledResults(results)
-      const deletedIds = new Set(targetRecords.filter((_, index) => results[index].status === 'fulfilled').map((record) => String(record.id)))
-      setRows((currentRows) => currentRows.filter((record) => !deletedIds.has(String(record.id))))
-      setSelectedRowIds((currentIds) => currentIds.filter((id) => !deletedIds.has(id)))
-      if (summary.failed) {
-        setCreateError(`已删除 ${summary.succeeded} 条，${summary.failed} 条失败，请检查关联数据或权限。`)
-      }
-    } catch (nextError) {
-      setCreateError(nextError.message || '批量删除失败')
-    } finally {
-      setDeleteSaving(false)
-    }
+    setConfirmRequest({
+      title: `批量删除${title}`,
+      message: `确认删除选中的 ${targetRecords.length} 条记录？系统会逐条调用真实后端 DELETE 接口，成功项会从列表移除，失败项会保留并提示原因。`,
+      confirmLabel: `删除 ${targetRecords.length} 条`,
+      onConfirm: async () => {
+        setDeleteSaving(true)
+        setCreateError('')
+        try {
+          const results = await Promise.allSettled(targetRecords.map((record) => onDeleteRecord(record.id)))
+          const summary = summarizeBulkSettledResults(results)
+          const deletedIds = new Set(targetRecords.filter((_, index) => results[index].status === 'fulfilled').map((record) => String(record.id)))
+          setRows((currentRows) => currentRows.filter((record) => !deletedIds.has(String(record.id))))
+          setSelectedRowIds((currentIds) => currentIds.filter((id) => !deletedIds.has(id)))
+          if (summary.failed) {
+            setCreateError(`已删除 ${summary.succeeded} 条，${summary.failed} 条失败，请检查关联数据或权限。`)
+          }
+          setConfirmRequest(null)
+        } catch (nextError) {
+          setCreateError(nextError.message || '批量删除失败')
+        } finally {
+          setDeleteSaving(false)
+        }
+      },
+    })
   }
 
   const handleSubmitBulkEdit = async (event) => {
@@ -6135,6 +6153,15 @@ function TableResourcePage({
         onSubmit={handleSubmitBulkEdit}
         submitting={bulkEditSaving}
       />
+      <ConfirmDialog
+        open={Boolean(confirmRequest)}
+        title={confirmRequest?.title ?? ''}
+        message={confirmRequest?.message ?? ''}
+        confirmLabel={confirmRequest?.confirmLabel ?? '确认'}
+        submitting={deleteSaving}
+        onCancel={() => setConfirmRequest(null)}
+        onConfirm={confirmRequest?.onConfirm}
+      />
     </div>
   )
 }
@@ -6161,6 +6188,7 @@ function BoardResourcePage({
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
+  const [confirmRequest, setConfirmRequest] = useState(null)
   const searchInputRef = useRef(null)
   const hasActions = Boolean(onUpdateRecord || onDeleteRecord)
   const { query, setQuery, view, setView, preferenceStatus } = useResourceUrlState({
@@ -6237,19 +6265,28 @@ function BoardResourcePage({
   }
 
   const handleDeleteRecord = async (record) => {
-    if (!onDeleteRecord || !window.confirm(`确认删除 ${record.name ?? record.title ?? '这条记录'}？`)) {
+    if (!onDeleteRecord) {
       return
     }
-    setDeleteSaving(true)
-    setCreateError('')
-    try {
-      await onDeleteRecord(record.id)
-      setRows((currentRows) => currentRows.filter((item) => item.id !== record.id))
-    } catch (nextError) {
-      setCreateError(nextError.message || '删除记录失败')
-    } finally {
-      setDeleteSaving(false)
-    }
+    const recordName = record.name ?? record.title ?? '这条记录'
+    setConfirmRequest({
+      title: `删除${title}`,
+      message: `确认删除 ${recordName}？系统会调用后端 DELETE 接口，后端权限和关联数据规则仍会进行最终校验。`,
+      confirmLabel: '确认删除',
+      onConfirm: async () => {
+        setDeleteSaving(true)
+        setCreateError('')
+        try {
+          await onDeleteRecord(record.id)
+          setRows((currentRows) => currentRows.filter((item) => item.id !== record.id))
+          setConfirmRequest(null)
+        } catch (nextError) {
+          setCreateError(nextError.message || '删除记录失败')
+        } finally {
+          setDeleteSaving(false)
+        }
+      },
+    })
   }
 
   const handleFocusSearch = () => {
@@ -6393,6 +6430,15 @@ function BoardResourcePage({
         onSubmit={handleSubmitCreate}
         submitting={createSaving}
       />
+      <ConfirmDialog
+        open={Boolean(confirmRequest)}
+        title={confirmRequest?.title ?? ''}
+        message={confirmRequest?.message ?? ''}
+        confirmLabel={confirmRequest?.confirmLabel ?? '确认'}
+        submitting={deleteSaving}
+        onCancel={() => setConfirmRequest(null)}
+        onConfirm={confirmRequest?.onConfirm}
+      />
     </div>
   )
 }
@@ -6421,6 +6467,7 @@ function TasksPage() {
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingTask, setEditingTask] = useState(null)
   const [createError, setCreateError] = useState('')
+  const [confirmRequest, setConfirmRequest] = useState(null)
   const [draft, setDraft] = useState(createTaskDraft)
   const tabs = [
     { key: 'all', label: '全部' },
@@ -6478,19 +6525,24 @@ function TasksPage() {
   }
 
   const handleDeleteTask = async (task) => {
-    if (!window.confirm(`确认删除 ${task.title}？`)) {
-      return
-    }
-    setDeleteSaving(true)
-    setCreateError('')
-    try {
-      await deleteTask(task.id)
-      setTasks((currentTasks) => currentTasks.filter((item) => item.id !== task.id))
-    } catch (nextError) {
-      setCreateError(nextError.message || '删除任务失败')
-    } finally {
-      setDeleteSaving(false)
-    }
+    setConfirmRequest({
+      title: '删除任务',
+      message: `确认删除 ${task.title}？系统会调用后端任务 DELETE 接口，跨负责人或无权限删除会被后端拒绝。`,
+      confirmLabel: '确认删除',
+      onConfirm: async () => {
+        setDeleteSaving(true)
+        setCreateError('')
+        try {
+          await deleteTask(task.id)
+          setTasks((currentTasks) => currentTasks.filter((item) => item.id !== task.id))
+          setConfirmRequest(null)
+        } catch (nextError) {
+          setCreateError(nextError.message || '删除任务失败')
+        } finally {
+          setDeleteSaving(false)
+        }
+      },
+    })
   }
 
   return (
@@ -6551,6 +6603,15 @@ function TasksPage() {
         onSubmit={handleSubmitCreate}
         submitting={createSaving}
       />
+      <ConfirmDialog
+        open={Boolean(confirmRequest)}
+        title={confirmRequest?.title ?? ''}
+        message={confirmRequest?.message ?? ''}
+        confirmLabel={confirmRequest?.confirmLabel ?? '确认'}
+        submitting={deleteSaving}
+        onCancel={() => setConfirmRequest(null)}
+        onConfirm={confirmRequest?.onConfirm}
+      />
     </div>
   )
 }
@@ -6576,6 +6637,7 @@ function GoalsPage() {
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingGoal, setEditingGoal] = useState(null)
   const [createError, setCreateError] = useState('')
+  const [confirmRequest, setConfirmRequest] = useState(null)
   const [draft, setDraft] = useState(() => createDraftFromColumns(goalCreateColumns, ownerDraftDefault))
 
   useEffect(() => {
@@ -6619,19 +6681,24 @@ function GoalsPage() {
   }
 
   const handleDeleteGoal = async (goal) => {
-    if (!window.confirm(`确认删除 ${goal.name}？`)) {
-      return
-    }
-    setDeleteSaving(true)
-    setCreateError('')
-    try {
-      await deleteGoal(goal.id)
-      setGoals((currentGoals) => currentGoals.filter((item) => item.id !== goal.id))
-    } catch (nextError) {
-      setCreateError(nextError.message || '删除目标失败')
-    } finally {
-      setDeleteSaving(false)
-    }
+    setConfirmRequest({
+      title: '删除销售目标',
+      message: `确认删除 ${goal.name}？系统会调用后端销售目标 DELETE 接口，销售 owner 数据范围和权限规则仍会生效。`,
+      confirmLabel: '确认删除',
+      onConfirm: async () => {
+        setDeleteSaving(true)
+        setCreateError('')
+        try {
+          await deleteGoal(goal.id)
+          setGoals((currentGoals) => currentGoals.filter((item) => item.id !== goal.id))
+          setConfirmRequest(null)
+        } catch (nextError) {
+          setCreateError(nextError.message || '删除目标失败')
+        } finally {
+          setDeleteSaving(false)
+        }
+      },
+    })
   }
 
   return (
@@ -6689,6 +6756,15 @@ function GoalsPage() {
         }}
         onSubmit={handleSubmitCreate}
         submitting={createSaving}
+      />
+      <ConfirmDialog
+        open={Boolean(confirmRequest)}
+        title={confirmRequest?.title ?? ''}
+        message={confirmRequest?.message ?? ''}
+        confirmLabel={confirmRequest?.confirmLabel ?? '确认'}
+        submitting={deleteSaving}
+        onCancel={() => setConfirmRequest(null)}
+        onConfirm={confirmRequest?.onConfirm}
       />
     </div>
   )
@@ -7254,6 +7330,53 @@ function TeamMemberModal({ open, editingMember, draft, currentUserId, currentUse
           </button>
           <button className="crm-primary-button" type="submit" disabled={submitting}>
             {submitting ? '保存中' : '保存成员'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function ConfirmDialog({ open, title, message, confirmLabel = '确认', cancelLabel = '取消', submitting = false, onCancel, onConfirm }) {
+  if (!open) {
+    return null
+  }
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    if (!onConfirm || submitting) {
+      return
+    }
+    await onConfirm()
+  }
+
+  return (
+    <div className="crm-modal-backdrop" role="presentation">
+      <form className="crm-modal crm-confirm-modal" onSubmit={handleSubmit}>
+        <div className="crm-modal-head">
+          <div>
+            <span className="crm-overline">确认操作</span>
+            <h3>{title}</h3>
+          </div>
+          <button className="crm-icon-button" type="button" aria-label="关闭" onClick={onCancel} disabled={submitting}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="crm-confirm-body">
+          <div className="crm-confirm-icon" aria-hidden="true">
+            <Trash2 size={18} />
+          </div>
+          <p>{message}</p>
+        </div>
+
+        <div className="crm-modal-actions">
+          <button className="crm-ghost-button" type="button" onClick={onCancel} disabled={submitting}>
+            {cancelLabel}
+          </button>
+          <button className="crm-ghost-button crm-ghost-button--danger" type="submit" disabled={submitting || !onConfirm}>
+            <Trash2 size={16} />
+            {submitting ? '处理中...' : confirmLabel}
           </button>
         </div>
       </form>
