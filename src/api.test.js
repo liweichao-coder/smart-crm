@@ -5,7 +5,9 @@ import {
   exportAiAuditLogsCsv,
   exportAuthAuditLogsCsv,
   exportBusinessAuditLogsCsv,
+  fetchAiAuditLogs,
   fetchAuthAuditLogs,
+  fetchBusinessAuditLogs,
 } from './api.js'
 
 test('fetchAuthAuditLogs sends paginated auth audit filters to the backend', async (t) => {
@@ -75,6 +77,53 @@ test('exportAuthAuditLogsCsv downloads the filtered auth audit CSV', async (t) =
   assert.equal(calls[0].init.headers?.Authorization, undefined)
   assert.equal(blob.type, 'text/csv;charset=utf-8')
   assert.match(await blob.text(), /login,failed/)
+})
+
+test('audit list helpers send filtered AI and business audit params', async (t) => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init })
+    return new Response(JSON.stringify({
+      items: [],
+      total: 0,
+      page: 1,
+      per_page: 20,
+      pages: 1,
+      has_next: false,
+      has_previous: false,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  await fetchAiAuditLogs({
+    page: 2,
+    per_page: 20,
+    q: 'DeepSeek',
+    operation: 'copilot_summary',
+    entity_type: 'lead',
+    fallback_used: false,
+  })
+  await fetchBusinessAuditLogs({
+    page: 3,
+    per_page: 20,
+    q: '订单',
+    action: 'update',
+    entity_type: 'order',
+    operator: '李伟超',
+    status: 'success',
+  })
+
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].url, 'http://127.0.0.1:8000/api/ai-audit-logs?page=2&per_page=20&q=DeepSeek&operation=copilot_summary&entity_type=lead&fallback_used=false')
+  assert.equal(calls[1].url, 'http://127.0.0.1:8000/api/business-audit-logs?page=3&per_page=20&q=%E8%AE%A2%E5%8D%95&action=update&entity_type=order&operator=%E6%9D%8E%E4%BC%9F%E8%B6%85&status=success')
 })
 
 test('audit export helpers download filtered AI and business audit CSVs', async (t) => {

@@ -722,12 +722,14 @@ p {
 
 .crm-report-filter-bar {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   align-items: end;
 }
 
 .crm-report-filter-actions {
+  align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -735,10 +737,6 @@ p {
   align-items: center;
   justify-content: flex-end;
   margin-top: 18px;
-}
-
-.crm-audit-action-row {
-  justify-content: flex-end;
 }
 
 .crm-report-metric-grid {
