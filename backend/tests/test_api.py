@@ -938,6 +938,8 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
             headers=headers,
         )
         denied_auth_audit_export = client.get("/api/auth/audit-logs/export.csv", headers=headers)
+        denied_ai_audit_export = client.get("/api/ai-audit-logs/export.csv", headers=headers)
+        denied_business_audit_export = client.get("/api/business-audit-logs/export.csv", headers=headers)
         denied_audit = client.get("/api/business-audit-logs", headers=headers)
         denied_ai_quality = client.get("/api/reports/ai-quality", headers=headers)
         denied_consistency = client.get("/api/system/consistency-checks", headers=headers)
@@ -1004,6 +1006,8 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert denied_recommendation_task.status_code == 403
     assert denied_product.status_code == 403
     assert denied_auth_audit_export.status_code == 403
+    assert denied_ai_audit_export.status_code == 403
+    assert denied_business_audit_export.status_code == 403
     assert denied_audit.status_code == 403
     assert denied_ai_quality.status_code == 403
     assert denied_consistency.status_code == 403
@@ -1124,6 +1128,7 @@ def test_create_business_resources() -> None:
         customer_list = client.get("/api/customers").json()
         lead_list = client.get("/api/leads").json()
         audit_logs = client.get("/api/business-audit-logs").json()
+        audit_export = client.get("/api/business-audit-logs/export.csv?action=create&entity_type=customer&q=测试智能制造")
 
     for response in responses.values():
         assert response.status_code == 201
@@ -1135,6 +1140,12 @@ def test_create_business_resources() -> None:
     assert any(lead["title"] == "测试智能制造 CRM 升级" for lead in lead_list)
     created_entities = {log["entity_type"] for log in audit_logs if log["action"] == "create"}
     assert {"customer", "contact", "lead", "case", "task", "goal"} <= created_entities
+    assert audit_export.status_code == 200
+    assert audit_export.headers["content-type"].startswith("text/csv")
+    assert "日志ID,时间,动作,对象类型,对象ID,操作人,状态,摘要,详情" in audit_export.text
+    assert "create,customer" in audit_export.text
+    assert "测试智能制造" in audit_export.text
+    assert "create,contact" not in audit_export.text
 
 
 def test_create_update_and_delete_products() -> None:
@@ -1897,6 +1908,7 @@ def test_ai_audit_logs_record_runtime_actions(monkeypatch) -> None:
             files={"file": ("order.txt", order_text.encode("utf-8"), "text/plain")},
         )
         response = client.get("/api/ai-audit-logs")
+        export_response = client.get("/api/ai-audit-logs/export.csv?operation=vision_extract&fallback_used=true")
 
     assert response.status_code == 200
     logs = response.json()
@@ -1905,6 +1917,12 @@ def test_ai_audit_logs_record_runtime_actions(monkeypatch) -> None:
     assert all(log["fallback_used"] is True for log in logs)
     assert all(log["latency_ms"] >= 0 for log in logs)
     assert all("sk-" not in log["request_summary"] for log in logs)
+    assert export_response.status_code == 200
+    assert export_response.headers["content-type"].startswith("text/csv")
+    assert "日志ID,时间,操作,状态,供应商,模型,是否兜底" in export_response.text
+    assert "vision_extract" in export_response.text
+    assert "copilot_summary" not in export_response.text
+    assert "sk-" not in export_response.text
 
 
 def test_ai_quality_report_uses_real_audit_and_recommendation_logs(monkeypatch) -> None:

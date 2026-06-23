@@ -1921,6 +1921,51 @@ def build_auth_audit_csv(logs: list[AuthAuditLog]) -> str:
     return "\ufeff" + output.getvalue()
 
 
+def build_ai_audit_csv(logs: list[AIInteractionLog]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["日志ID", "时间", "操作", "状态", "供应商", "模型", "是否兜底", "耗时ms", "对象类型", "对象ID", "请求摘要", "响应摘要"])
+    for log in logs:
+        writer.writerow(
+            [
+                log.id,
+                log.created_at.isoformat(timespec="seconds"),
+                log.operation,
+                log.status,
+                log.provider,
+                log.model,
+                "是" if log.fallback_used else "否",
+                log.latency_ms,
+                log.entity_type,
+                log.entity_id or "",
+                log.request_summary,
+                log.response_summary,
+            ]
+        )
+    return "\ufeff" + output.getvalue()
+
+
+def build_business_audit_csv(logs: list[BusinessAuditLog]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["日志ID", "时间", "动作", "对象类型", "对象ID", "操作人", "状态", "摘要", "详情"])
+    for log in logs:
+        writer.writerow(
+            [
+                log.id,
+                log.created_at.isoformat(timespec="seconds"),
+                log.action,
+                log.entity_type,
+                log.entity_id or "",
+                log.operator,
+                log.status,
+                log.summary,
+                log.detail,
+            ]
+        )
+    return "\ufeff" + output.getvalue()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     create_db_and_tables()
@@ -3477,6 +3522,32 @@ def list_ai_audit_logs(
     return paginate_or_list(logs, page=page, per_page=per_page)
 
 
+@app.get("/api/ai-audit-logs/export.csv", dependencies=[Depends(require_permission("audit:read"))])
+def export_ai_audit_logs_csv(
+    session: SessionDep,
+    q: str = "",
+    operation: str = "",
+    status: str = "",
+    entity_type: str = "",
+    fallback_used: bool | None = None,
+) -> Response:
+    logs = session.exec(select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc())).all()
+    logs = filter_records(
+        logs,
+        q=q,
+        fields=("operation", "provider", "model", "status", "entity_type", "request_summary", "response_summary"),
+        operation=operation,
+        status=status,
+        entity_type=entity_type,
+    )
+    logs = filter_bool(logs, "fallback_used", fallback_used)
+    return Response(
+        content=build_ai_audit_csv(logs),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="smart-crm-ai-audit.csv"'},
+    )
+
+
 def matches_ai_quality_filters(
     log: AIInteractionLog,
     date_from: date | None,
@@ -3643,6 +3714,32 @@ def list_business_audit_logs(
         status=status,
     )
     return paginate_or_list(logs, page=page, per_page=per_page)
+
+
+@app.get("/api/business-audit-logs/export.csv", dependencies=[Depends(require_permission("audit:read"))])
+def export_business_audit_logs_csv(
+    session: SessionDep,
+    q: str = "",
+    action: str = "",
+    entity_type: str = "",
+    operator: str = "",
+    status: str = "",
+) -> Response:
+    logs = session.exec(select(BusinessAuditLog).order_by(BusinessAuditLog.created_at.desc())).all()
+    logs = filter_records(
+        logs,
+        q=q,
+        fields=("action", "entity_type", "operator", "status", "summary", "detail"),
+        action=action,
+        entity_type=entity_type,
+        operator=operator,
+        status=status,
+    )
+    return Response(
+        content=build_business_audit_csv(logs),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="smart-crm-business-audit.csv"'},
+    )
 
 
 @app.get("/api/system/consistency-checks", response_model=ConsistencyReportResponse, dependencies=[Depends(require_permission("audit:read"))])

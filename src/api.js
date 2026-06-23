@@ -197,12 +197,36 @@ export function fetchAiAuditLogs(params) {
   return request(`/api/ai-audit-logs${buildQueryString(params)}`)
 }
 
+export async function exportAiAuditLogsCsv(params) {
+  const token = readStoredAuthToken()
+  const response = await fetch(`${API_BASE_URL}/api/ai-audit-logs/export.csv${buildQueryString(params)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) {
+    const payload = await readResponsePayload(response)
+    throw new Error(typeof payload === 'string' ? payload : payload?.detail ?? 'AI 审计导出失败')
+  }
+  return response.blob()
+}
+
 export function fetchAiQualityReport(params) {
   return request(`/api/reports/ai-quality${buildQueryString(params)}`)
 }
 
 export function fetchBusinessAuditLogs(params) {
   return request(`/api/business-audit-logs${buildQueryString(params)}`)
+}
+
+export async function exportBusinessAuditLogsCsv(params) {
+  const token = readStoredAuthToken()
+  const response = await fetch(`${API_BASE_URL}/api/business-audit-logs/export.csv${buildQueryString(params)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) {
+    const payload = await readResponsePayload(response)
+    throw new Error(typeof payload === 'string' ? payload : payload?.detail ?? '业务审计导出失败')
+  }
+  return response.blob()
 }
 
 export function fetchConsistencyChecks() {
