@@ -75,6 +75,15 @@ Run the environment doctor after resetting or receiving a teammate's checkout:
 
 The doctor checks database tables, demo-data scale, LLM configuration state, and cross-table consistency. It exits with a non-zero code when the database is empty, below the classroom-demo target, or has order-total, inventory-movement, order-item, product-stock, or approval-reference consistency issues, so teammates can quickly know when to run `reset-db` or inspect Operation Audit.
 
+Run the automated API smoke after the backend is listening:
+
+```powershell
+cd D:\LwcCode\personal-project\smart-crm
+.\backend\.venv\Scripts\python.exe .\scripts\smoke_api.py --base-url http://127.0.0.1:8000
+```
+
+This script logs in with the demo admin account, checks `/api/health`, current session, core CRM resources, notifications, reports, permission matrix, consistency checks, audit list shapes, and the customer workspace. It logs out before exiting so the smoke token is revoked. Add `--include-ai-write` only when you want to verify Copilot summary/follow-up and accept new AI audit/recommendation records.
+
 Before handing the demo database to another teammate, create a SQLite snapshot:
 
 ```powershell

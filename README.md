@@ -133,6 +133,16 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 
 启动后端后也可以访问 `GET /api/health` 做部署 readiness 检查。该接口会返回数据库驱动、LLM 是否已配置、演示数据数量/目标值和一致性状态，不返回数据库文件路径或 API Key。
 
+### API 冒烟测试
+
+后端运行后，可以从仓库根目录执行标准库脚本，自动验证 readiness、登录、会话、仪表盘、资源列表、通知、报表、权限矩阵、跨表一致性、审计和客户工作台：
+
+```powershell
+.\backend\.venv\Scripts\python.exe .\scripts\smoke_api.py --base-url http://127.0.0.1:8000
+```
+
+如需把 Copilot 摘要和跟进话术也纳入冒烟，可追加 `--include-ai-write`。该选项会写入 AI 审计和推荐历史，适合答辩前验证 LLM 链路。
+
 ### 数据库迁移与快照
 
 保留现有数据升级表结构时，使用显式迁移命令：
@@ -153,7 +163,7 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 
 ## 后续增强
 
-- 补端到端冒烟测试、更细粒度权限审计和更多经营 BI 维度。
+- 继续补浏览器级端到端冒烟、更细粒度权限审计和更多经营 BI 维度。
 - 将通用卡片、表格、看板拆为独立组件。
 - 继续补更多细分经营 BI 维度、长期效果追踪和批量编辑审计摘要。
 - 详见 `docs/deployment.md` 和 `docs/dev-log/`。
