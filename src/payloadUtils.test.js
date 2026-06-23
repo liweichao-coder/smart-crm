@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildContactPayload, buildCustomerPayload, buildProductPayload, buildTeamMemberPayload } from './payloadUtils.js'
+import { buildContactPayload, buildCustomerPayload, buildLeadPayload, buildProductPayload, buildTeamMemberPayload } from './payloadUtils.js'
 
 test('buildCustomerPayload preserves real customer master data fields', () => {
   const payload = buildCustomerPayload({
@@ -89,6 +89,53 @@ test('buildProductPayload leaves missing required catalog fields empty for backe
     category: '软件',
     unit_price: 0,
     stock: 0,
+  })
+})
+
+test('buildLeadPayload preserves real lead fields without placeholder customer', () => {
+  const payload = buildLeadPayload({
+    name: '  深圳园区续费线索  ',
+    company: ' 深圳园区科技 ',
+    owner: '未分配',
+    region: '华南',
+    amount: '96000',
+    stage: '已联系',
+    nextStep: '约产品负责人确认预算',
+  }, '李伟超')
+
+  assert.deepEqual(payload, {
+    title: '深圳园区续费线索',
+    customer_name: '深圳园区科技',
+    owner: '李伟超',
+    region: '华南',
+    expected_amount: 96000,
+    stage: 'contacted',
+    next_action: '约产品负责人确认预算',
+    ai_assisted: false,
+  })
+})
+
+test('buildLeadPayload leaves missing lead title and customer empty for backend validation', () => {
+  const payload = buildLeadPayload({
+    name: '',
+    account: '',
+    owner: '',
+    region: '',
+    amount: '',
+    stage: '',
+    nextStep: '',
+    closeDate: '',
+  }, '徐柠')
+
+  assert.deepEqual(payload, {
+    title: '',
+    customer_name: '',
+    owner: '徐柠',
+    region: '华南',
+    expected_amount: 0,
+    stage: 'new',
+    next_action: '',
+    ai_assisted: false,
   })
 })
 

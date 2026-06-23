@@ -1,5 +1,15 @@
 import { toDraftOwner } from './ownerUtils.js'
 
+const leadStageLabelMap = {
+  new: '新线索',
+  contacted: '已联系',
+  qualified: '已评估',
+  proposal: '方案中',
+  negotiation: '谈判中',
+  won: '已赢单',
+  lost: '已丢单',
+}
+
 export function cleanText(value, fallback = '') {
   const text = String(value ?? '').trim()
   return text || fallback
@@ -8,6 +18,12 @@ export function cleanText(value, fallback = '') {
 export function cleanNumber(value, fallback = 0) {
   const number = Number(value)
   return Number.isFinite(number) ? number : fallback
+}
+
+export function normalizeLeadStage(stage) {
+  const text = cleanText(stage, 'new')
+  const matchedEntry = Object.entries(leadStageLabelMap).find(([key, label]) => key === text || label === text)
+  return matchedEntry?.[0] ?? text
 }
 
 export function buildCustomerPayload(draft, ownerFallback) {
@@ -50,6 +66,24 @@ export function buildProductPayload(draft) {
     unit_price: cleanNumber(draft.unitPrice, 0),
     stock: Math.max(0, Math.round(cleanNumber(draft.stock, 0))),
   }
+}
+
+export function buildLeadPayload(draft, ownerFallback) {
+  const payload = {
+    title: cleanText(draft.name),
+    customer_name: cleanText(draft.company ?? draft.account),
+    owner: toDraftOwner(draft.owner, ownerFallback),
+    region: cleanText(draft.region, '华南'),
+    expected_amount: cleanNumber(draft.amount),
+    stage: normalizeLeadStage(draft.stage),
+    next_action: cleanText(draft.nextStep),
+    ai_assisted: false,
+  }
+  const dueDate = cleanText(draft.closeDate)
+  if (dueDate) {
+    payload.due_date = dueDate
+  }
+  return payload
 }
 
 export function buildTeamMemberPayload(draft, isEditing = false) {

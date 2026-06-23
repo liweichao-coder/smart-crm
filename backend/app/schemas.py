@@ -666,6 +666,19 @@ class SalesLeadCreate(BaseModel):
     due_date: date = Field(default_factory=date.today)
     ai_assisted: bool = False
 
+    @field_validator("title", "customer_name", "owner", "region")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        text = clean_text(value)
+        if not text:
+            raise ValueError("字段不能为空")
+        return text
+
+    @field_validator("next_action")
+    @classmethod
+    def validate_next_action(cls, value: str) -> str:
+        return clean_text(value)
+
 
 class SalesLeadUpdate(BaseModel):
     title: str | None = None
@@ -677,6 +690,14 @@ class SalesLeadUpdate(BaseModel):
     next_action: str | None = None
     due_date: date | None = None
     ai_assisted: bool | None = None
+
+    @field_validator("title", "customer_name", "owner", "region", "next_action")
+    @classmethod
+    def validate_text(cls, value: str | None) -> str | None:
+        text = optional_clean_text(value)
+        if text == "" and value is not None:
+            raise ValueError("字段不能为空")
+        return text
 
 
 class SupportCaseRead(BaseModel):
