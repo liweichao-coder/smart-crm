@@ -4953,15 +4953,21 @@ function CapturePage() {
   const [result, setResult] = useState(null)
   const [catalog, setCatalog] = useState({ customers: [], products: [] })
   const [captureDrafts, setCaptureDrafts] = useState([])
+  const [draftStatusFilter, setDraftStatusFilter] = useState('draft')
   const [submittedOrder, setSubmittedOrder] = useState(null)
   const [extracting, setExtracting] = useState(false)
   const [draftsLoading, setDraftsLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [draftUpdatingId, setDraftUpdatingId] = useState(null)
   const [error, setError] = useState('')
 
   const loadCaptureDrafts = useCallback(() => {
     setDraftsLoading(true)
-    return fetchCaptureDrafts({ page: 1, per_page: 6 })
+    const params = { page: 1, per_page: 6 }
+    if (draftStatusFilter !== 'all') {
+      params.status = draftStatusFilter
+    }
+    return fetchCaptureDrafts(params)
       .then((payload) => {
         const items = Array.isArray(payload) ? payload : payload.items ?? []
         setCaptureDrafts(items)
@@ -4972,7 +4978,7 @@ function CapturePage() {
       .finally(() => {
         setDraftsLoading(false)
       })
-  }, [])
+  }, [draftStatusFilter])
 
   useEffect(() => {
     let mounted = true
@@ -5014,9 +5020,13 @@ function CapturePage() {
     setError('')
     extractOrderFromFile(file)
       .then((payload) => {
-        setResult(payload)
+        setResult({ ...payload, status: 'draft' })
         setSubmittedOrder(null)
-        loadCaptureDrafts()
+        if (draftStatusFilter === 'draft') {
+          loadCaptureDrafts()
+        } else {
+          setDraftStatusFilter('draft')
+        }
       })
       .catch((nextError) => {
         setError(nextError.message || '智能录单失败')
@@ -5028,6 +5038,10 @@ function CapturePage() {
 
   const handleCreateOrder = async () => {
     if (!result) {
+      return
+    }
+    if (result.status && result.status !== 'draft') {
+      setError(result.status === 'submitted' ? '该草稿已经提交为订单，不能重复提交' : '已作废草稿不能提交订单')
       return
     }
     setSubmitting(true)
@@ -5047,7 +5061,14 @@ function CapturePage() {
           status: 'submitted',
           submitted_order_id: order.id,
         })
-        setCaptureDrafts((current) => [updatedDraft, ...current.filter((draft) => draft.id !== updatedDraft.id)])
+        setResult((current) => current?.capture_draft_id === updatedDraft.id ? { ...current, status: updatedDraft.status, submitted_order_id: updatedDraft.submitted_order_id } : current)
+        setCaptureDrafts((current) => {
+          const withoutUpdated = current.filter((draft) => draft.id !== updatedDraft.id)
+          if (draftStatusFilter === 'draft' || draftStatusFilter === 'discarded') {
+            return withoutUpdated
+          }
+          return [updatedDraft, ...withoutUpdated]
+        })
       }
     } catch (nextError) {
       setError(nextError.message || '订单提交失败')
@@ -5055,6 +5076,38 @@ function CapturePage() {
       setSubmitting(false)
     }
   }
+
+  const handleDiscardDraft = async (draft) => {
+    if (!draft?.id || draft.status !== 'draft') {
+      return
+    }
+    setDraftUpdatingId(draft.id)
+    setError('')
+    try {
+      const updatedDraft = await updateCaptureDraft(draft.id, { status: 'discarded' })
+      setCaptureDrafts((current) => {
+        if (draftStatusFilter === 'draft') {
+          return current.filter((item) => item.id !== updatedDraft.id)
+        }
+        return [updatedDraft, ...current.filter((item) => item.id !== updatedDraft.id)]
+      })
+      setResult((current) => current?.capture_draft_id === updatedDraft.id ? { ...current, status: updatedDraft.status } : current)
+    } catch (nextError) {
+      setError(nextError.message || '草稿作废失败')
+    } finally {
+      setDraftUpdatingId(null)
+    }
+  }
+
+  const selectedResultStatus = result?.status ?? 'draft'
+  const selectedResultLocked = selectedResultStatus !== 'draft'
+  const selectedResultOrderId = submittedOrder?.id ?? result?.submitted_order_id
+  const captureDraftStatusOptions = [
+    { value: 'draft', label: '草稿' },
+    { value: 'submitted', label: '已提交' },
+    { value: 'discarded', label: '已作废' },
+    { value: 'all', label: '全部' },
+  ]
 
   return (
     <div className="crm-page-stack">
@@ -5129,6 +5182,18 @@ function CapturePage() {
 
       <section className="crm-panel">
         <PanelHeader title="最近草稿" subtitle={draftsLoading ? '同步中' : `${captureDrafts.length} 条`} actionLabel="后端持久化" />
+        <div className="crm-tabs" role="tablist" aria-label="智能录单草稿状态">
+          {captureDraftStatusOptions.map((option) => (
+            <button
+              key={option.value}
+              className={draftStatusFilter === option.value ? 'is-active' : ''}
+              type="button"
+              onClick={() => setDraftStatusFilter(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
         <div className="crm-progress-list">
           {captureDrafts.map((draft) => (
             <div className="crm-list-item" key={draft.id}>
@@ -5143,11 +5208,22 @@ function CapturePage() {
                   type="button"
                   onClick={() => {
                     setResult({ ...draft, capture_draft_id: draft.id })
-                    setSubmittedOrder(null)
+                    setSubmittedOrder(draft.submitted_order_id ? { id: draft.submitted_order_id, customer_name: draft.company, items: draft.items ?? [], status: 'submitted' } : null)
                   }}
                 >
                   载入草稿
                 </button>
+                {draft.status === 'draft' ? (
+                  <button
+                    className="crm-ghost-button crm-ghost-button--danger"
+                    type="button"
+                    disabled={draftUpdatingId === draft.id}
+                    onClick={() => handleDiscardDraft(draft)}
+                  >
+                    <Trash2 size={14} />
+                    {draftUpdatingId === draft.id ? '作废中' : '作废'}
+                  </button>
+                ) : null}
               </div>
             </div>
           ))}
@@ -5183,12 +5259,19 @@ function CapturePage() {
             </table>
           </div>
           <p>{result.suggested_notes}</p>
+          {selectedResultLocked ? (
+            <div className="crm-form-warning">
+              {selectedResultStatus === 'submitted'
+                ? `该草稿已提交为订单${selectedResultOrderId ? ` #${selectedResultOrderId}` : ''}，不能重复提交。`
+                : '该草稿已作废，仅保留为审计记录，不能提交订单。'}
+            </div>
+          ) : null}
           <div className="crm-toolbar-actions">
-            <button className="crm-primary-button" type="button" onClick={handleCreateOrder} disabled={submitting || Boolean(submittedOrder)}>
+            <button className="crm-primary-button" type="button" onClick={handleCreateOrder} disabled={submitting || selectedResultLocked || Boolean(submittedOrder)}>
               <CheckSquare size={16} />
-              {submittedOrder ? '已提交订单' : submitting ? '提交中' : '复核并提交订单'}
+              {selectedResultLocked ? (selectedResultStatus === 'submitted' ? '已提交订单' : '已作废') : submittedOrder ? '已提交订单' : submitting ? '提交中' : '复核并提交订单'}
             </button>
-            {submittedOrder ? <span className="crm-list-value">{formatCurrency(submittedOrder.total_amount)}</span> : null}
+            {submittedOrder && Number.isFinite(Number(submittedOrder.total_amount)) ? <span className="crm-list-value">{formatCurrency(submittedOrder.total_amount)}</span> : null}
           </div>
           {result.raw_text_excerpt ? <small>{result.raw_text_excerpt}</small> : null}
         </section>

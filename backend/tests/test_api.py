@@ -2268,16 +2268,36 @@ def test_capture_draft_history_marks_submitted_order(monkeypatch) -> None:
             json={"status": "submitted", "submitted_order_id": order_payload["id"]},
         )
         paged_response = client.get("/api/vision-extract/drafts?page=1&per_page=5&status=submitted")
+        discard_extract_response = client.post(
+            "/api/vision-extract",
+            files={"file": ("discard-order.txt", order_text.encode("utf-8"), "text/plain")},
+        )
+        discard_payload = discard_extract_response.json()
+        discard_response = client.patch(
+            f"/api/vision-extract/drafts/{discard_payload['capture_draft_id']}",
+            json={"status": "discarded"},
+        )
+        discarded_list_response = client.get("/api/vision-extract/drafts?page=1&per_page=5&status=discarded")
+        draft_list_response = client.get("/api/vision-extract/drafts?page=1&per_page=5&status=draft")
 
     assert extract_response.status_code == 200
     assert order_response.status_code == 201
     assert update_response.status_code == 200
+    assert discard_extract_response.status_code == 200
+    assert discard_response.status_code == 200
     updated_draft = update_response.json()
     assert updated_draft["status"] == "submitted"
     assert updated_draft["submitted_order_id"] == order_payload["id"]
     paged_payload = paged_response.json()
     assert paged_payload["total"] == 1
     assert paged_payload["items"][0]["id"] == extract_payload["capture_draft_id"]
+    discarded_draft = discard_response.json()
+    assert discarded_draft["status"] == "discarded"
+    assert discarded_draft["submitted_order_id"] is None
+    discarded_payload = discarded_list_response.json()
+    assert discarded_payload["total"] == 1
+    assert discarded_payload["items"][0]["id"] == discard_payload["capture_draft_id"]
+    assert all(item["status"] == "draft" for item in draft_list_response.json()["items"])
 
 
 def test_ai_audit_logs_record_runtime_actions(monkeypatch) -> None:

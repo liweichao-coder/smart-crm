@@ -243,12 +243,16 @@ test('capture draft helpers list and update persisted drafts', async (t) => {
 
   await fetchCaptureDrafts({ page: 1, per_page: 6, status: 'draft' })
   await updateCaptureDraft(7, { status: 'submitted', submitted_order_id: 13 })
+  await updateCaptureDraft(8, { status: 'discarded' })
 
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 3)
   assert.equal(calls[0].url, 'http://127.0.0.1:8000/api/vision-extract/drafts?page=1&per_page=6&status=draft')
   assert.equal(calls[1].url, 'http://127.0.0.1:8000/api/vision-extract/drafts/7')
   assert.equal(calls[1].init.method, 'PATCH')
   assert.equal(calls[1].init.body, JSON.stringify({ status: 'submitted', submitted_order_id: 13 }))
+  assert.equal(calls[2].url, 'http://127.0.0.1:8000/api/vision-extract/drafts/8')
+  assert.equal(calls[2].init.method, 'PATCH')
+  assert.equal(calls[2].init.body, JSON.stringify({ status: 'discarded' }))
 })
 
 test('updateLeadStage patches only the pipeline stage', async (t) => {
