@@ -400,6 +400,8 @@ const businessActionLabelMap = {
   create: '新建',
   update: '更新',
   delete: '删除',
+  convert: '转任务',
+  feedback: '人工反馈',
   restock: '补货',
   submit_approval: '提交审批',
   remind_approval: '审批催办',
@@ -415,9 +417,13 @@ const businessEntityLabelMap = {
   case: '工单',
   task: '任务',
   goal: '销售目标',
+  customer_activity: '客户互动',
+  copilot_recommendation: 'Copilot 推荐',
   product: '商品',
   order: '订单',
   order_approval: '订单审批',
+  report_snapshot: '报表快照',
+  crm: 'CRM 上下文',
 }
 
 const caseStatusValueMap = {
@@ -549,6 +555,19 @@ function toDraftText(value, fallback = '') {
 function toDraftNumber(value, fallback = 0) {
   const number = Number(value)
   return Number.isFinite(number) ? number : fallback
+}
+
+function normalizePaginatedPayload(payload, fallbackPage = 1, fallbackPerPage = 20) {
+  const items = Array.isArray(payload) ? payload : payload?.items ?? []
+  return {
+    items,
+    total: Array.isArray(payload) ? items.length : payload?.total ?? items.length,
+    page: Array.isArray(payload) ? 1 : payload?.page ?? fallbackPage,
+    per_page: Array.isArray(payload) ? items.length : payload?.per_page ?? fallbackPerPage,
+    pages: Array.isArray(payload) ? 1 : payload?.pages ?? 1,
+    has_next: Array.isArray(payload) ? false : Boolean(payload?.has_next),
+    has_previous: Array.isArray(payload) ? false : Boolean(payload?.has_previous),
+  }
 }
 
 function buildCustomerPayload(draft, ownerFallback = userProfile.name) {
@@ -3939,16 +3958,7 @@ function AuthAuditPage() {
         if (!mounted) {
           return
         }
-        const items = Array.isArray(payload) ? payload : payload?.items ?? []
-        setPageState({
-          items,
-          total: Array.isArray(payload) ? items.length : payload?.total ?? items.length,
-          page: Array.isArray(payload) ? 1 : payload?.page ?? filters.page,
-          per_page: Array.isArray(payload) ? items.length : payload?.per_page ?? filters.per_page,
-          pages: Array.isArray(payload) ? 1 : payload?.pages ?? 1,
-          has_next: Array.isArray(payload) ? false : Boolean(payload?.has_next),
-          has_previous: Array.isArray(payload) ? false : Boolean(payload?.has_previous),
-        })
+        setPageState(normalizePaginatedPayload(payload, filters.page, filters.per_page))
         setError('')
       })
       .catch((nextError) => {
@@ -4169,7 +4179,18 @@ function AuthAuditPage() {
 }
 
 function AiAuditPage() {
-  const [logs, setLogs] = useState([])
+  const initialDraftFilters = { q: '', operation: '', entity_type: '', fallback_used: '' }
+  const [draftFilters, setDraftFilters] = useState(initialDraftFilters)
+  const [filters, setFilters] = useState({ ...initialDraftFilters, page: 1, per_page: 20 })
+  const [pageState, setPageState] = useState({
+    items: [],
+    total: 0,
+    page: 1,
+    per_page: 20,
+    pages: 1,
+    has_next: false,
+    has_previous: false,
+  })
   const [qualityReport, setQualityReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -4177,10 +4198,10 @@ function AiAuditPage() {
 
   useEffect(() => {
     let mounted = true
-    Promise.all([fetchAiAuditLogs(), fetchAiQualityReport()])
+    Promise.all([fetchAiAuditLogs(filters), fetchAiQualityReport()])
       .then(([payload, report]) => {
         if (mounted) {
-          setLogs(payload)
+          setPageState(normalizePaginatedPayload(payload, filters.page, filters.per_page))
           setQualityReport(report)
           setError('')
         }
@@ -4199,17 +4220,40 @@ function AiAuditPage() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [filters])
 
+  const logs = pageState.items
   const qualityMetrics = useMemo(() => buildDashboardMetrics(qualityReport), [qualityReport])
   const operationBreakdown = qualityReport?.operation_breakdown ?? []
   const modelBreakdown = qualityReport?.model_breakdown ?? []
   const recommendationSignal = qualityReport?.recommendation_signal
+  const handleFilterChange = (name, value) => {
+    setDraftFilters((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleFilterSubmit = (event) => {
+    event.preventDefault()
+    setLoading(true)
+    setFilters((current) => ({ ...current, ...draftFilters, page: 1 }))
+  }
+
+  const handleFilterReset = () => {
+    setDraftFilters(initialDraftFilters)
+    setLoading(true)
+    setFilters({ ...initialDraftFilters, page: 1, per_page: 20 })
+  }
+
+  const handlePageChange = (nextPage) => {
+    setLoading(true)
+    setFilters((current) => ({ ...current, page: Math.max(1, nextPage) }))
+  }
+
   const handleExportAuditLogs = async () => {
     setExportSaving(true)
     setError('')
     try {
-      const blob = await exportAiAuditLogsCsv()
+      const { q, operation, entity_type, fallback_used } = filters
+      const blob = await exportAiAuditLogsCsv({ q, operation, entity_type, fallback_used })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -4239,14 +4283,54 @@ function AiAuditPage() {
         </div>
       </section>
 
-      <ResourceSyncState loading={loading} error={error} />
+      <form className="crm-panel crm-report-filter-bar" onSubmit={handleFilterSubmit}>
+        <label className="crm-field">
+          <span>关键词</span>
+          <input placeholder="操作、模型、摘要" value={draftFilters.q} onChange={(event) => handleFilterChange('q', event.target.value)} />
+        </label>
+        <label className="crm-field">
+          <span>操作</span>
+          <select value={draftFilters.operation} onChange={(event) => handleFilterChange('operation', event.target.value)}>
+            <option value="">全部操作</option>
+            {Object.entries(aiOperationLabelMap).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="crm-field">
+          <span>关联对象</span>
+          <select value={draftFilters.entity_type} onChange={(event) => handleFilterChange('entity_type', event.target.value)}>
+            <option value="">全部对象</option>
+            <option value="customer">客户</option>
+            <option value="lead">线索/商机</option>
+            <option value="crm">CRM 上下文</option>
+          </select>
+        </label>
+        <label className="crm-field">
+          <span>运行模式</span>
+          <select value={draftFilters.fallback_used} onChange={(event) => handleFilterChange('fallback_used', event.target.value)}>
+            <option value="">全部模式</option>
+            <option value="false">LLM 增强</option>
+            <option value="true">规则兜底</option>
+          </select>
+        </label>
+        <div className="crm-report-filter-actions">
+          <button className="crm-primary-button" type="submit" disabled={loading}>
+            <Filter size={16} />
+            应用筛选
+          </button>
+          <button className="crm-ghost-button" type="button" onClick={handleFilterReset} disabled={loading}>
+            <RefreshCw size={16} />
+            重置
+          </button>
+          <button className="crm-ghost-button" type="button" onClick={handleExportAuditLogs} disabled={loading || exportSaving}>
+            <Download size={16} />
+            {exportSaving ? '导出中' : '导出 CSV'}
+          </button>
+        </div>
+      </form>
 
-      <div className="crm-report-filter-actions crm-audit-action-row">
-        <button className="crm-ghost-button" type="button" onClick={handleExportAuditLogs} disabled={loading || exportSaving}>
-          <Download size={16} />
-          {exportSaving ? '导出中' : '导出 CSV'}
-        </button>
-      </div>
+      <ResourceSyncState loading={loading} error={error} />
 
       <section className="crm-metric-grid">
         {qualityMetrics.map((metric) => (
@@ -4354,7 +4438,7 @@ function AiAuditPage() {
       </section>
 
       <section className="crm-panel">
-        <PanelHeader title="最近 AI 行为" />
+        <PanelHeader title="最近 AI 行为" actionLabel={`第 ${pageState.page} / ${Math.max(1, pageState.pages)} 页`} />
         <div className="crm-table-wrap">
           <table className="crm-table">
             <thead>
@@ -4384,13 +4468,35 @@ function AiAuditPage() {
           </table>
         </div>
         {!loading && !error && !logs.length ? <EmptyState icon={Shield} title="暂无 AI 审计记录" subtitle="打开 AI 副驾、生成话术或上传智能录单材料后会自动出现记录。" /> : null}
+        <div className="crm-report-filter-actions crm-audit-pagination">
+          <button className="crm-ghost-button" type="button" onClick={() => handlePageChange(pageState.page - 1)} disabled={loading || !pageState.has_previous}>
+            <ChevronLeft size={16} />
+            上一页
+          </button>
+          <span className="crm-muted-label">共 {pageState.total} 条，每页 {pageState.per_page} 条</span>
+          <button className="crm-ghost-button" type="button" onClick={() => handlePageChange(pageState.page + 1)} disabled={loading || !pageState.has_next}>
+            下一页
+            <ChevronRight size={16} />
+          </button>
+        </div>
       </section>
     </div>
   )
 }
 
 function BusinessAuditPage() {
-  const [logs, setLogs] = useState([])
+  const initialDraftFilters = { q: '', action: '', entity_type: '', operator: '', status: '' }
+  const [draftFilters, setDraftFilters] = useState(initialDraftFilters)
+  const [filters, setFilters] = useState({ ...initialDraftFilters, page: 1, per_page: 20 })
+  const [pageState, setPageState] = useState({
+    items: [],
+    total: 0,
+    page: 1,
+    per_page: 20,
+    pages: 1,
+    has_next: false,
+    has_previous: false,
+  })
   const [consistency, setConsistency] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -4398,10 +4504,10 @@ function BusinessAuditPage() {
 
   useEffect(() => {
     let mounted = true
-    Promise.all([fetchBusinessAuditLogs(), fetchConsistencyChecks()])
+    Promise.all([fetchBusinessAuditLogs(filters), fetchConsistencyChecks()])
       .then(([payload, consistencyPayload]) => {
         if (mounted) {
-          setLogs(payload)
+          setPageState(normalizePaginatedPayload(payload, filters.page, filters.per_page))
           setConsistency(consistencyPayload)
           setError('')
         }
@@ -4420,8 +4526,10 @@ function BusinessAuditPage() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [filters])
 
+  const logs = pageState.items
+  const latestLog = logs[0]
   const summary = useMemo(() => {
     const orderCount = logs.filter((log) => log.entity_type === 'order').length
     const stockCount = logs.filter((log) => log.action === 'restock' || log.summary.includes('库存')).length
@@ -4433,11 +4541,33 @@ function BusinessAuditPage() {
     }
   }, [consistency, logs])
 
+  const handleFilterChange = (name, value) => {
+    setDraftFilters((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleFilterSubmit = (event) => {
+    event.preventDefault()
+    setLoading(true)
+    setFilters((current) => ({ ...current, ...draftFilters, page: 1 }))
+  }
+
+  const handleFilterReset = () => {
+    setDraftFilters(initialDraftFilters)
+    setLoading(true)
+    setFilters({ ...initialDraftFilters, page: 1, per_page: 20 })
+  }
+
+  const handlePageChange = (nextPage) => {
+    setLoading(true)
+    setFilters((current) => ({ ...current, page: Math.max(1, nextPage) }))
+  }
+
   const handleExportAuditLogs = async () => {
     setExportSaving(true)
     setError('')
     try {
-      const blob = await exportBusinessAuditLogsCsv()
+      const { q, action, entity_type, operator, status } = filters
+      const blob = await exportBusinessAuditLogsCsv({ q, action, entity_type, operator, status })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -4463,18 +4593,62 @@ function BusinessAuditPage() {
         </div>
         <div className="crm-copilot-summary">
           <ClipboardList size={18} />
-          <strong>{logs.length ? `已记录 ${logs.length} 次业务操作，最近一次为 ${businessActionLabelMap[logs[0].action] ?? logs[0].action} ${businessEntityLabelMap[logs[0].entity_type] ?? logs[0].entity_type}。` : '创建客户、商品、订单或补货后会自动写入业务审计。'}</strong>
+          <strong>{latestLog ? `当前筛选命中 ${pageState.total} 次业务操作，最近一次为 ${businessActionLabelMap[latestLog.action] ?? latestLog.action} ${businessEntityLabelMap[latestLog.entity_type] ?? latestLog.entity_type}。` : '创建客户、商品、订单或补货后会自动写入业务审计。'}</strong>
         </div>
       </section>
 
-      <ResourceSyncState loading={loading} error={error} />
+      <form className="crm-panel crm-report-filter-bar" onSubmit={handleFilterSubmit}>
+        <label className="crm-field">
+          <span>关键词</span>
+          <input placeholder="摘要、细节、操作人" value={draftFilters.q} onChange={(event) => handleFilterChange('q', event.target.value)} />
+        </label>
+        <label className="crm-field">
+          <span>动作</span>
+          <select value={draftFilters.action} onChange={(event) => handleFilterChange('action', event.target.value)}>
+            <option value="">全部动作</option>
+            {Object.entries(businessActionLabelMap).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="crm-field">
+          <span>对象</span>
+          <select value={draftFilters.entity_type} onChange={(event) => handleFilterChange('entity_type', event.target.value)}>
+            <option value="">全部对象</option>
+            {Object.entries(businessEntityLabelMap).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="crm-field">
+          <span>操作人</span>
+          <input placeholder="如 李伟超" value={draftFilters.operator} onChange={(event) => handleFilterChange('operator', event.target.value)} />
+        </label>
+        <label className="crm-field">
+          <span>状态</span>
+          <select value={draftFilters.status} onChange={(event) => handleFilterChange('status', event.target.value)}>
+            <option value="">全部状态</option>
+            <option value="success">成功</option>
+            <option value="failed">失败</option>
+          </select>
+        </label>
+        <div className="crm-report-filter-actions">
+          <button className="crm-primary-button" type="submit" disabled={loading}>
+            <Filter size={16} />
+            应用筛选
+          </button>
+          <button className="crm-ghost-button" type="button" onClick={handleFilterReset} disabled={loading}>
+            <RefreshCw size={16} />
+            重置
+          </button>
+          <button className="crm-ghost-button" type="button" onClick={handleExportAuditLogs} disabled={loading || exportSaving}>
+            <Download size={16} />
+            {exportSaving ? '导出中' : '导出 CSV'}
+          </button>
+        </div>
+      </form>
 
-      <div className="crm-report-filter-actions crm-audit-action-row">
-        <button className="crm-ghost-button" type="button" onClick={handleExportAuditLogs} disabled={loading || exportSaving}>
-          <Download size={16} />
-          {exportSaving ? '导出中' : '导出 CSV'}
-        </button>
-      </div>
+      <ResourceSyncState loading={loading} error={error} />
 
       <section className="crm-metric-grid">
         <article className="crm-panel crm-metric-card">
@@ -4483,8 +4657,8 @@ function BusinessAuditPage() {
           </div>
           <div>
             <span>审计记录</span>
-            <strong>{logs.length}</strong>
-            <small>来自 SQLite 的真实业务日志</small>
+            <strong>{pageState.total}</strong>
+            <small>当前筛选命中的真实业务日志</small>
           </div>
         </article>
         <article className="crm-panel crm-metric-card">
@@ -4554,7 +4728,7 @@ function BusinessAuditPage() {
       </section>
 
       <section className="crm-panel">
-        <PanelHeader title="最近业务操作" />
+        <PanelHeader title="最近业务操作" actionLabel={`第 ${pageState.page} / ${Math.max(1, pageState.pages)} 页`} />
         <div className="crm-table-wrap">
           <table className="crm-table">
             <thead>
@@ -4584,6 +4758,17 @@ function BusinessAuditPage() {
           </table>
         </div>
         {!loading && !error && !logs.length ? <EmptyState icon={ClipboardList} title="暂无业务审计记录" subtitle="创建客户、商品、订单或执行补货后会自动出现记录。" /> : null}
+        <div className="crm-report-filter-actions crm-audit-pagination">
+          <button className="crm-ghost-button" type="button" onClick={() => handlePageChange(pageState.page - 1)} disabled={loading || !pageState.has_previous}>
+            <ChevronLeft size={16} />
+            上一页
+          </button>
+          <span className="crm-muted-label">共 {pageState.total} 条，每页 {pageState.per_page} 条</span>
+          <button className="crm-ghost-button" type="button" onClick={() => handlePageChange(pageState.page + 1)} disabled={loading || !pageState.has_next}>
+            下一页
+            <ChevronRight size={16} />
+          </button>
+        </div>
       </section>
     </div>
   )
