@@ -54,7 +54,6 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom'
-import avatar from './assets/vendor/unnamed.png'
 import szuEmblem from './assets/szu-emblem.svg'
 import {
   AUTH_STORAGE_KEY,
@@ -2565,7 +2564,7 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
                 navigate('/profile')
               }}
             >
-              <img src={avatar} alt="用户头像" />
+              <img className="crm-user-avatar" src={szuEmblem} alt="深大风格用户头像" />
               <div>
                 <strong>{activeProfile.name}</strong>
                 <span>{activeProfile.email}</span>
@@ -6766,7 +6765,7 @@ function ProfilePage() {
     <div className="crm-page-stack">
       <section className="crm-hero-panel crm-profile-hero">
         <div className="crm-profile-hero-main">
-          <img className="crm-profile-avatar" src={avatar} alt="用户头像" />
+          <img className="crm-profile-avatar" src={szuEmblem} alt="深大风格用户头像" />
           <div className="crm-profile-copy">
             <span className="crm-overline">个人主页</span>
             <h2>{activeProfile.name}</h2>
