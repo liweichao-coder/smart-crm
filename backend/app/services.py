@@ -383,6 +383,7 @@ class OpenAICompatibleClient:
 class CopilotService:
     stage_weights = {
         LeadStage.new: 20,
+        LeadStage.contacted: 32,
         LeadStage.qualified: 42,
         LeadStage.proposal: 62,
         LeadStage.negotiation: 78,
@@ -392,6 +393,7 @@ class CopilotService:
 
     action_by_stage = {
         LeadStage.new: "补齐预算、决策人和采购时间线，判断是否进入有效商机。",
+        LeadStage.contacted: "完成首轮沟通记录，确认客户痛点和是否值得进入资格评估。",
         LeadStage.qualified: "安排方案演示，确认痛点强度和采购优先级。",
         LeadStage.proposal: "发送 ROI 测算，推动客户确认试点范围和验收口径。",
         LeadStage.negotiation: "准备合同风险清单，明确让步边界并推动采购审批。",

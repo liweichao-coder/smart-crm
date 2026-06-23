@@ -312,7 +312,7 @@ def test_sales_performance_report_payload_and_filters() -> None:
     assert len(payload["metrics"]) == 6
     assert payload["owner_performance"]
     assert payload["region_performance"]
-    assert {stage["stage"] for stage in payload["funnel"]} == {"new", "qualified", "proposal", "negotiation", "won", "lost"}
+    assert {stage["stage"] for stage in payload["funnel"]} == {"new", "contacted", "qualified", "proposal", "negotiation", "won", "lost"}
     assert payload["ai_impact"]["ai_order_count"] > 0
     assert payload["ai_impact"]["ai_revenue"] > 0
     assert payload["inventory_risks"]
@@ -1452,6 +1452,7 @@ def test_update_and_delete_business_resources() -> None:
                 "due_date": "2026-06-30",
             },
         ).json()
+        contacted_lead = client.patch(f"/api/leads/{lead['id']}", json={"stage": "contacted"})
         updated_lead = client.patch(f"/api/leads/{lead['id']}", json={"stage": "negotiation", "expected_amount": 188000})
 
         case = client.post(
@@ -1481,6 +1482,8 @@ def test_update_and_delete_business_resources() -> None:
     assert updated_customer.status_code == 200
     assert updated_customer.json()["contact_person"] == "新联系人"
     assert updated_contact.json()["role"] == "采购负责人"
+    assert contacted_lead.status_code == 200
+    assert contacted_lead.json()["stage"] == "contacted"
     assert updated_lead.json()["stage"] == "negotiation"
     assert updated_lead.json()["expected_amount"] == 188000
     assert updated_case.json()["status_label"] == "Pending"

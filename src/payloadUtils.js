@@ -10,6 +10,16 @@ const leadStageLabelMap = {
   lost: '已丢单',
 }
 
+const leadStageDisplayMap = {
+  New: 'new',
+  Contacted: 'contacted',
+  Qualified: 'qualified',
+  Proposal: 'proposal',
+  Negotiation: 'negotiation',
+  Won: 'won',
+  Lost: 'lost',
+}
+
 const caseStatusValueMap = {
   Open: 'open',
   Pending: 'working',
@@ -52,6 +62,9 @@ export function cleanNumber(value, fallback = 0) {
 
 export function normalizeLeadStage(stage) {
   const text = cleanText(stage, 'new')
+  if (leadStageDisplayMap[text]) {
+    return leadStageDisplayMap[text]
+  }
   const matchedEntry = Object.entries(leadStageLabelMap).find(([key, label]) => key === text || label === text)
   return matchedEntry?.[0] ?? text
 }

@@ -1354,6 +1354,13 @@ p {
   border: 1px solid var(--border-default);
   background: var(--surface-default);
   padding: 18px;
+  min-height: 260px;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.crm-board-column.is-drag-over {
+  border-color: rgba(181, 36, 42, 0.38);
+  background: #fff8ef;
 }
 
 .crm-board-card {
@@ -1361,6 +1368,44 @@ p {
   border: 1px solid var(--border-default);
   background: var(--surface-raised);
   padding: 16px;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease, opacity 0.16s ease;
+}
+
+.crm-board-card.is-draggable {
+  cursor: grab;
+}
+
+.crm-board-card.is-draggable:active {
+  cursor: grabbing;
+}
+
+.crm-board-card.is-saving {
+  opacity: 0.68;
+}
+
+.crm-board-card.is-draggable:hover {
+  border-color: rgba(181, 36, 42, 0.26);
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-1px);
+}
+
+.crm-board-flow-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.crm-board-empty {
+  display: flex;
+  align-items: center;
+  min-height: 92px;
+  border: 1px dashed var(--border-default);
+  border-radius: 8px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 14px;
 }
 
 .crm-board-card-actions,

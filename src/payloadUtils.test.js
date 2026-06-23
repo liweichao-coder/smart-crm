@@ -11,6 +11,7 @@ import {
   buildProductPayload,
   buildTaskPayload,
   buildTeamMemberPayload,
+  normalizeLeadStage,
 } from './payloadUtils.js'
 
 test('buildCustomerPayload preserves real customer master data fields', () => {
@@ -170,6 +171,15 @@ test('buildLeadPayload leaves missing lead title and customer empty for backend 
     next_action: '',
     ai_assisted: false,
   })
+})
+
+test('normalizeLeadStage accepts board display labels for real backend enums', () => {
+  assert.equal(normalizeLeadStage('New'), 'new')
+  assert.equal(normalizeLeadStage('Qualified'), 'qualified')
+  assert.equal(normalizeLeadStage('Proposal'), 'proposal')
+  assert.equal(normalizeLeadStage('Negotiation'), 'negotiation')
+  assert.equal(normalizeLeadStage('Won'), 'won')
+  assert.equal(normalizeLeadStage('Lost'), 'lost')
 })
 
 test('buildCasePayload preserves real case fields without placeholder account', () => {

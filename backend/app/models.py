@@ -9,6 +9,7 @@ from sqlmodel import Field, SQLModel
 
 class LeadStage(str, Enum):
     new = "new"
+    contacted = "contacted"
     qualified = "qualified"
     proposal = "proposal"
     negotiation = "negotiation"

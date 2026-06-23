@@ -453,6 +453,13 @@ export function updateLead(leadId, payload) {
   })
 }
 
+export function updateLeadStage(leadId, stage) {
+  return request(`/api/leads/${leadId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ stage }),
+  })
+}
+
 export function deleteLead(leadId) {
   return request(`/api/leads/${leadId}`, {
     method: 'DELETE',
