@@ -3406,6 +3406,65 @@ function ReportBreakdownPanel({ title, rows, maxValue }) {
   )
 }
 
+function cleanAiMarkdownLine(line) {
+  return line
+    .replace(/^#{1,6}\s*/, '')
+    .replace(/^\s*[-*]\s+/, '')
+    .replace(/^\s*\d+[.)、]\s*/, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim()
+}
+
+function parseAiText(value) {
+  const text = String(value ?? '').trim()
+  if (!text) {
+    return []
+  }
+  return text
+    .replace(/\r/g, '')
+    .replace(/\s+(?=#{1,6}\s+)/g, '\n')
+    .replace(/\s+(?=\d+[.)、]\s+)/g, '\n')
+    .replace(/\s+(?=[-*]\s+)/g, '\n')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const heading = line.match(/^#{1,6}\s*(.+)$/)
+      const listItem = line.match(/^(\d+[.)、]|[-*])\s*(.+)$/)
+      if (heading) {
+        return { type: 'heading', text: cleanAiMarkdownLine(heading[1]) }
+      }
+      if (listItem) {
+        return { type: 'item', text: cleanAiMarkdownLine(listItem[2]) }
+      }
+      return { type: 'paragraph', text: cleanAiMarkdownLine(line) }
+    })
+    .filter((item) => item.text)
+}
+
+function AiText({ value, fallback = '', compact = false }) {
+  const segments = parseAiText(value || fallback)
+  if (!segments.length) {
+    return null
+  }
+  return (
+    <div className={`crm-ai-text ${compact ? 'is-compact' : ''}`}>
+      {segments.map((segment, index) => {
+        if (segment.type === 'heading') {
+          return <strong key={`${segment.type}-${index}`}>{segment.text}</strong>
+        }
+        return (
+          <p key={`${segment.type}-${index}`} className={segment.type === 'item' ? 'is-item' : ''}>
+            {segment.text}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
 function CopilotPage() {
   const navigate = useNavigate()
   const [summary, setSummary] = useState(null)
@@ -3569,7 +3628,11 @@ function CopilotPage() {
         <div className="crm-copilot-summary">
           <Sparkles size={18} />
           <div className="crm-copilot-summary-copy">
-            <strong>{loading ? '正在从后端加载 AI 副驾建议...' : summary?.llm_summary ?? summary?.recommendation ?? '后端 Copilot 暂无建议。'}</strong>
+            <AiText
+              compact
+              value={loading ? '正在从后端加载 AI 副驾建议...' : summary?.llm_summary ?? summary?.recommendation}
+              fallback="后端 Copilot 暂无建议。"
+            />
             <button className="crm-ghost-button" type="button" onClick={() => loadSummary({ force: true })} disabled={loading}>
               <RefreshCw size={15} />
               {loading ? '同步中' : '刷新副驾'}
@@ -3650,7 +3713,7 @@ function CopilotPage() {
           <div className="crm-ask-result">
             <div className="crm-script-box">
               <span>{askResult.model}</span>
-              <p>{askResult.answer}</p>
+              <AiText value={askResult.answer} />
             </div>
             <div className="crm-ask-columns">
               <CustomerPlanList title="证据片段" items={askResult.evidence ?? []} tone="accent" />
@@ -3728,13 +3791,21 @@ function CopilotPage() {
               </div>
               <div className="crm-script-box">
                 <span>AI 跟进话术草稿</span>
-                <p>{followUp?.message_draft ?? '点击下方按钮，后端将根据真实商机上下文调用 OpenAI 兼容接口生成话术；未配置密钥时返回规则兜底文案。'}</p>
+                <AiText
+                  value={followUp?.message_draft}
+                  fallback="点击下方按钮，后端将根据真实商机上下文调用 OpenAI 兼容接口生成话术；未配置密钥时返回规则兜底文案。"
+                />
                 <button className="crm-primary-button" type="button" onClick={handleGenerateFollowUp} disabled={generating}>
                   <Bot size={16} />
                   {generating ? '生成中...' : followUp ? '重新生成话术' : '生成跟进话术'}
                 </button>
                 {followUp ? (
-                  <small>{followUp.fallback_used ? '当前使用规则兜底，配置 SMART_CRM_LLM_API_KEY 后可启用真实 LLM。' : followUp.llm_summary}</small>
+                  <div className="crm-ai-text-note">
+                    <AiText
+                      compact
+                      value={followUp.fallback_used ? '当前使用规则兜底，配置 SMART_CRM_LLM_API_KEY 后可启用真实 LLM。' : followUp.llm_summary}
+                    />
+                  </div>
                 ) : null}
               </div>
             </>
@@ -3765,8 +3836,12 @@ function CopilotPage() {
                   <strong>{record.rule_score ?? 0}</strong>
                 </div>
               </div>
-              <p>{record.next_best_action || record.llm_summary || '暂无建议内容'}</p>
-              {record.message_draft ? <small>{record.message_draft}</small> : null}
+              <AiText compact value={record.next_best_action || record.llm_summary} fallback="暂无建议内容" />
+              {record.message_draft ? (
+                <div className="crm-ai-text-note">
+                  <AiText compact value={record.message_draft} />
+                </div>
+              ) : null}
               <div className="crm-copilot-history-meta">
                 <span>{record.customer_name || '未知客户'}</span>
                 <span>{record.stage || '未标记阶段'}</span>

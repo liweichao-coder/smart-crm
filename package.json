@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "node --test src/resourceUtils.test.js src/payloadUtils.test.js src/aiScoring.test.js src/captureUtils.test.js src/orderUtils.test.js src/sessionUtils.test.js src/ownerUtils.test.js src/api.test.js",
     "smoke:ui": "node scripts/smoke_ui.mjs",
+    "screenshots:demo": "node scripts/capture_demo_screenshots.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

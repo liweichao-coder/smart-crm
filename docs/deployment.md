@@ -93,6 +93,15 @@ npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.
 
 This Playwright script first checks `/api/health`, then uses the real login form, selects the backend-provided organization, verifies the dashboard, account list, report page, order page, 8px in-app delete confirmation dialog, no native browser dialogs, and no horizontal overflow. It cancels the delete confirmation instead of mutating demo data and logs out through the UI before finishing. Add `--include-ai-page` only when you want to include the AI Copilot page and accept possible LLM/recommendation writes. The default browser channel is local Chrome; if a teammate has no Chrome installed, run `npx playwright install chromium` once and then pass `--channel ""`.
 
+Generate report and presentation screenshots after both services are listening:
+
+```powershell
+cd D:\LwcCode\personal-project\smart-crm
+npm run screenshots:demo -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000 --clear-output --include-ai
+```
+
+The capture script writes PNGs and `00_screenshot_index.md` to `报告文档/v2-最终高分版/正式文档/截图` by default. It captures login, organization selection, dashboard, notification center, account list, Customer 360, orders, sales reports, permission matrix, business audit, profile sessions, and optionally AI Copilot / AI Audit. Omit `--include-ai` when you need a read-only screenshot run that avoids possible LLM/recommendation writes.
+
 Before handing the demo database to another teammate, create a SQLite snapshot:
 
 ```powershell

@@ -155,6 +155,17 @@ npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.
 
 默认使用本机 Chrome 通道。若机器没有可用 Chrome，可先执行 `npx playwright install chromium`，再用 `--channel ""` 走 Playwright 自带 Chromium。追加 `--include-ai-page` 会访问 AI 副驾页，可能触发 LLM 摘要和推荐历史写入。
 
+### 生成报告截图
+
+前后端启动后，可以自动生成 Word/PPT 使用的演示截图：
+
+```powershell
+cd D:\LwcCode\personal-project\smart-crm
+npm run screenshots:demo -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000 --clear-output --include-ai
+```
+
+默认输出到 `D:\LwcCode\personal-project\报告文档\v2-最终高分版\正式文档\截图`，并生成 `00_screenshot_index.md`。`--include-ai` 会截图 AI 副驾和 AI 审计页，可能触发 LLM 摘要或推荐历史写入；如需保持演示库完全不变，可省略该参数。
+
 ### 数据库迁移与快照
 
 保留现有数据升级表结构时，使用显式迁移命令：
