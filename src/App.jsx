@@ -111,6 +111,7 @@ import {
   fetchTasks,
   fetchUserPreference,
   extractOrderFromFile,
+  generateOrderDraft,
   generateFollowUp,
   login,
   logout,
@@ -700,6 +701,32 @@ function buildOrderLineDraft(product) {
     productId: String(product?.id ?? ''),
     quantity: '1',
     unitPrice: String(product?.unit_price ?? 1),
+  }
+}
+
+function dateOffsetString(days = 0) {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function buildOrderPayloadFromCopilotDraft(draft, customer, ownerFallback = userProfile.name) {
+  return {
+    customer_id: draft.customer_id,
+    owner: toDraftOwner(customer?.owner, ownerFallback),
+    region: '华南',
+    currency: 'CNY',
+    status: 'draft',
+    order_date: dateOffsetString(0),
+    due_date: dateOffsetString(7),
+    notes: [draft.suggested_notes, draft.llm_summary].filter(Boolean).join('\n'),
+    created_by_ai: true,
+    ai_confidence_score: draft.fallback_used ? 0.74 : 0.9,
+    items: (draft.items ?? []).map((item) => ({
+      product_id: item.product_id,
+      quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+      unit_price: Math.max(0.01, Number(item.unit_price) || 1),
+    })),
   }
 }
 
@@ -1500,6 +1527,12 @@ function CustomerWorkspacePage() {
   const [activityError, setActivityError] = useState('')
   const [activityTaskSavingId, setActivityTaskSavingId] = useState(null)
   const [activityTasks, setActivityTasks] = useState({})
+  const [orderDraftGoal, setOrderDraftGoal] = useState('')
+  const [orderDraft, setOrderDraft] = useState(null)
+  const [orderDraftLoading, setOrderDraftLoading] = useState(false)
+  const [orderDraftSubmitting, setOrderDraftSubmitting] = useState(false)
+  const [orderDraftError, setOrderDraftError] = useState('')
+  const [createdDraftOrder, setCreatedDraftOrder] = useState(null)
 
   useEffect(() => {
     let mounted = true
@@ -1529,6 +1562,7 @@ function CustomerWorkspacePage() {
   const customer = workspace?.customer
   const accountPlan = workspace?.account_plan
   const healthProfile = workspace?.health_profile
+  const defaultOrderDraftGoal = orderDraftGoal || accountPlan?.next_actions?.[0] || healthProfile?.recommended_actions?.[0]?.detail || '围绕客户当前经营计划生成可复核订单草稿'
 
   const handleActivityDraftChange = (key, value) => {
     setActivityDraft((currentDraft) => ({ ...currentDraft, [key]: value }))
@@ -1574,6 +1608,44 @@ function CustomerWorkspacePage() {
       setActivityError(requestError.message || '互动转任务失败')
     } finally {
       setActivityTaskSavingId(null)
+    }
+  }
+
+  const handleGenerateOrderDraft = async () => {
+    if (!customer) {
+      return
+    }
+    setOrderDraftLoading(true)
+    setOrderDraftError('')
+    setCreatedDraftOrder(null)
+    try {
+      const draft = await generateOrderDraft({
+        customer_id: customer.id,
+        business_goal: defaultOrderDraftGoal,
+      })
+      setOrderDraft(draft)
+    } catch (requestError) {
+      setOrderDraftError(requestError.message || '订单草稿生成失败')
+    } finally {
+      setOrderDraftLoading(false)
+    }
+  }
+
+  const handleSubmitOrderDraft = async () => {
+    if (!orderDraft || !customer) {
+      return
+    }
+    setOrderDraftSubmitting(true)
+    setOrderDraftError('')
+    try {
+      const order = await createOrder(buildOrderPayloadFromCopilotDraft(orderDraft, customer))
+      setCreatedDraftOrder(order)
+      const nextWorkspace = await fetchCustomerWorkspace(customerId)
+      setWorkspace(nextWorkspace)
+    } catch (requestError) {
+      setOrderDraftError(requestError.message || '订单草稿提交失败')
+    } finally {
+      setOrderDraftSubmitting(false)
     }
   }
 
@@ -1673,6 +1745,65 @@ function CustomerWorkspacePage() {
                 <CustomerPlanList title="风险提醒" items={accountPlan?.risks ?? []} tone="warning" />
                 <CustomerPlanList title="下一步动作" items={accountPlan?.next_actions ?? []} tone="accent" />
               </div>
+            </div>
+
+            <div className="crm-panel">
+              <PanelHeader title="AI 订单草稿" actionLabel={orderDraft?.fallback_used ? '规则兜底' : orderDraft ? 'LLM 增强' : '可提交订单'} />
+              <div className="crm-activity-form">
+                <label className="crm-field">
+                  <span>业务目标</span>
+                  <input
+                    value={orderDraftGoal}
+                    onChange={(event) => setOrderDraftGoal(event.target.value)}
+                    placeholder={defaultOrderDraftGoal}
+                    maxLength={180}
+                  />
+                </label>
+                <button className="crm-primary-button" type="button" onClick={handleGenerateOrderDraft} disabled={orderDraftLoading}>
+                  <FileText size={16} />
+                  {orderDraftLoading ? '生成中' : orderDraft ? '重新生成草稿' : '生成订单草稿'}
+                </button>
+              </div>
+              {orderDraftError ? <div className="crm-form-error">{orderDraftError}</div> : null}
+              {orderDraft ? (
+                <div className="crm-list compact">
+                  <article className="crm-list-item">
+                    <div>
+                      <strong>{orderDraft.customer_name}</strong>
+                      <span>{orderDraft.llm_summary}</span>
+                    </div>
+                    <StatusBadge value={orderDraft.fallback_used ? '兜底' : 'LLM'} tone={orderDraft.fallback_used ? 'warning' : 'success'} />
+                  </article>
+                  {orderDraft.items.map((item) => (
+                    <article key={item.product_id} className="crm-list-item">
+                      <div>
+                        <strong>{item.product_name}</strong>
+                        <span>{item.quantity} 件 / {formatCurrency(item.unit_price)} / 小计 {formatCurrency(item.quantity * item.unit_price)}</span>
+                      </div>
+                    </article>
+                  ))}
+                  <article className="crm-list-item">
+                    <div>
+                      <strong>预计总额 {formatCurrency(orderDraft.items.reduce((total, item) => total + item.quantity * item.unit_price, 0))}</strong>
+                      <span>{orderDraft.suggested_notes}</span>
+                    </div>
+                  </article>
+                  <div className="crm-form-actions">
+                    <button className="crm-primary-button" type="button" onClick={handleSubmitOrderDraft} disabled={orderDraftSubmitting || Boolean(createdDraftOrder)}>
+                      <Save size={16} />
+                      {orderDraftSubmitting ? '提交中' : createdDraftOrder ? `订单 #${createdDraftOrder.id}` : '提交为订单'}
+                    </button>
+                    {createdDraftOrder ? (
+                      <button className="crm-ghost-button" type="button" onClick={() => navigate('/orders')}>
+                        <ArrowRight size={16} />
+                        去订单中心
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <EmptyState icon={FileText} title="暂无订单草稿" subtitle="根据客户经营计划生成可复核订单，并提交到真实订单闭环。" />
+              )}
             </div>
 
             <div className="crm-panel">

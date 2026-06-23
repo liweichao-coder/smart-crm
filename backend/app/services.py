@@ -587,13 +587,14 @@ class CopilotService:
         customer: Customer,
         products: list[Product],
         business_goal: str,
+        selected_by_user: bool = False,
     ) -> CopilotOrderDraftResponse:
-        selected_products = products[:3]
+        selected_products = products[:5] if selected_by_user else self.select_order_draft_products(customer, products, business_goal)
         items = [
             CopilotOrderDraftItem(
                 product_id=product.id or 0,
                 product_name=product.name,
-                quantity=2 if product.category == "硬件" else 1,
+                quantity=min(2 if product.category == "硬件" else 1, max(product.stock, 1)),
                 unit_price=product.unit_price,
             )
             for product in selected_products
@@ -620,6 +621,67 @@ class CopilotService:
             llm_summary=llm_summary,
             fallback_used=fallback,
         )
+
+    def select_order_draft_products(self, customer: Customer, products: list[Product], business_goal: str) -> list[Product]:
+        goal = business_goal.lower()
+        customer_context = f"{customer.company} {customer.industry} {customer.level}".lower()
+        keyword_weights = {
+            "ai": ("ai", "智能", "copilot", "评分", "画像", "分析"),
+            "data": ("数据", "画像", "接入", "治理", "报表"),
+            "mobile": ("移动", "录单", "终端", "现场", "巡检"),
+            "private": ("私有化", "部署", "权限", "审计", "安全"),
+            "support": ("工单", "售后", "协同", "sla", "服务"),
+            "sales": ("销售", "流程", "商机", "crm", "增长"),
+        }
+        industry_weights = {
+            "医疗": ("移动", "终端", "接入", "工单"),
+            "制造": ("巡检", "私有化", "部署", "权限"),
+            "人工智能": ("ai", "画像", "评分", "数据"),
+            "供应链": ("报表", "工单", "协同", "数据"),
+            "教育": ("移动", "权限", "销售", "咨询"),
+        }
+
+        def product_score(product: Product) -> tuple[float, float, str]:
+            text = f"{product.name} {product.sku} {product.category}".lower()
+            score = 0.0
+            if product.stock > 0:
+                score += 8
+            if product.category == "软件":
+                score += 5
+            elif product.category == "服务":
+                score += 4
+            else:
+                score += 3
+            for tokens in keyword_weights.values():
+                if any(token in goal for token in tokens) and any(token in text for token in tokens):
+                    score += 10
+            for industry, tokens in industry_weights.items():
+                if industry.lower() in customer_context and any(token in text for token in tokens):
+                    score += 7
+            if customer.level in {"S", "A"} and product.category in {"软件", "服务"}:
+                score += 4
+            if "私有化" in goal and product.category == "服务":
+                score += 5
+            if "复购" in goal and product.category == "软件":
+                score += 3
+            return (score, product.unit_price, product.name)
+
+        available_products = [product for product in products if product.stock > 0]
+        ranked_products = sorted(available_products, key=product_score, reverse=True)
+        selected: list[Product] = []
+        categories: set[str] = set()
+        for product in ranked_products:
+            if len(selected) >= 4:
+                break
+            if product.category not in categories or len(selected) < 2:
+                selected.append(product)
+                categories.add(product.category)
+        for product in ranked_products:
+            if len(selected) >= 4:
+                break
+            if product not in selected:
+                selected.append(product)
+        return selected[:4]
 
     async def account_plan(
         self,

@@ -94,6 +94,13 @@ export function submitCopilotRecommendationFeedback(recommendationId, payload) {
   })
 }
 
+export function generateOrderDraft(payload) {
+  return request('/api/copilot/order-draft', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function login(payload) {
   return request('/api/auth/login', {
     method: 'POST',

@@ -1957,7 +1957,7 @@ def test_copilot_order_draft(monkeypatch) -> None:
     with TestClient(app) as client:
         customer = client.get("/api/customers").json()[0]
         products = client.get("/api/products").json()
-        response = client.post(
+        explicit_response = client.post(
             "/api/copilot/order-draft",
             json={
                 "customer_id": customer["id"],
@@ -1965,9 +1965,40 @@ def test_copilot_order_draft(monkeypatch) -> None:
                 "business_goal": "生成课程演示用智能订单草稿",
             },
         )
+        recommended_response = client.post(
+            "/api/copilot/order-draft",
+            json={
+                "customer_id": customer["id"],
+                "business_goal": "需要私有化部署、权限审计和客户数据治理",
+            },
+        )
+        zero_stock_product = client.post(
+            "/api/products",
+            json={
+                "name": "无库存测试模块",
+                "sku": "NO-STOCK-DRAFT-001",
+                "category": "软件",
+                "unit_price": 3600,
+                "stock": 0,
+            },
+        ).json()
+        unavailable_response = client.post(
+            "/api/copilot/order-draft",
+            json={
+                "customer_id": customer["id"],
+                "product_ids": [zero_stock_product["id"]],
+                "business_goal": "验证无库存不能生成订单草稿",
+            },
+        )
 
-    assert response.status_code == 200
-    payload = response.json()
+    assert explicit_response.status_code == 200
+    payload = explicit_response.json()
     assert payload["customer_id"] == customer["id"]
+    assert [item["product_id"] for item in payload["items"]] == [products[0]["id"]]
     assert payload["items"][0]["quantity"] >= 1
     assert payload["fallback_used"] is True
+    assert recommended_response.status_code == 200
+    recommended_names = {item["product_name"] for item in recommended_response.json()["items"]}
+    assert recommended_names & {"私有化部署服务", "多组织权限模块", "客户数据接入服务"}
+    assert unavailable_response.status_code == 400
+    assert "无库存" in unavailable_response.json()["detail"]

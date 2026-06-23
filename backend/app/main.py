@@ -4003,8 +4003,11 @@ async def copilot_order_draft(
 
     if not products:
         raise HTTPException(status_code=400, detail="没有可用于生成草稿的商品")
+    available_products = [product for product in products if product.stock > 0]
+    if not available_products:
+        raise HTTPException(status_code=400, detail="可选商品均无库存，无法生成可提交订单草稿")
 
-    result = await copilot_service.order_draft(customer, products, payload.business_goal)
+    result = await copilot_service.order_draft(customer, available_products, payload.business_goal, selected_by_user=bool(payload.product_ids))
     save_ai_interaction(
         session,
         operation="copilot_order_draft",

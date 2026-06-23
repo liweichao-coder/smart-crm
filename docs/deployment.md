@@ -202,11 +202,32 @@ $workspace = Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.toke
   "http://127.0.0.1:8000/api/customers/$($customer.id)/workspace"
 $workspace.health_profile.score
 $workspace.health_profile.factors | Select-Object key,score,level
+
+$draft = Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $($login.token)" } -ContentType "application/json" `
+  -Body (@{ customer_id = $customer.id; business_goal = "私有化部署、权限审计和客户数据治理" } | ConvertTo-Json) `
+  "http://127.0.0.1:8000/api/copilot/order-draft"
+$orderPayload = @{
+  customer_id = $draft.customer_id
+  owner = $customer.owner
+  region = "华南"
+  currency = "CNY"
+  status = "draft"
+  order_date = (Get-Date).ToString("yyyy-MM-dd")
+  due_date = (Get-Date).AddDays(7).ToString("yyyy-MM-dd")
+  notes = "$($draft.suggested_notes)`n$($draft.llm_summary)"
+  created_by_ai = $true
+  ai_confidence_score = if ($draft.fallback_used) { 0.74 } else { 0.90 }
+  items = @($draft.items | ForEach-Object { @{ product_id = $_.product_id; quantity = $_.quantity; unit_price = $_.unit_price } })
+}
+$createdOrder = Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $($login.token)" } -ContentType "application/json" `
+  -Body ($orderPayload | ConvertTo-Json -Depth 5) `
+  "http://127.0.0.1:8000/api/orders"
+$createdOrder.id
 ```
 
 If `SMART_CRM_LLM_API_KEY` is configured and valid, Copilot responses should report `fallback_used: false`. Without a key, the system still returns explainable rule-based recommendations with `fallback_used: true`.
 
-The Customer 360 smoke should return `account_plan` plus `health_profile`. The health profile is recomputed from real contacts, activities, leads, orders, cases, related tasks, and Copilot recommendations, so changing any of those records should change the health score or factor details.
+The Customer 360 smoke should return `account_plan` plus `health_profile`. The health profile is recomputed from real contacts, activities, leads, orders, cases, related tasks, and Copilot recommendations, so changing any of those records should change the health score or factor details. The order-draft smoke should create a draft order through `/api/orders`; reset the demo database afterwards if you do not want this temporary order in classroom screenshots.
 
 Vision extraction smoke:
 
