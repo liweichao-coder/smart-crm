@@ -2240,6 +2240,43 @@ body {
   gap: 12px;
 }
 
+.crm-ai-text {
+  display: grid;
+  gap: 8px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.crm-ai-text.is-compact {
+  gap: 6px;
+}
+
+.crm-ai-text strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.crm-ai-text p {
+  margin: 0;
+}
+
+.crm-ai-text .is-item {
+  position: relative;
+  padding-left: 14px;
+}
+
+.crm-ai-text .is-item::before {
+  position: absolute;
+  top: 0.78em;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-primary-default);
+  content: '';
+}
+
 .crm-copilot-summary-copy .crm-ghost-button {
   width: max-content;
 }
@@ -2344,7 +2381,8 @@ body {
   line-height: 1.8;
 }
 
-.crm-script-box small {
+.crm-script-box small,
+.crm-ai-text-note {
   color: var(--text-tertiary);
   line-height: 1.6;
 }
@@ -2373,7 +2411,8 @@ body {
 
 .crm-copilot-history-head span,
 .crm-copilot-history-meta,
-.crm-copilot-history-card small {
+.crm-copilot-history-card small,
+.crm-copilot-history-card .crm-ai-text-note {
   color: var(--text-tertiary);
   font-size: 12px;
   line-height: 1.5;
