@@ -194,9 +194,19 @@ $recommendation = Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login
 
 Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $($login.token)" } `
   "http://127.0.0.1:8000/api/copilot/recommendations/$($recommendation[0].id)/task"
+
+$customerPage = Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.token)" } `
+  "http://127.0.0.1:8000/api/customers?page=1&per_page=1"
+$customer = $customerPage.items[0]
+$workspace = Invoke-RestMethod -Headers @{ Authorization = "Bearer $($login.token)" } `
+  "http://127.0.0.1:8000/api/customers/$($customer.id)/workspace"
+$workspace.health_profile.score
+$workspace.health_profile.factors | Select-Object key,score,level
 ```
 
 If `SMART_CRM_LLM_API_KEY` is configured and valid, Copilot responses should report `fallback_used: false`. Without a key, the system still returns explainable rule-based recommendations with `fallback_used: true`.
+
+The Customer 360 smoke should return `account_plan` plus `health_profile`. The health profile is recomputed from real contacts, activities, leads, orders, cases, related tasks, and Copilot recommendations, so changing any of those records should change the health score or factor details.
 
 Vision extraction smoke:
 

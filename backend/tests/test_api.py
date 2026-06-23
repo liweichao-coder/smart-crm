@@ -1074,6 +1074,16 @@ def test_customer_workspace_aggregates_account_plan(monkeypatch) -> None:
     assert payload["account_plan"]["fallback_used"] is True
     assert payload["account_plan"]["summary"]
     assert payload["account_plan"]["next_actions"]
+    health_profile = payload["health_profile"]
+    health_metric = next(metric for metric in payload["metrics"] if metric["label"] == "客户健康分")
+    assert health_profile["score"] == int(health_metric["value"])
+    assert health_profile["grade"] in {"excellent", "healthy", "watch", "risk"}
+    assert 0 <= health_profile["churn_probability"] <= 1
+    assert {factor["key"] for factor in health_profile["factors"]} == {"revenue", "pipeline", "relationship", "service", "engagement", "ai_execution"}
+    assert "订单" in health_profile["evidence_summary"]
+    assert health_profile["risk_flags"]
+    assert health_profile["strengths"]
+    assert health_profile["recommended_actions"]
 
     assert audit_response.status_code == 200
     assert any(item["operation"] == "customer_account_plan" for item in audit_response.json())
@@ -1117,6 +1127,8 @@ def test_customer_activity_create_updates_workspace_and_audit(monkeypatch) -> No
     assert any(item["id"] == activity["id"] for item in workspace_payload["activities"])
     assert any(item["category"] == "互动" and item["title"] == "高层复盘会议" for item in workspace_payload["timeline"])
     assert "发送售后场景报价" in workspace_payload["account_plan"]["next_actions"]
+    assert 0 <= workspace_payload["health_profile"]["score"] <= 100
+    assert any(factor["key"] == "relationship" for factor in workspace_payload["health_profile"]["factors"])
 
     assert audit_logs.status_code == 200
     assert any(log["entity_id"] == activity["id"] and log["action"] == "create" for log in audit_logs.json())

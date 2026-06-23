@@ -1445,6 +1445,43 @@ function formatWorkspaceMetric(metric) {
   return metric.value
 }
 
+function getHealthGradeTone(grade) {
+  if (grade === 'excellent' || grade === 'healthy') {
+    return 'success'
+  }
+  if (grade === 'watch') {
+    return 'warning'
+  }
+  if (grade === 'risk') {
+    return 'danger'
+  }
+  return 'neutral'
+}
+
+function getHealthFactorTone(level) {
+  if (level === 'strong') {
+    return 'success'
+  }
+  if (level === 'stable') {
+    return 'accent'
+  }
+  if (level === 'watch') {
+    return 'warning'
+  }
+  if (level === 'risk') {
+    return 'danger'
+  }
+  return 'neutral'
+}
+
+function getHealthTrendLabel(trend) {
+  return {
+    up: '上升',
+    stable: '稳定',
+    down: '下降',
+  }[trend] ?? '稳定'
+}
+
 function CustomerWorkspacePage() {
   const { customerId } = useParams()
   const navigate = useNavigate()
@@ -1491,6 +1528,7 @@ function CustomerWorkspacePage() {
 
   const customer = workspace?.customer
   const accountPlan = workspace?.account_plan
+  const healthProfile = workspace?.health_profile
 
   const handleActivityDraftChange = (key, value) => {
     setActivityDraft((currentDraft) => ({ ...currentDraft, [key]: value }))
@@ -1575,6 +1613,53 @@ function CustomerWorkspacePage() {
               </article>
             ))}
           </section>
+
+          {healthProfile ? (
+            <section className="crm-panel">
+              <PanelHeader title="客户健康画像" actionLabel={healthProfile.grade_label} />
+              <div className="crm-dashboard-grid">
+                <article className="crm-list-item">
+                  <div>
+                    <strong>{healthProfile.score} 分</strong>
+                    <span>{healthProfile.evidence_summary}</span>
+                  </div>
+                  <StatusBadge value={healthProfile.grade_label} tone={getHealthGradeTone(healthProfile.grade)} />
+                </article>
+                <article className="crm-list-item">
+                  <div>
+                    <strong>流失概率 {formatPercent(healthProfile.churn_probability)}</strong>
+                    <span>趋势 {getHealthTrendLabel(healthProfile.trend)}，由互动、工单、任务、订单和商机变化共同计算。</span>
+                  </div>
+                  <TrendingUp size={18} />
+                </article>
+              </div>
+              <div className="crm-progress-list">
+                {healthProfile.factors.map((factor) => {
+                  const tone = getHealthFactorTone(factor.level)
+                  return (
+                    <div key={factor.key} className="crm-progress-row">
+                      <div className="crm-progress-meta">
+                        <span>
+                          <span className={`crm-dot tone-${tone}`} />
+                          {factor.label}
+                        </span>
+                        <strong>{factor.score} / 100</strong>
+                      </div>
+                      <div className="crm-progress-track">
+                        <div className={`crm-progress-bar tone-${tone}`} style={{ width: `${Math.max(4, factor.score)}%` }} />
+                      </div>
+                      <small>{factor.detail}</small>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="crm-account-plan-grid">
+                <CustomerPlanList title="风险旗标" items={healthProfile.risk_flags} tone="warning" />
+                <CustomerPlanList title="优势证据" items={healthProfile.strengths} tone="success" />
+                <CustomerHealthActionList actions={healthProfile.recommended_actions} />
+              </div>
+            </section>
+          ) : null}
 
           <section className="crm-dashboard-grid">
             <div className="crm-panel">
@@ -1782,6 +1867,20 @@ function CustomerWorkspacePage() {
           </section>
         </>
       ) : null}
+    </div>
+  )
+}
+
+function CustomerHealthActionList({ actions }) {
+  return (
+    <div className="crm-account-plan-list">
+      <strong>建议动作</strong>
+      {actions.map((action) => (
+        <span key={`${action.source}-${action.title}`}>
+          <span className={`crm-dot tone-${statusToneMap[action.priority] ?? 'accent'}`} />
+          {action.title}：{action.detail}
+        </span>
+      ))}
     </div>
   )
 }

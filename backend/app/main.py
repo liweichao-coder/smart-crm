@@ -55,6 +55,9 @@ from .schemas import (
     CustomerActivityCreate,
     CustomerActivityRead,
     CustomerActivityUpdate,
+    CustomerHealthAction,
+    CustomerHealthFactor,
+    CustomerHealthProfile,
     CustomerRead,
     CustomerUpdate,
     CustomerTimelineItem,
@@ -1178,29 +1181,179 @@ def customer_aliases(customer: Customer) -> set[str]:
     return {value for value in {customer.company, customer.name, customer.contact_person} if value}
 
 
+def clamp_int(value: float, minimum: int = 0, maximum: int = 100) -> int:
+    return round(max(minimum, min(maximum, value)))
+
+
+def customer_health_level(score: int) -> str:
+    if score >= 80:
+        return "strong"
+    if score >= 65:
+        return "stable"
+    if score >= 45:
+        return "watch"
+    return "risk"
+
+
+def build_customer_health_profile(
+    customer: Customer,
+    contacts: list[Contact],
+    activities: list[CustomerActivity],
+    leads: list[SalesLead],
+    orders: list[SalesOrder],
+    cases: list[SupportCase],
+    recommendations: list[CopilotRecommendation],
+    tasks: list[TaskItem],
+) -> CustomerHealthProfile:
+    now = datetime.utcnow()
+    recent_since = now - timedelta(days=30)
+    open_leads = [lead for lead in leads if lead.stage not in {LeadStage.won, LeadStage.lost}]
+    won_leads = [lead for lead in leads if lead.stage == LeadStage.won]
+    active_cases = [support_case for support_case in cases if support_case.status not in {"resolved", "closed"}]
+    hot_cases = [support_case for support_case in active_cases if support_case.priority == "hot"]
+    recent_activities = [activity for activity in activities if activity.occurred_at >= recent_since]
+    positive_activities = [activity for activity in recent_activities if activity.sentiment == "positive"]
+    risk_activities = [activity for activity in recent_activities if activity.sentiment in {"risk", "negative"}]
+    overdue_tasks = [task for task in tasks if task.status == "overdue"]
+    pending_tasks = [task for task in tasks if task.status not in {"completed", "cancelled"}]
+    total_revenue = sum(order.total_amount for order in orders)
+    pipeline_amount = sum(lead.expected_amount for lead in open_leads)
+
+    latest_touch: datetime | None = None
+    touch_points = [activity.occurred_at for activity in activities]
+    touch_points.extend(datetime.combine(order.order_date, datetime.min.time()) for order in orders)
+    if touch_points:
+        latest_touch = max(touch_points)
+    days_since_touch = (now - latest_touch).days if latest_touch else 999
+
+    revenue_score = clamp_int(total_revenue / 180000 * 100) if total_revenue else 28
+    pipeline_score = clamp_int(35 + min(pipeline_amount / 120000 * 55, 55) + min(len(open_leads) * 5, 10)) if open_leads else (45 if won_leads else 22)
+    relationship_score = clamp_int(
+        min(len(contacts) * 22, 58)
+        + min(len(recent_activities) * 7, 24)
+        + min(len(positive_activities) * 8, 18)
+        - len(risk_activities) * 12
+    )
+    service_score = clamp_int(92 - len(active_cases) * 18 - len(hot_cases) * 12 - len(overdue_tasks) * 10)
+    if days_since_touch <= 7:
+        engagement_base = 92
+    elif days_since_touch <= 30:
+        engagement_base = 78
+    elif days_since_touch <= 60:
+        engagement_base = 58
+    else:
+        engagement_base = 35
+    engagement_score = clamp_int(engagement_base + min(len(pending_tasks) * 3, 9) - len(overdue_tasks) * 12)
+    if recommendations:
+        average_recommendation_score = sum(item.rule_score for item in recommendations) / len(recommendations)
+        positive_feedback = len([item for item in recommendations if item.feedback_status in {"accepted", "helpful"}])
+        ai_execution_score = clamp_int(average_recommendation_score + positive_feedback * 5 - len([item for item in recommendations if item.feedback_status == "dismissed"]) * 8)
+    else:
+        ai_execution_score = 55
+
+    factors = [
+        CustomerHealthFactor(key="revenue", label="收入贡献", score=revenue_score, weight=0.20, level=customer_health_level(revenue_score), detail=f"累计订单 {len(orders)} 张，收入 {total_revenue:.0f} 元。"),
+        CustomerHealthFactor(key="pipeline", label="增长管道", score=pipeline_score, weight=0.20, level=customer_health_level(pipeline_score), detail=f"在管商机 {len(open_leads)} 个，预计金额 {pipeline_amount:.0f} 元。"),
+        CustomerHealthFactor(key="relationship", label="关系覆盖", score=relationship_score, weight=0.18, level=customer_health_level(relationship_score), detail=f"联系人 {len(contacts)} 位，近30天互动 {len(recent_activities)} 条。"),
+        CustomerHealthFactor(key="service", label="服务风险", score=service_score, weight=0.18, level=customer_health_level(service_score), detail=f"未关闭工单 {len(active_cases)} 条，逾期任务 {len(overdue_tasks)} 条。"),
+        CustomerHealthFactor(key="engagement", label="跟进活跃", score=engagement_score, weight=0.14, level=customer_health_level(engagement_score), detail=f"最近触达距今 {days_since_touch if latest_touch else '无'} 天，待办任务 {len(pending_tasks)} 条。"),
+        CustomerHealthFactor(key="ai_execution", label="AI 建议落地", score=ai_execution_score, weight=0.10, level=customer_health_level(ai_execution_score), detail=f"沉淀 Copilot 推荐 {len(recommendations)} 条。"),
+    ]
+    score = clamp_int(sum(factor.score * factor.weight for factor in factors))
+
+    if score >= 85:
+        grade, grade_label = "excellent", "高价值稳健客户"
+    elif score >= 70:
+        grade, grade_label = "healthy", "健康增长客户"
+    elif score >= 55:
+        grade, grade_label = "watch", "需关注客户"
+    else:
+        grade, grade_label = "risk", "流失高风险客户"
+
+    trend_signal = len(positive_activities) * 2 + len(open_leads) + len(won_leads) - len(risk_activities) * 2 - len(active_cases) - len(overdue_tasks)
+    trend = "up" if trend_signal >= 3 else "down" if trend_signal <= -2 else "stable"
+    churn_probability = round(max(0.05, min(0.95, (100 - score) / 100 * 0.72 + len(risk_activities) * 0.04 + len(hot_cases) * 0.05 + (0.08 if not open_leads else 0))), 2)
+
+    risk_flags: list[str] = []
+    if active_cases:
+        risk_flags.append(f"{len(active_cases)} 个未关闭工单可能影响续约或增购。")
+    if risk_activities:
+        risk_flags.append(f"近30天出现 {len(risk_activities)} 条风险/负向互动。")
+    if not open_leads:
+        risk_flags.append("当前缺少在管商机，增长路径不足。")
+    if len(contacts) < 2:
+        risk_flags.append("关键联系人覆盖不足，单点关系风险较高。")
+    if overdue_tasks:
+        risk_flags.append(f"{len(overdue_tasks)} 个关联任务已逾期。")
+    if not risk_flags:
+        risk_flags.append("暂无明显流失信号，重点维持跟进节奏。")
+
+    strengths: list[str] = []
+    if total_revenue > 0:
+        strengths.append(f"已有 {total_revenue:.0f} 元真实订单收入，可做复购经营。")
+    if open_leads:
+        strengths.append(f"存在 {len(open_leads)} 个在管商机，具备继续扩展空间。")
+    if positive_activities:
+        strengths.append(f"近30天有 {len(positive_activities)} 条正向互动信号。")
+    if recommendations:
+        strengths.append("已有 Copilot 推荐沉淀，可继续转任务和收集反馈。")
+    if not strengths:
+        strengths.append("客户档案已入库，可从联系人补全和首个商机创建开始经营。")
+
+    actions: list[CustomerHealthAction] = []
+    if active_cases:
+        first_case = active_cases[0]
+        actions.append(CustomerHealthAction(title=f"先处理服务阻塞：{first_case.title}", detail="关闭高优先级工单后再推进商务沟通，降低成交阻力。", priority="hot" if first_case.priority == "hot" else "warm", source="support_case"))
+    if risk_activities:
+        first_activity = risk_activities[0]
+        actions.append(CustomerHealthAction(title=f"复盘风险互动：{first_activity.subject}", detail=first_activity.next_action or first_activity.summary, priority="hot", source="customer_activity"))
+    if open_leads:
+        top_lead = max(open_leads, key=lambda item: item.expected_amount)
+        actions.append(CustomerHealthAction(title=f"推进商机：{top_lead.title}", detail=top_lead.next_action or "确认预算、决策人和下一步时间点。", priority="warm", source="sales_lead"))
+    if overdue_tasks:
+        first_task = overdue_tasks[0]
+        actions.append(CustomerHealthAction(title=f"补救逾期任务：{first_task.title}", detail=first_task.description, priority="hot", source="task"))
+    if len(contacts) < 2:
+        actions.append(CustomerHealthAction(title="补齐多联系人关系", detail="至少沉淀采购、业务、技术三个角色，降低单点沟通风险。", priority="warm", source="contact"))
+    for recommendation in recommendations:
+        if recommendation.next_best_action and len(actions) < 5:
+            actions.append(CustomerHealthAction(title="执行 Copilot 建议", detail=recommendation.next_best_action, priority="warm", source=f"copilot_recommendation:{recommendation.id}"))
+            break
+    if not actions:
+        actions.append(CustomerHealthAction(title="安排月度客户复盘", detail="确认业务目标、使用反馈和下一阶段增购机会。", priority="cold", source="account_plan"))
+
+    evidence_summary = (
+        f"基于 {len(contacts)} 位联系人、{len(recent_activities)} 条近30天互动、{len(open_leads)} 个在管商机、"
+        f"{len(orders)} 张订单、{len(active_cases)} 个未关闭工单和 {len(recommendations)} 条 Copilot 推荐实时计算。"
+    )
+
+    return CustomerHealthProfile(
+        score=score,
+        grade=grade,
+        grade_label=grade_label,
+        trend=trend,
+        churn_probability=churn_probability,
+        evidence_summary=evidence_summary,
+        factors=factors,
+        risk_flags=risk_flags[:5],
+        strengths=strengths[:5],
+        recommended_actions=actions[:5],
+    )
+
+
 def build_customer_workspace_metrics(
     contacts: list[Contact],
     leads: list[SalesLead],
     orders: list[SalesOrder],
     cases: list[SupportCase],
+    health_score: int | None = None,
 ) -> list[DashboardMetric]:
     open_leads = [lead for lead in leads if lead.stage not in {LeadStage.won, LeadStage.lost}]
     active_cases = [support_case for support_case in cases if support_case.status not in {"resolved", "closed"}]
     total_revenue = sum(order.total_amount for order in orders)
     pipeline_amount = sum(lead.expected_amount for lead in open_leads)
-    health_score = round(
-        max(
-            0,
-            min(
-                100,
-                50
-                + min(total_revenue / 50000, 20)
-                + min(pipeline_amount / 50000, 20)
-                + min(len(contacts) * 3, 12)
-                - len(active_cases) * 8,
-            ),
-        )
-    )
+    if health_score is None:
+        health_score = clamp_int(50 + min(total_revenue / 50000, 20) + min(pipeline_amount / 50000, 20) + min(len(contacts) * 3, 12) - len(active_cases) * 8)
 
     return [
         DashboardMetric(label="客户健康分", value=str(health_score), hint="由收入、管道、联系人和服务风险综合计算"),
@@ -2299,6 +2452,13 @@ async def get_customer_workspace(
     ]
     recommendations = filter_by_owner_scope(recommendations, current_user)
 
+    tasks = [
+        task
+        for task in session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+        if any(alias in f"{task.title} {task.description}" for alias in aliases)
+    ]
+    tasks = filter_by_owner_scope(tasks, current_user)
+
     start_time = perf_counter()
     account_plan = await copilot_service.account_plan(customer, contacts, activities, leads, orders, cases, recommendations)
     save_ai_interaction(
@@ -2312,10 +2472,11 @@ async def get_customer_workspace(
         entity_type="customer",
         entity_id=customer.id,
     )
+    health_profile = build_customer_health_profile(customer, contacts, activities, leads, orders, cases, recommendations, tasks)
 
     return CustomerWorkspaceResponse(
         customer=customer,
-        metrics=build_customer_workspace_metrics(contacts, leads, orders, cases),
+        metrics=build_customer_workspace_metrics(contacts, leads, orders, cases, health_profile.score),
         contacts=contacts,
         activities=activities[:10],
         leads=leads,
@@ -2324,6 +2485,7 @@ async def get_customer_workspace(
         recommendations=[serialize_copilot_recommendation(recommendation) for recommendation in recommendations[:8]],
         timeline=build_customer_timeline(customer, activities, leads, orders, cases, recommendations),
         account_plan=account_plan,
+        health_profile=health_profile,
     )
 
 

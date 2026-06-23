@@ -1235,6 +1235,35 @@ class CustomerAccountPlanResponse(BaseModel):
     model: str
 
 
+class CustomerHealthFactor(BaseModel):
+    key: str
+    label: str
+    score: int = Field(ge=0, le=100)
+    weight: float = Field(ge=0, le=1)
+    level: Literal["strong", "stable", "watch", "risk"]
+    detail: str
+
+
+class CustomerHealthAction(BaseModel):
+    title: str
+    detail: str
+    priority: Literal["hot", "warm", "cold"]
+    source: str
+
+
+class CustomerHealthProfile(BaseModel):
+    score: int = Field(ge=0, le=100)
+    grade: Literal["excellent", "healthy", "watch", "risk"]
+    grade_label: str
+    trend: Literal["up", "stable", "down"]
+    churn_probability: float = Field(ge=0, le=1)
+    evidence_summary: str
+    factors: list[CustomerHealthFactor]
+    risk_flags: list[str]
+    strengths: list[str]
+    recommended_actions: list[CustomerHealthAction]
+
+
 class CustomerWorkspaceResponse(BaseModel):
     customer: CustomerRead
     metrics: list[DashboardMetric]
@@ -1246,3 +1275,4 @@ class CustomerWorkspaceResponse(BaseModel):
     recommendations: list[CopilotRecommendationRead]
     timeline: list[CustomerTimelineItem]
     account_plan: CustomerAccountPlanResponse
+    health_profile: CustomerHealthProfile

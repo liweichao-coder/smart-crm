@@ -21,11 +21,15 @@ backend/.venv/
 backend/.env
 backend/__pycache__/
 backend/.pytest_cache/
+backend/.pytest-tmp*/
 backend/smart_crm.db
 backend/smart_crm_preview.db
 backend/backups/
 backend/uvicorn.log
 backend/uvicorn.err.log
+__pycache__/
+**/__pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 *.pyd
