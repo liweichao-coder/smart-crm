@@ -1,4 +1,5 @@
 from collections import Counter
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient as FastAPITestClient
@@ -8,7 +9,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app import database
 from app.config import settings
 import app.main as main_module
-from app.models import AuthUser, CopilotRecommendation, Customer, CustomerActivity, SalesGoal, SalesLead, SalesOrder, TaskItem
+from app.models import AuthAuditLog, AuthUser, CopilotRecommendation, Customer, CustomerActivity, SalesGoal, SalesLead, SalesOrder, TaskItem
 from app.seed import seed_data
 
 
@@ -551,6 +552,42 @@ def test_auth_login_me_logout_and_audit() -> None:
     assert logout.status_code == 200
     assert logout.json()["revoked"] is True
     assert revoked_me.status_code == 401
+
+
+def test_auth_login_throttles_repeated_failures() -> None:
+    account = "demo@smart-crm.local"
+    with TestClient(app, auth=False) as client:
+        failed_responses = [
+            client.post("/api/auth/login", json={"account": account, "password": "wrong"})
+            for _ in range(main_module.AUTH_LOGIN_FAILURE_LIMIT)
+        ]
+        blocked = client.post("/api/auth/login", json={"account": account, "password": "SmartCRM@2026"})
+
+        with Session(database.engine) as session:
+            blocked_logs = session.exec(
+                select(AuthAuditLog).where(
+                    AuthAuditLog.event == "login",
+                    AuthAuditLog.account == account,
+                    AuthAuditLog.status == "blocked",
+                )
+            ).all()
+            blocked_details = [log.detail for log in blocked_logs]
+            old_time = datetime.utcnow() - timedelta(minutes=main_module.AUTH_LOGIN_LOCK_WINDOW_MINUTES + 1)
+            login_logs = session.exec(select(AuthAuditLog).where(AuthAuditLog.event == "login", AuthAuditLog.account == account)).all()
+            for log in login_logs:
+                log.created_at = old_time
+                session.add(log)
+            session.commit()
+
+        recovered = client.post("/api/auth/login", json={"account": account, "password": "SmartCRM@2026"})
+
+    assert [response.status_code for response in failed_responses] == [401] * main_module.AUTH_LOGIN_FAILURE_LIMIT
+    assert blocked.status_code == 429
+    assert "登录失败次数过多" in blocked.json()["detail"]
+    assert len(blocked_logs) == 1
+    assert any("临时锁定登录" in detail for detail in blocked_details)
+    assert recovered.status_code == 200
+    assert recovered.json()["user"]["email"] == account
 
 
 def test_auth_profile_update_and_password_change() -> None:

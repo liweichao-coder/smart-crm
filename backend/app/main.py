@@ -128,6 +128,8 @@ auth_scheme = HTTPBearer(auto_error=False)
 RESTOCK_DANGER_THRESHOLD = 80
 RESTOCK_WARNING_THRESHOLD = 300
 AUTH_SESSION_DAYS = 7
+AUTH_LOGIN_FAILURE_LIMIT = 5
+AUTH_LOGIN_LOCK_WINDOW_MINUTES = 15
 ORDER_APPROVAL_AMOUNT_THRESHOLD = 100000
 ORDER_APPROVAL_AI_CONFIDENCE_THRESHOLD = 0.85
 ORDER_APPROVAL_FAST_DELIVERY_DAYS = 7
@@ -492,6 +494,29 @@ def record_auth_audit(
             detail=summarize_text(detail, limit=240),
         )
     )
+
+
+def recent_failed_login_count(session: Session, account: str) -> int:
+    cutoff = datetime.utcnow() - timedelta(minutes=AUTH_LOGIN_LOCK_WINDOW_MINUTES)
+    logs = session.exec(
+        select(AuthAuditLog).where(
+            AuthAuditLog.event == "login",
+            AuthAuditLog.account == summarize_text(account, limit=120),
+            AuthAuditLog.status == "failed",
+            AuthAuditLog.created_at >= cutoff,
+        )
+    ).all()
+    return len(logs)
+
+
+def ensure_login_not_throttled(session: Session, account: str, user: AuthUser | None = None) -> None:
+    failed_count = recent_failed_login_count(session, account)
+    if failed_count < AUTH_LOGIN_FAILURE_LIMIT:
+        return
+    detail = f"{AUTH_LOGIN_LOCK_WINDOW_MINUTES} 分钟内登录失败 {failed_count} 次，已临时锁定登录。"
+    record_auth_audit(session, event="login", account=account, status="blocked", detail=detail, user=user)
+    session.commit()
+    raise HTTPException(status_code=429, detail=f"登录失败次数过多，请 {AUTH_LOGIN_LOCK_WINDOW_MINUTES} 分钟后再试")
 
 
 def create_auth_session(session: Session, user: AuthUser) -> tuple[str, AuthSession]:
@@ -1993,6 +2018,7 @@ def health() -> dict[str, str]:
 def login(payload: AuthLoginRequest, session: SessionDep) -> AuthSessionResponse:
     account = normalize_account(payload.account)
     user = find_user_by_account(session, account)
+    ensure_login_not_throttled(session, account, user)
     if not user or not verify_password(payload.password, user.password_hash):
         record_auth_audit(session, event="login", account=account, status="failed", detail="账号或密码错误", user=user)
         session.commit()
