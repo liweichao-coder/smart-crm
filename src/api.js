@@ -147,6 +147,19 @@ export function fetchNotifications(params) {
   return request(`/api/notifications${buildQueryString(params)}`)
 }
 
+export function updateNotificationState(notificationId, payload) {
+  return request(`/api/notifications/${encodeURIComponent(notificationId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function markAllNotificationsRead() {
+  return request('/api/notifications/read-all', {
+    method: 'POST',
+  })
+}
+
 export function logout() {
   return request('/api/auth/logout', {
     method: 'POST',

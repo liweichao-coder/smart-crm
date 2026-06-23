@@ -19,7 +19,7 @@ from .auth import generate_session_token, hash_password, hash_session_token, ver
 from .config import settings
 from .consistency import build_consistency_payload
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, ReportSnapshot, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem, UserPreference
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, NotificationState, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, ReportSnapshot, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem, UserPreference
 from .schemas import (
     AIInteractionLogRead,
     AIQualityModelBreakdown,
@@ -76,7 +76,10 @@ from .schemas import (
     OrderApprovalDecision,
     OrderApprovalReminderCreate,
     OrderApprovalRead,
+    NotificationBulkUpdateResponse,
     NotificationRead,
+    NotificationStateResponse,
+    NotificationStateUpdate,
     PaginatedResponse,
     ModulePermissionRead,
     PermissionCatalogItem,
@@ -980,7 +983,7 @@ def make_notification(
     )
 
 
-def collect_notifications(session: Session, current_user: AuthUser, limit: int = 20) -> list[NotificationRead]:
+def collect_notifications(session: Session, current_user: AuthUser, limit: int | None = 20) -> list[NotificationRead]:
     notifications: list[NotificationRead] = []
     today = date.today()
 
@@ -1135,7 +1138,97 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int =
 
     severity_rank = {"critical": 0, "warning": 1, "info": 2}
     notifications.sort(key=lambda item: (severity_rank.get(item.severity, 9), -item.created_at.timestamp(), item.id))
+    if limit is None:
+        return notifications
     return notifications[: max(1, min(limit, 50))]
+
+
+def get_notification_state_map(session: Session, current_user: AuthUser) -> dict[str, NotificationState]:
+    states = session.exec(
+        select(NotificationState).where(
+            NotificationState.user_id == current_user.id,
+            NotificationState.organization_id == current_user.organization_id,
+        )
+    ).all()
+    return {state.notification_id: state for state in states}
+
+
+def apply_notification_states(
+    notifications: list[NotificationRead],
+    states: dict[str, NotificationState],
+    *,
+    include_dismissed: bool = False,
+    unread_only: bool = False,
+) -> list[NotificationRead]:
+    enriched: list[NotificationRead] = []
+    for notification in notifications:
+        state = states.get(notification.id)
+        is_read = state.status == "read" if state else False
+        dismissed = state.status == "dismissed" if state else False
+        if dismissed and not include_dismissed:
+            continue
+        if unread_only and (is_read or dismissed):
+            continue
+        enriched.append(
+            notification.model_copy(
+                update={
+                    "is_read": is_read,
+                    "dismissed": dismissed,
+                    "state_updated_at": state.updated_at if state else None,
+                }
+            )
+        )
+    return enriched
+
+
+def get_or_create_notification_state(session: Session, current_user: AuthUser, notification_id: str) -> NotificationState:
+    state = session.exec(
+        select(NotificationState).where(
+            NotificationState.user_id == current_user.id,
+            NotificationState.organization_id == current_user.organization_id,
+            NotificationState.notification_id == notification_id,
+        )
+    ).first()
+    if state:
+        return state
+    state = NotificationState(
+        user_id=current_user.id,
+        organization_id=current_user.organization_id,
+        notification_id=notification_id,
+    )
+    session.add(state)
+    session.flush()
+    return state
+
+
+def update_notification_state_record(state: NotificationState, action: str) -> NotificationState:
+    now = datetime.utcnow()
+    if action == "read":
+        state.status = "read"
+        state.read_at = state.read_at or now
+        state.dismissed_at = None
+    elif action == "unread":
+        state.status = "unread"
+        state.read_at = None
+        state.dismissed_at = None
+    elif action == "dismiss":
+        state.status = "dismissed"
+        state.read_at = state.read_at or now
+        state.dismissed_at = now
+    state.updated_at = now
+    return state
+
+
+def serialize_notification_state(state: NotificationState) -> NotificationStateResponse:
+    return NotificationStateResponse(
+        notification_id=state.notification_id,
+        status=state.status,
+        is_read=state.status == "read",
+        dismissed=state.status == "dismissed",
+        read_at=state.read_at,
+        dismissed_at=state.dismissed_at,
+        updated_at=state.updated_at,
+    )
 
 
 def add_business_audit(
@@ -2227,8 +2320,56 @@ def list_notifications(
     session: SessionDep,
     current_user: Annotated[AuthUser, Depends(require_permission("dashboard:read"))],
     limit: int = Query(default=20, ge=1, le=50),
+    include_dismissed: bool = False,
+    unread_only: bool = False,
 ) -> list[NotificationRead]:
-    return collect_notifications(session, current_user=current_user, limit=limit)
+    notifications = collect_notifications(session, current_user=current_user, limit=None)
+    states = get_notification_state_map(session, current_user)
+    notifications = apply_notification_states(
+        notifications,
+        states,
+        include_dismissed=include_dismissed,
+        unread_only=unread_only,
+    )
+    return notifications[:limit]
+
+
+@app.post("/api/notifications/read-all", response_model=NotificationBulkUpdateResponse)
+def mark_all_notifications_read(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("dashboard:read"))],
+) -> NotificationBulkUpdateResponse:
+    notifications = collect_notifications(session, current_user=current_user, limit=None)
+    states = get_notification_state_map(session, current_user)
+    visible_notifications = apply_notification_states(notifications, states)
+    updated_count = 0
+    for notification in visible_notifications:
+        if notification.is_read:
+            continue
+        state = get_or_create_notification_state(session, current_user, notification.id)
+        update_notification_state_record(state, "read")
+        session.add(state)
+        updated_count += 1
+    session.commit()
+    return NotificationBulkUpdateResponse(updated_count=updated_count)
+
+
+@app.patch("/api/notifications/{notification_id}", response_model=NotificationStateResponse)
+def update_notification_state(
+    notification_id: str,
+    payload: NotificationStateUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("dashboard:read"))],
+) -> NotificationStateResponse:
+    notification_ids = {notification.id for notification in collect_notifications(session, current_user=current_user, limit=None)}
+    if notification_id not in notification_ids:
+        raise HTTPException(status_code=404, detail="通知不存在或无权操作")
+    state = get_or_create_notification_state(session, current_user, notification_id)
+    update_notification_state_record(state, payload.action)
+    session.add(state)
+    session.commit()
+    session.refresh(state)
+    return serialize_notification_state(state)
 
 
 @app.get(

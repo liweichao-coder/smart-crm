@@ -117,6 +117,7 @@ import {
   generateFollowUp,
   login,
   logout,
+  markAllNotificationsRead,
   register,
   restockProduct,
   remindOrderApproval,
@@ -128,6 +129,7 @@ import {
   updateCustomer,
   updateGoal,
   updateLead,
+  updateNotificationState,
   updateOrder,
   updateProduct,
   updateTeamMember,
@@ -2505,6 +2507,8 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
   const [notifications, setNotifications] = useState([])
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [notificationError, setNotificationError] = useState('')
+  const [notificationSavingId, setNotificationSavingId] = useState('')
+  const [notificationBulkSaving, setNotificationBulkSaving] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const allowedNavItems = navItems.filter((item) => hasClientPermission(authSession, item.permission))
@@ -2512,7 +2516,7 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
   const isProfilePage = location.pathname.startsWith('/profile')
   const activeProfile = buildUserProfile(authSession?.user)
   const activeSelectedOrg = useMemo(() => resolveSelectedOrg(authSession, selectedOrg), [authSession, selectedOrg])
-  const urgentNotificationCount = notifications.filter((item) => item.severity !== 'info').length
+  const urgentNotificationCount = notifications.filter((item) => item.severity !== 'info' && !item.is_read).length
 
   useEffect(() => {
     document.title = currentPage.title
@@ -2545,9 +2549,56 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
     }
   }, [authSession, location.pathname])
 
-  const handleNotificationNavigate = (href) => {
+  const applyNotificationState = (notificationId, state) => {
+    setNotifications((currentNotifications) => currentNotifications.map((item) => (
+      item.id === notificationId
+        ? {
+            ...item,
+            is_read: state.is_read,
+            dismissed: state.dismissed,
+            state_updated_at: state.updated_at,
+          }
+        : item
+    )).filter((item) => !item.dismissed))
+  }
+
+  const handleNotificationNavigate = async (item) => {
+    if (!item.is_read) {
+      try {
+        const state = await updateNotificationState(item.id, { action: 'read' })
+        applyNotificationState(item.id, state)
+      } catch (requestError) {
+        setNotificationError(requestError.message || '通知状态更新失败')
+      }
+    }
     setNotificationOpen(false)
-    navigate(href)
+    navigate(item.href)
+  }
+
+  const handleDismissNotification = async (notificationId) => {
+    setNotificationSavingId(notificationId)
+    setNotificationError('')
+    try {
+      const state = await updateNotificationState(notificationId, { action: 'dismiss' })
+      applyNotificationState(notificationId, state)
+    } catch (requestError) {
+      setNotificationError(requestError.message || '通知忽略失败')
+    } finally {
+      setNotificationSavingId('')
+    }
+  }
+
+  const handleMarkAllNotificationsRead = async () => {
+    setNotificationBulkSaving(true)
+    setNotificationError('')
+    try {
+      await markAllNotificationsRead()
+      setNotifications((currentNotifications) => currentNotifications.map((item) => ({ ...item, is_read: true })))
+    } catch (requestError) {
+      setNotificationError(requestError.message || '通知状态更新失败')
+    } finally {
+      setNotificationBulkSaving(false)
+    }
   }
 
   return (
@@ -2631,28 +2682,41 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
               {notificationOpen ? (
                 <div className="crm-notification-panel">
                   <div className="crm-notification-head">
-                    <div>
+                    <div className="crm-notification-title">
                       <strong>通知中心</strong>
-                      <span>{`${notifications.length} 条业务提醒`}</span>
+                      <span>{`${notifications.length} 条业务提醒 · ${urgentNotificationCount} 条未读重点`}</span>
                     </div>
-                    <button className="crm-link-button" type="button" onClick={() => handleNotificationNavigate('/dashboard')}>
-                      仪表盘
-                    </button>
+                    <div className="crm-notification-actions">
+                      <button className="crm-link-button" type="button" onClick={handleMarkAllNotificationsRead} disabled={notificationBulkSaving || !notifications.some((item) => !item.is_read)}>
+                        {notificationBulkSaving ? '处理中' : '全部已读'}
+                      </button>
+                      <button className="crm-link-button" type="button" onClick={() => handleNotificationNavigate({ href: '/dashboard', id: 'dashboard-link', is_read: true })}>
+                        仪表盘
+                      </button>
+                    </div>
                   </div>
                   {notificationError ? <div className="crm-notification-error">{notificationError}</div> : null}
                   <div className="crm-notification-list">
                     {notifications.map((item) => (
-                      <button
+                      <article
                         key={item.id}
-                        className={`crm-notification-item tone-${item.severity}`}
-                        type="button"
-                        onClick={() => handleNotificationNavigate(item.href)}
+                        className={`crm-notification-item tone-${item.severity} ${item.is_read ? 'is-read' : ''}`}
                       >
-                        <span>{item.category}</span>
-                        <strong>{item.title}</strong>
-                        <small>{item.message}</small>
-                        <em>{item.action_label} · {formatDateTime(item.created_at)}</em>
-                      </button>
+                        <button className="crm-notification-main" type="button" onClick={() => handleNotificationNavigate(item)}>
+                          <span>{item.category}{item.is_read ? ' · 已读' : ' · 未读'}</span>
+                          <strong>{item.title}</strong>
+                          <small>{item.message}</small>
+                          <em>{item.action_label} · {formatDateTime(item.created_at)}</em>
+                        </button>
+                        <button
+                          className="crm-notification-dismiss"
+                          type="button"
+                          onClick={() => handleDismissNotification(item.id)}
+                          disabled={notificationSavingId === item.id}
+                        >
+                          {notificationSavingId === item.id ? '处理中' : '忽略'}
+                        </button>
+                      </article>
                     ))}
                   </div>
                   {!notificationError && !notifications.length ? (
