@@ -2639,6 +2639,17 @@ body {
   font-weight: 600;
 }
 
+.crm-form-warning {
+  margin-top: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 10px 12px;
+}
+
 .crm-form-actions {
   display: flex;
   justify-content: flex-end;
