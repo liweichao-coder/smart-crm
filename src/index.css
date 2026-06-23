@@ -2078,6 +2078,15 @@ body {
   padding: 16px;
 }
 
+.crm-copilot-summary-copy {
+  display: grid;
+  gap: 12px;
+}
+
+.crm-copilot-summary-copy .crm-ghost-button {
+  width: max-content;
+}
+
 .crm-copilot-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);

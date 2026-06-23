@@ -31,6 +31,7 @@ import {
   Search,
   Shield,
   Sparkles,
+  RefreshCw,
   Target,
   TrendingUp,
   Trash2,
@@ -3367,6 +3368,23 @@ function CopilotPage() {
   const [askLoading, setAskLoading] = useState(false)
   const [askError, setAskError] = useState('')
 
+  const loadSummary = async ({ force = false } = {}) => {
+    setLoading(true)
+    setError('')
+    try {
+      const payload = await fetchCopilotSummary({ force })
+      setSummary(payload)
+      setSelectedId(String(payload.top_opportunity?.id ?? payload.insights?.[0]?.id ?? ''))
+      setFollowUp(null)
+      refreshHistory()
+    } catch (requestError) {
+      setError(requestError.message || 'AI 副驾接口请求失败')
+      refreshHistory()
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const refreshHistory = async () => {
     setHistoryLoading(true)
     try {
@@ -3492,7 +3510,13 @@ function CopilotPage() {
         </div>
         <div className="crm-copilot-summary">
           <Sparkles size={18} />
-          <strong>{loading ? '正在从后端加载 AI 副驾建议...' : summary?.llm_summary ?? summary?.recommendation ?? '后端 Copilot 暂无建议。'}</strong>
+          <div className="crm-copilot-summary-copy">
+            <strong>{loading ? '正在从后端加载 AI 副驾建议...' : summary?.llm_summary ?? summary?.recommendation ?? '后端 Copilot 暂无建议。'}</strong>
+            <button className="crm-ghost-button" type="button" onClick={() => loadSummary({ force: true })} disabled={loading}>
+              <RefreshCw size={15} />
+              {loading ? '同步中' : '刷新副驾'}
+            </button>
+          </div>
         </div>
       </section>
 
