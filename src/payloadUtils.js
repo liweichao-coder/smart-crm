@@ -42,6 +42,16 @@ export function buildContactPayload(draft, ownerFallback) {
   }
 }
 
+export function buildProductPayload(draft) {
+  return {
+    name: cleanText(draft.name),
+    sku: cleanText(draft.sku),
+    category: cleanText(draft.category, '软件'),
+    unit_price: cleanNumber(draft.unitPrice, 0),
+    stock: Math.max(0, Math.round(cleanNumber(draft.stock, 0))),
+  }
+}
+
 export function buildTeamMemberPayload(draft, isEditing = false) {
   const payload = {
     full_name: cleanText(draft.fullName),

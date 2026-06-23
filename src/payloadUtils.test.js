@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildContactPayload, buildCustomerPayload, buildTeamMemberPayload } from './payloadUtils.js'
+import { buildContactPayload, buildCustomerPayload, buildProductPayload, buildTeamMemberPayload } from './payloadUtils.js'
 
 test('buildCustomerPayload preserves real customer master data fields', () => {
   const payload = buildCustomerPayload({
@@ -53,6 +53,42 @@ test('buildContactPayload keeps entered phone and email without demo defaults', 
     phone: '13900139000',
     owner: '徐柠',
     status: 'nurturing',
+  })
+})
+
+test('buildProductPayload preserves catalog master data without generated SKU', () => {
+  const payload = buildProductPayload({
+    name: '  智能巡检终端 Pro  ',
+    sku: ' EDGE-AI-2026 ',
+    category: '硬件',
+    unitPrice: '16800',
+    stock: '42.7',
+  })
+
+  assert.deepEqual(payload, {
+    name: '智能巡检终端 Pro',
+    sku: 'EDGE-AI-2026',
+    category: '硬件',
+    unit_price: 16800,
+    stock: 43,
+  })
+})
+
+test('buildProductPayload leaves missing required catalog fields empty for backend validation', () => {
+  const payload = buildProductPayload({
+    name: '',
+    sku: '',
+    category: '',
+    unitPrice: '',
+    stock: '',
+  })
+
+  assert.deepEqual(payload, {
+    name: '',
+    sku: '',
+    category: '软件',
+    unit_price: 0,
+    stock: 0,
   })
 })
 

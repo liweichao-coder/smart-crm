@@ -143,7 +143,7 @@ import {
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { toDraftOwner } from './ownerUtils.js'
-import { buildContactPayload, buildCustomerPayload, buildTeamMemberPayload } from './payloadUtils.js'
+import { buildContactPayload, buildCustomerPayload, buildProductPayload, buildTeamMemberPayload } from './payloadUtils.js'
 import {
   buildBulkEditPatch,
   buildClientRecord,
@@ -638,16 +638,6 @@ function downloadResourceCsv(title, records, columns) {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
-}
-
-function buildProductPayload(draft) {
-  return {
-    name: toDraftText(draft.name, '新商品'),
-    sku: toDraftText(draft.sku, `SKU-${Date.now()}`),
-    category: toDraftText(draft.category, '软件'),
-    unit_price: toDraftNumber(draft.unitPrice, 1),
-    stock: Math.max(0, Math.round(toDraftNumber(draft.stock))),
-  }
 }
 
 function createTeamMemberDraft(member = null) {
@@ -1256,11 +1246,11 @@ function ProductsPage() {
       onDeleteRecord={deleteProduct}
       createLabel="新建商品"
       columns={[
-        { key: 'name', label: '商品名称' },
-        { key: 'sku', label: 'SKU' },
-        { key: 'category', label: '分类' },
+        { key: 'name', label: '商品名称', defaultValue: '' },
+        { key: 'sku', label: 'SKU', defaultValue: '' },
+        { key: 'category', label: '分类', inputType: 'select', options: ['硬件', '软件', '服务'], defaultValue: '软件' },
         { key: 'unitPrice', label: '单价', format: 'currency' },
-        { key: 'stock', label: '库存' },
+        { key: 'stock', label: '库存', inputType: 'number', defaultValue: 0 },
       ]}
       tabs={[
         { key: 'all', label: '全部' },
