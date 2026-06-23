@@ -426,6 +426,19 @@ def owner_matches_user(owner: str, user: AuthUser) -> bool:
     return normalize_account(owner) == normalize_account(user.full_name)
 
 
+def organization_matches(record, user: AuthUser) -> bool:
+    return getattr(record, "organization_id", user.organization_id) == user.organization_id
+
+
+def filter_by_organization_scope(records: list, user: AuthUser) -> list:
+    return [record for record in records if organization_matches(record, user)]
+
+
+def require_organization_scope(user: AuthUser, record, detail: str = "数据不属于当前组织") -> None:
+    if not organization_matches(record, user):
+        raise HTTPException(status_code=404, detail=detail)
+
+
 def filter_by_owner_scope(records: list, user: AuthUser, owner_field: str = "owner") -> list:
     if has_all_data_scope(user):
         return records
@@ -626,8 +639,10 @@ def build_restock_alert(product: Product, session: Session) -> InventoryRestockA
     )
 
 
-def list_restock_alerts(session: Session) -> list[InventoryRestockAlertRead]:
+def list_restock_alerts(session: Session, organization_id: int | None = None) -> list[InventoryRestockAlertRead]:
     products = session.exec(select(Product)).all()
+    if organization_id is not None:
+        products = [product for product in products if product.organization_id == organization_id]
     alerts = [alert for product in products if (alert := build_restock_alert(product, session))]
     priority_rank = {"critical": 0, "warning": 1}
     return sorted(alerts, key=lambda alert: (priority_rank.get(alert.priority, 9), alert.current_stock, -alert.recent_order_quantity))
@@ -661,9 +676,11 @@ def save_ai_interaction(
     response_summary: str,
     entity_type: str = "",
     entity_id: int | None = None,
+    organization_id: int = 1,
 ) -> None:
     latency_ms = max(0, round((perf_counter() - start_time) * 1000))
     log = AIInteractionLog(
+        organization_id=organization_id,
         operation=operation,
         provider="openai-compatible",
         model=model,
@@ -775,7 +792,7 @@ def normalize_report_snapshot_filters(filters: dict) -> dict[str, str]:
     return normalized_filters
 
 
-def build_report_snapshot_payload(session: Session, report_type: str, filters: dict[str, str]) -> dict:
+def build_report_snapshot_payload(session: Session, report_type: str, filters: dict[str, str], current_user: AuthUser) -> dict:
     date_from = parse_snapshot_date_filter(filters, "date_from")
     date_to = parse_snapshot_date_filter(filters, "date_to")
     if report_type == "sales_performance":
@@ -785,6 +802,7 @@ def build_report_snapshot_payload(session: Session, report_type: str, filters: d
             date_to=date_to,
             owner=filters.get("owner", ""),
             region=filters.get("region", ""),
+            current_user=current_user,
         )
     else:
         report = get_approval_performance_report(
@@ -793,6 +811,7 @@ def build_report_snapshot_payload(session: Session, report_type: str, filters: d
             date_to=date_to,
             owner=filters.get("owner", ""),
             region=filters.get("region", ""),
+            current_user=current_user,
         )
     return report.model_dump(mode="json")
 
@@ -901,13 +920,14 @@ def serialize_copilot_recommendation(recommendation: CopilotRecommendation) -> C
     )
 
 
-def has_recent_copilot_summary_recommendation(session: Session, insight) -> bool:
+def has_recent_copilot_summary_recommendation(session: Session, insight, organization_id: int) -> bool:
     if not insight.id:
         return False
     cutoff = datetime.utcnow() - COPILOT_SUMMARY_DEDUPE_WINDOW
     existing = session.exec(
         select(CopilotRecommendation).where(
             CopilotRecommendation.source == "summary",
+            CopilotRecommendation.organization_id == organization_id,
             CopilotRecommendation.lead_id == insight.id,
             CopilotRecommendation.owner == insight.owner,
             CopilotRecommendation.created_at >= cutoff,
@@ -916,12 +936,13 @@ def has_recent_copilot_summary_recommendation(session: Session, insight) -> bool
     return existing is not None
 
 
-def add_copilot_summary_history(session: Session, result: CopilotSummaryResponse) -> None:
+def add_copilot_summary_history(session: Session, result: CopilotSummaryResponse, organization_id: int) -> None:
     for insight in result.insights[:5]:
-        if has_recent_copilot_summary_recommendation(session, insight):
+        if has_recent_copilot_summary_recommendation(session, insight, organization_id):
             continue
         session.add(
             CopilotRecommendation(
+                organization_id=organization_id,
                 source="summary",
                 lead_id=insight.id,
                 lead_title=summarize_text(insight.title, limit=180),
@@ -947,6 +968,7 @@ def add_copilot_follow_up_history(
     payload: CopilotFollowUpRequest,
     result: CopilotFollowUpResponse,
     lead: SalesLead | None,
+    organization_id: int,
 ) -> None:
     lead_title = lead.title if lead else payload.opportunity_title
     customer_name = lead.customer_name if lead else payload.customer_name
@@ -958,6 +980,7 @@ def add_copilot_follow_up_history(
     ]
     session.add(
         CopilotRecommendation(
+            organization_id=organization_id,
             source="follow_up",
             lead_id=lead.id if lead else payload.lead_id,
             lead_title=summarize_text(lead_title, limit=180),
@@ -1001,6 +1024,7 @@ def build_copilot_task(recommendation: CopilotRecommendation) -> TaskItem:
     status_label = "今天" if status == "today" else "本周"
     due_date = "今天 18:00" if grade == "A" else "明天 18:00" if grade == "B" else "本周五 18:00"
     return TaskItem(
+        organization_id=recommendation.organization_id,
         title=title,
         description=summarize_text("\n".join(description_parts), limit=900),
         owner=recommendation.owner or "李伟超",
@@ -1011,9 +1035,11 @@ def build_copilot_task(recommendation: CopilotRecommendation) -> TaskItem:
     )
 
 
-def find_task_for_copilot_recommendation(session: Session, recommendation_id: int) -> TaskItem | None:
+def find_task_for_copilot_recommendation(session: Session, recommendation_id: int, organization_id: int | None = None) -> TaskItem | None:
     marker = f"CopilotRecommendation#{recommendation_id}"
     tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    if organization_id is not None:
+        tasks = [task for task in tasks if task.organization_id == organization_id]
     return next((task for task in tasks if marker in task.description), None)
 
 
@@ -1047,6 +1073,7 @@ def build_customer_activity_task(activity: CustomerActivity) -> TaskItem:
         due_date = "本周五 18:00"
 
     return TaskItem(
+        organization_id=activity.organization_id,
         title=title,
         description=summarize_text("\n".join(description_parts), limit=900),
         owner=activity.owner,
@@ -1057,9 +1084,11 @@ def build_customer_activity_task(activity: CustomerActivity) -> TaskItem:
     )
 
 
-def find_task_for_customer_activity(session: Session, activity_id: int) -> TaskItem | None:
+def find_task_for_customer_activity(session: Session, activity_id: int, organization_id: int | None = None) -> TaskItem | None:
     marker = f"CustomerActivity#{activity_id}"
     tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    if organization_id is not None:
+        tasks = [task for task in tasks if task.organization_id == organization_id]
     return next((task for task in tasks if marker in task.description), None)
 
 
@@ -1095,6 +1124,7 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int |
     today = date.today()
 
     tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    tasks = filter_by_organization_scope(tasks, current_user)
     tasks = filter_by_owner_scope(tasks, current_user)
     for task in tasks:
         if task.status == "overdue":
@@ -1128,7 +1158,7 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int |
                 )
             )
 
-    for alert in list_restock_alerts(session)[:5]:
+    for alert in list_restock_alerts(session, current_user.organization_id)[:5]:
         notifications.append(
             make_notification(
                 notification_id=f"stock-{alert.product_id}",
@@ -1149,6 +1179,7 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int |
         .where(OrderApprovalRequest.status == OrderApprovalStatus.pending)
         .order_by(OrderApprovalRequest.created_at.desc())
     ).all()
+    approvals = filter_by_organization_scope(approvals, current_user)
     approvals = filter_by_owner_scope(approvals, current_user)[:6]
     for approval in approvals:
         risk_level = normalize_order_approval_risk_level(approval.risk_level)
@@ -1182,6 +1213,7 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int |
         )
 
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc(), SalesLead.expected_amount.desc())).all()
+    leads = filter_by_organization_scope(leads, current_user)
     leads = filter_by_owner_scope(leads, current_user)
     for lead in leads:
         stage = normalize_stage_value(lead.stage)
@@ -1207,9 +1239,10 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int |
         )
 
     recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
+    recommendations = filter_by_organization_scope(recommendations, current_user)
     recommendations = filter_by_owner_scope(recommendations, current_user)[:8]
     for recommendation in recommendations:
-        if recommendation.id and find_task_for_copilot_recommendation(session, recommendation.id):
+        if recommendation.id and find_task_for_copilot_recommendation(session, recommendation.id, current_user.organization_id):
             continue
         notifications.append(
             make_notification(
@@ -1226,7 +1259,12 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int |
             )
         )
 
-    fallback_logs = session.exec(select(AIInteractionLog).where(AIInteractionLog.fallback_used == True).order_by(AIInteractionLog.created_at.desc()).limit(3)).all()  # noqa: E712
+    fallback_logs = session.exec(
+        select(AIInteractionLog)
+        .where(AIInteractionLog.fallback_used == True, AIInteractionLog.organization_id == current_user.organization_id)  # noqa: E712
+        .order_by(AIInteractionLog.created_at.desc())
+        .limit(3)
+    ).all()
     for log in fallback_logs:
         notifications.append(
             make_notification(
@@ -1348,9 +1386,14 @@ def add_business_audit(
     summary: str,
     detail: str = "",
     status: str = "success",
+    organization_id: int | None = None,
 ) -> None:
+    if organization_id is None:
+        operator_user = session.exec(select(AuthUser).where(AuthUser.full_name == operator)).first()
+        organization_id = operator_user.organization_id if operator_user else 1
     session.add(
         BusinessAuditLog(
+            organization_id=organization_id,
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,
@@ -1882,7 +1925,16 @@ def replace_order_items(order: SalesOrder, payload_items, session: Session) -> N
 
     new_product_ids = set(new_quantities)
     all_product_ids = sorted(set(old_quantities) | new_product_ids)
-    products = session.exec(select(Product).where(Product.id.in_(all_product_ids))).all() if all_product_ids else []
+    products = (
+        session.exec(
+            select(Product).where(
+                Product.id.in_(all_product_ids),
+                Product.organization_id == order.organization_id,
+            )
+        ).all()
+        if all_product_ids
+        else []
+    )
     product_map = {product.id: product for product in products}
     if not new_product_ids <= set(product_map):
         raise HTTPException(status_code=400, detail="存在无效商品")
@@ -1907,6 +1959,7 @@ def replace_order_items(order: SalesOrder, payload_items, session: Session) -> N
         session.add(product)
         session.add(
             InventoryMovement(
+                organization_id=order.organization_id,
                 product_id=product.id,
                 change_quantity=-delta,
                 before_stock=before_stock,
@@ -2704,6 +2757,7 @@ def list_customers(
     industry: str = "",
 ) -> list[Customer] | dict:
     customers = session.exec(select(Customer).order_by(Customer.created_at.desc())).all()
+    customers = filter_by_organization_scope(customers, current_user)
     customers = filter_by_owner_scope(customers, current_user)
     customers = filter_records(
         customers,
@@ -2728,6 +2782,7 @@ def create_customer(
     require_payload_owner_scope(current_user, owner)
     contact_person = payload.contact_person or payload.name or payload.company
     customer = Customer(
+        organization_id=current_user.organization_id,
         name=payload.name or contact_person,
         company=payload.company,
         owner=owner,
@@ -2765,7 +2820,7 @@ def update_customer(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> Customer:
     customer = session.get(Customer, customer_id)
-    if not customer:
+    if not customer or not organization_matches(customer, current_user):
         raise HTTPException(status_code=404, detail="客户不存在")
     require_owner_scope(current_user, customer.owner)
     updates = patch_values(payload)
@@ -2801,10 +2856,15 @@ def delete_customer(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> dict[str, bool | int | str]:
     customer = session.get(Customer, customer_id)
-    if not customer:
+    if not customer or not organization_matches(customer, current_user):
         raise HTTPException(status_code=404, detail="客户不存在")
     require_owner_scope(current_user, customer.owner)
-    order = session.exec(select(SalesOrder).where(SalesOrder.customer_id == customer_id)).first()
+    order = session.exec(
+        select(SalesOrder).where(
+            SalesOrder.customer_id == customer_id,
+            SalesOrder.organization_id == current_user.organization_id,
+        )
+    ).first()
     if order:
         raise HTTPException(status_code=400, detail="客户已有订单，不能直接删除")
     add_business_audit(
@@ -2834,6 +2894,7 @@ def list_customer_activities(
     sentiment: str = "",
 ) -> list[CustomerActivity] | dict:
     activities = session.exec(select(CustomerActivity).order_by(CustomerActivity.occurred_at.desc())).all()
+    activities = filter_by_organization_scope(activities, current_user)
     activities = filter_by_owner_scope(activities, current_user)
     if customer_id is not None:
         activities = [activity for activity in activities if activity.customer_id == customer_id]
@@ -2856,12 +2917,13 @@ def create_customer_activity(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> CustomerActivity:
     customer = session.get(Customer, customer_id)
-    if not customer:
+    if not customer or not organization_matches(customer, current_user):
         raise HTTPException(status_code=404, detail="客户不存在")
     require_owner_scope(current_user, customer.owner)
     owner = normalize_related_owner(payload.owner, current_user, customer.owner)
     require_payload_owner_scope(current_user, owner)
     activity = CustomerActivity(
+        organization_id=current_user.organization_id,
         customer_id=customer.id or 0,
         customer_name=customer.company,
         owner=owner,
@@ -2897,7 +2959,7 @@ def update_customer_activity(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> CustomerActivity:
     activity = session.get(CustomerActivity, activity_id)
-    if not activity:
+    if not activity or not organization_matches(activity, current_user):
         raise HTTPException(status_code=404, detail="客户互动不存在")
     require_owner_scope(current_user, activity.owner)
     updates = patch_values(payload)
@@ -2927,11 +2989,11 @@ def create_task_from_customer_activity(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> TaskItem:
     activity = session.get(CustomerActivity, activity_id)
-    if not activity:
+    if not activity or not organization_matches(activity, current_user):
         raise HTTPException(status_code=404, detail="客户互动不存在")
     require_owner_scope(current_user, activity.owner)
 
-    existing_task = find_task_for_customer_activity(session, activity_id)
+    existing_task = find_task_for_customer_activity(session, activity_id, current_user.organization_id)
     if existing_task:
         require_owner_scope(current_user, existing_task.owner)
         return existing_task
@@ -2960,7 +3022,7 @@ async def get_customer_workspace(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
 ) -> CustomerWorkspaceResponse:
     customer = session.get(Customer, customer_id)
-    if not customer:
+    if not customer or not organization_matches(customer, current_user):
         raise HTTPException(status_code=404, detail="客户不存在")
     require_owner_scope(current_user, customer.owner)
 
@@ -2968,41 +3030,49 @@ async def get_customer_workspace(
     contacts = [
         contact
         for contact in session.exec(select(Contact).order_by(Contact.created_at.desc())).all()
-        if contact.company in aliases
+        if contact.organization_id == current_user.organization_id and contact.company in aliases
     ]
     contacts = filter_by_owner_scope(contacts, current_user)
 
-    activities = session.exec(select(CustomerActivity).where(CustomerActivity.customer_id == customer.id).order_by(CustomerActivity.occurred_at.desc())).all()
+    activities = session.exec(
+        select(CustomerActivity)
+        .where(CustomerActivity.customer_id == customer.id, CustomerActivity.organization_id == current_user.organization_id)
+        .order_by(CustomerActivity.occurred_at.desc())
+    ).all()
     activities = filter_by_owner_scope(activities, current_user)
 
     leads = [
         lead
         for lead in session.exec(select(SalesLead).order_by(SalesLead.created_at.desc())).all()
-        if lead.customer_name in aliases
+        if lead.organization_id == current_user.organization_id and lead.customer_name in aliases
     ]
     leads = filter_by_owner_scope(leads, current_user)
 
-    orders = session.exec(select(SalesOrder).where(SalesOrder.customer_id == customer.id).order_by(SalesOrder.created_at.desc())).all()
+    orders = session.exec(
+        select(SalesOrder)
+        .where(SalesOrder.customer_id == customer.id, SalesOrder.organization_id == current_user.organization_id)
+        .order_by(SalesOrder.created_at.desc())
+    ).all()
     orders = filter_by_owner_scope(orders, current_user)
 
     cases = [
         support_case
         for support_case in session.exec(select(SupportCase).order_by(SupportCase.created_at.desc())).all()
-        if support_case.account in aliases
+        if support_case.organization_id == current_user.organization_id and support_case.account in aliases
     ]
     cases = filter_by_owner_scope(cases, current_user)
 
     recommendations = [
         recommendation
         for recommendation in session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
-        if recommendation.customer_name in aliases
+        if recommendation.organization_id == current_user.organization_id and recommendation.customer_name in aliases
     ]
     recommendations = filter_by_owner_scope(recommendations, current_user)
 
     tasks = [
         task
         for task in session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
-        if any(alias in f"{task.title} {task.description}" for alias in aliases)
+        if task.organization_id == current_user.organization_id and any(alias in f"{task.title} {task.description}" for alias in aliases)
     ]
     tasks = filter_by_owner_scope(tasks, current_user)
 
@@ -3018,6 +3088,7 @@ async def get_customer_workspace(
         response_summary=account_plan.summary,
         entity_type="customer",
         entity_id=customer.id,
+        organization_id=current_user.organization_id,
     )
     health_profile = build_customer_health_profile(customer, contacts, activities, leads, orders, cases, recommendations, tasks)
 
@@ -3036,25 +3107,33 @@ async def get_customer_workspace(
     )
 
 
-@app.get("/api/products", response_model=list[ProductRead] | PaginatedResponse[ProductRead], dependencies=[Depends(require_permission("crm:read"))])
+@app.get("/api/products", response_model=list[ProductRead] | PaginatedResponse[ProductRead])
 def list_products(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
     q: str = "",
     category: str = "",
 ) -> list[Product] | dict:
     products = session.exec(select(Product).order_by(Product.created_at.desc())).all()
+    products = filter_by_organization_scope(products, current_user)
     products = filter_records(products, q=q, fields=("name", "sku", "category"), category=category)
     return paginate_or_list(products, page=page, per_page=per_page)
 
 
-@app.post("/api/products", response_model=ProductRead, status_code=201, dependencies=[Depends(require_permission("catalog:manage"))])
-def create_product(payload: ProductCreate, session: SessionDep) -> Product:
-    existing = session.exec(select(Product).where(Product.sku == payload.sku)).first()
+@app.post("/api/products", response_model=ProductRead, status_code=201)
+def create_product(
+    payload: ProductCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("catalog:manage"))],
+) -> Product:
+    existing = session.exec(
+        select(Product).where(Product.sku == payload.sku, Product.organization_id == current_user.organization_id)
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail="SKU 已存在")
-    product = Product(**payload.model_dump())
+    product = Product(**payload.model_dump(), organization_id=current_user.organization_id)
     session.add(product)
     session.flush()
     add_business_audit(
@@ -3062,24 +3141,32 @@ def create_product(payload: ProductCreate, session: SessionDep) -> Product:
         action="create",
         entity_type="product",
         entity_id=product.id,
-        operator="商品管理员",
+        operator=current_user.full_name,
         summary=f"新建商品 {product.name}",
         detail=f"SKU {product.sku}，库存 {product.stock}，单价 {product.unit_price}",
+        organization_id=current_user.organization_id,
     )
     session.commit()
     session.refresh(product)
     return product
 
 
-@app.patch("/api/products/{product_id}", response_model=ProductRead, dependencies=[Depends(require_permission("catalog:manage"))])
-def update_product(product_id: int, payload: ProductUpdate, session: SessionDep) -> Product:
+@app.patch("/api/products/{product_id}", response_model=ProductRead)
+def update_product(
+    product_id: int,
+    payload: ProductUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("catalog:manage"))],
+) -> Product:
     product = session.get(Product, product_id)
-    if not product:
+    if not product or not organization_matches(product, current_user):
         raise HTTPException(status_code=404, detail="商品不存在")
     updates = patch_values(payload)
     next_sku = updates.get("sku")
     if next_sku and next_sku != product.sku:
-        existing = session.exec(select(Product).where(Product.sku == next_sku)).first()
+        existing = session.exec(
+            select(Product).where(Product.sku == next_sku, Product.organization_id == current_user.organization_id)
+        ).first()
         if existing:
             raise HTTPException(status_code=400, detail="SKU 已存在")
     apply_updates(product, updates)
@@ -3089,22 +3176,32 @@ def update_product(product_id: int, payload: ProductUpdate, session: SessionDep)
         action="update",
         entity_type="product",
         entity_id=product.id,
-        operator="商品管理员",
+        operator=current_user.full_name,
         summary=f"更新商品 {product.name}",
         detail=", ".join(sorted(updates.keys())) or "更新商品资料",
+        organization_id=current_user.organization_id,
     )
     session.commit()
     session.refresh(product)
     return product
 
 
-@app.delete("/api/products/{product_id}", dependencies=[Depends(require_permission("catalog:manage"))])
-def delete_product(product_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+@app.delete("/api/products/{product_id}")
+def delete_product(
+    product_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("catalog:manage"))],
+) -> dict[str, bool | int | str]:
     product = session.get(Product, product_id)
-    if not product:
+    if not product or not organization_matches(product, current_user):
         raise HTTPException(status_code=404, detail="商品不存在")
     order_item = session.exec(select(OrderItem).where(OrderItem.product_id == product_id)).first()
-    movement = session.exec(select(InventoryMovement).where(InventoryMovement.product_id == product_id)).first()
+    movement = session.exec(
+        select(InventoryMovement).where(
+            InventoryMovement.product_id == product_id,
+            InventoryMovement.organization_id == current_user.organization_id,
+        )
+    ).first()
     if order_item or movement:
         raise HTTPException(status_code=400, detail="商品已有订单或库存流水，不能直接删除")
     add_business_audit(
@@ -3112,23 +3209,28 @@ def delete_product(product_id: int, session: SessionDep) -> dict[str, bool | int
         action="delete",
         entity_type="product",
         entity_id=product_id,
-        operator="商品管理员",
+        operator=current_user.full_name,
         summary=f"删除商品 {product.name}",
         detail=f"SKU {product.sku}",
+        organization_id=current_user.organization_id,
     )
     session.delete(product)
     session.commit()
     return delete_response("product", product_id)
 
 
-@app.get("/api/inventory/restock-alerts", response_model=list[InventoryRestockAlertRead], dependencies=[Depends(require_permission("crm:read"))])
-def get_restock_alerts(session: SessionDep) -> list[InventoryRestockAlertRead]:
-    return list_restock_alerts(session)
+@app.get("/api/inventory/restock-alerts", response_model=list[InventoryRestockAlertRead])
+def get_restock_alerts(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
+) -> list[InventoryRestockAlertRead]:
+    return list_restock_alerts(session, current_user.organization_id)
 
 
-@app.get("/api/inventory/movements", response_model=list[InventoryMovementRead] | PaginatedResponse[InventoryMovementRead], dependencies=[Depends(require_permission("crm:read"))])
+@app.get("/api/inventory/movements", response_model=list[InventoryMovementRead] | PaginatedResponse[InventoryMovementRead])
 def get_inventory_movements(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
     limit: int = 30,
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
@@ -3141,20 +3243,27 @@ def get_inventory_movements(
     statement = select(InventoryMovement).order_by(InventoryMovement.created_at.desc())
     if query_limit is not None:
         statement = statement.limit(query_limit)
-    movements = [serialize_inventory_movement(movement, session) for movement in session.exec(statement).all()]
+    raw_movements = filter_by_organization_scope(session.exec(statement).all(), current_user)
+    movements = [serialize_inventory_movement(movement, session) for movement in raw_movements]
     movements = filter_records(movements, q=q, fields=("product_name", "sku", "reason", "operator", "source"), source=source)
     return paginate_or_list(movements, page=page, per_page=per_page)
 
 
-@app.post("/api/products/{product_id}/restock", response_model=ProductRestockResponse, dependencies=[Depends(require_permission("inventory:manage"))])
-def restock_product(product_id: int, payload: ProductRestockRequest, session: SessionDep) -> ProductRestockResponse:
+@app.post("/api/products/{product_id}/restock", response_model=ProductRestockResponse)
+def restock_product(
+    product_id: int,
+    payload: ProductRestockRequest,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("inventory:manage"))],
+) -> ProductRestockResponse:
     product = session.get(Product, product_id)
-    if not product:
+    if not product or not organization_matches(product, current_user):
         raise HTTPException(status_code=404, detail="商品不存在")
 
     before_stock = product.stock
     product.stock += payload.quantity
     movement = InventoryMovement(
+        organization_id=current_user.organization_id,
         product_id=product.id,
         change_quantity=payload.quantity,
         before_stock=before_stock,
@@ -3174,6 +3283,7 @@ def restock_product(product_id: int, payload: ProductRestockRequest, session: Se
         operator=payload.operator,
         summary=f"补货 {product.name} {payload.quantity} 件",
         detail=f"库存 {before_stock} -> {product.stock}；原因：{payload.reason}",
+        organization_id=current_user.organization_id,
     )
     session.commit()
     session.refresh(product)
@@ -3196,6 +3306,7 @@ def list_contacts(
     status: str = "",
 ) -> list[Contact] | dict:
     contacts = session.exec(select(Contact).order_by(Contact.created_at.desc())).all()
+    contacts = filter_by_organization_scope(contacts, current_user)
     contacts = filter_by_owner_scope(contacts, current_user)
     contacts = filter_records(
         contacts,
@@ -3215,7 +3326,7 @@ def create_contact(
 ) -> Contact:
     owner = normalize_payload_owner(payload.owner, current_user)
     require_payload_owner_scope(current_user, owner)
-    contact = Contact(**{**payload.model_dump(), "owner": owner})
+    contact = Contact(**{**payload.model_dump(), "owner": owner, "organization_id": current_user.organization_id})
     session.add(contact)
     session.flush()
     add_business_audit(
@@ -3240,7 +3351,7 @@ def update_contact(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> Contact:
     contact = session.get(Contact, contact_id)
-    if not contact:
+    if not contact or not organization_matches(contact, current_user):
         raise HTTPException(status_code=404, detail="联系人不存在")
     require_owner_scope(current_user, contact.owner)
     updates = patch_values(payload)
@@ -3270,7 +3381,7 @@ def delete_contact(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> dict[str, bool | int | str]:
     contact = session.get(Contact, contact_id)
-    if not contact:
+    if not contact or not organization_matches(contact, current_user):
         raise HTTPException(status_code=404, detail="联系人不存在")
     require_owner_scope(current_user, contact.owner)
     add_business_audit(
@@ -3300,6 +3411,7 @@ def list_leads(
     ai_assisted: bool | None = None,
 ) -> list[SalesLead] | dict:
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+    leads = filter_by_organization_scope(leads, current_user)
     leads = filter_by_owner_scope(leads, current_user)
     leads = filter_records(
         leads,
@@ -3321,7 +3433,7 @@ def create_lead(
 ) -> SalesLead:
     owner = normalize_payload_owner(payload.owner, current_user)
     require_payload_owner_scope(current_user, owner)
-    lead = SalesLead(**{**payload.model_dump(), "owner": owner})
+    lead = SalesLead(**{**payload.model_dump(), "owner": owner, "organization_id": current_user.organization_id})
     session.add(lead)
     session.flush()
     add_business_audit(
@@ -3346,7 +3458,7 @@ def update_lead(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> SalesLead:
     lead = session.get(SalesLead, lead_id)
-    if not lead:
+    if not lead or not organization_matches(lead, current_user):
         raise HTTPException(status_code=404, detail="商机不存在")
     require_owner_scope(current_user, lead.owner)
     updates = patch_values(payload)
@@ -3376,7 +3488,7 @@ def delete_lead(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> dict[str, bool | int | str]:
     lead = session.get(SalesLead, lead_id)
-    if not lead:
+    if not lead or not organization_matches(lead, current_user):
         raise HTTPException(status_code=404, detail="商机不存在")
     require_owner_scope(current_user, lead.owner)
     add_business_audit(
@@ -3405,6 +3517,7 @@ def list_cases(
     status: str = "",
 ) -> list[SupportCase] | dict:
     cases = session.exec(select(SupportCase).order_by(SupportCase.due_date.asc())).all()
+    cases = filter_by_organization_scope(cases, current_user)
     cases = filter_by_owner_scope(cases, current_user)
     cases = filter_records(
         cases,
@@ -3425,7 +3538,7 @@ def create_case(
 ) -> SupportCase:
     owner = normalize_payload_owner(payload.owner, current_user)
     require_payload_owner_scope(current_user, owner)
-    support_case = SupportCase(**{**payload.model_dump(), "owner": owner})
+    support_case = SupportCase(**{**payload.model_dump(), "owner": owner, "organization_id": current_user.organization_id})
     session.add(support_case)
     session.flush()
     add_business_audit(
@@ -3450,7 +3563,7 @@ def update_case(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> SupportCase:
     support_case = session.get(SupportCase, case_id)
-    if not support_case:
+    if not support_case or not organization_matches(support_case, current_user):
         raise HTTPException(status_code=404, detail="工单不存在")
     require_owner_scope(current_user, support_case.owner)
     updates = patch_values(payload)
@@ -3480,7 +3593,7 @@ def delete_case(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> dict[str, bool | int | str]:
     support_case = session.get(SupportCase, case_id)
-    if not support_case:
+    if not support_case or not organization_matches(support_case, current_user):
         raise HTTPException(status_code=404, detail="工单不存在")
     require_owner_scope(current_user, support_case.owner)
     add_business_audit(
@@ -3509,6 +3622,7 @@ def list_tasks(
     status: str = "",
 ) -> list[TaskItem] | dict:
     tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
+    tasks = filter_by_organization_scope(tasks, current_user)
     tasks = filter_by_owner_scope(tasks, current_user)
     tasks = filter_records(
         tasks,
@@ -3529,7 +3643,7 @@ def create_task(
 ) -> TaskItem:
     owner = normalize_payload_owner(payload.owner, current_user)
     require_payload_owner_scope(current_user, owner)
-    task = TaskItem(**{**payload.model_dump(), "owner": owner})
+    task = TaskItem(**{**payload.model_dump(), "owner": owner, "organization_id": current_user.organization_id})
     session.add(task)
     session.flush()
     add_business_audit(
@@ -3554,7 +3668,7 @@ def update_task(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> TaskItem:
     task = session.get(TaskItem, task_id)
-    if not task:
+    if not task or not organization_matches(task, current_user):
         raise HTTPException(status_code=404, detail="任务不存在")
     require_owner_scope(current_user, task.owner)
     updates = patch_values(payload)
@@ -3584,7 +3698,7 @@ def delete_task(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> dict[str, bool | int | str]:
     task = session.get(TaskItem, task_id)
-    if not task:
+    if not task or not organization_matches(task, current_user):
         raise HTTPException(status_code=404, detail="任务不存在")
     require_owner_scope(current_user, task.owner)
     add_business_audit(
@@ -3612,6 +3726,7 @@ def list_goals(
     owner: str = "",
 ) -> list[SalesGoal] | dict:
     goals = session.exec(select(SalesGoal).order_by(SalesGoal.created_at.desc())).all()
+    goals = filter_by_organization_scope(goals, current_user)
     goals = filter_by_owner_scope(goals, current_user)
     goals = filter_records(goals, q=q, fields=("name", "period", "owner", "note"), period=period, owner=owner)
     return paginate_or_list(goals, page=page, per_page=per_page)
@@ -3629,6 +3744,7 @@ def create_goal(
     owner = normalize_payload_owner(payload.owner, current_user)
     require_payload_owner_scope(current_user, owner)
     goal = SalesGoal(
+        organization_id=current_user.organization_id,
         name=payload.name,
         period=payload.period,
         owner=owner,
@@ -3661,7 +3777,7 @@ def update_goal(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> SalesGoal:
     goal = session.get(SalesGoal, goal_id)
-    if not goal:
+    if not goal or not organization_matches(goal, current_user):
         raise HTTPException(status_code=404, detail="目标不存在")
     require_owner_scope(current_user, goal.owner)
     updates = patch_values(payload)
@@ -3693,7 +3809,7 @@ def delete_goal(
     current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
 ) -> dict[str, bool | int | str]:
     goal = session.get(SalesGoal, goal_id)
-    if not goal:
+    if not goal or not organization_matches(goal, current_user):
         raise HTTPException(status_code=404, detail="目标不存在")
     require_owner_scope(current_user, goal.owner)
     add_business_audit(
@@ -3710,9 +3826,10 @@ def delete_goal(
     return delete_response("goal", goal_id)
 
 
-@app.get("/api/ai-audit-logs", response_model=list[AIInteractionLogRead] | PaginatedResponse[AIInteractionLogRead], dependencies=[Depends(require_permission("audit:read"))])
+@app.get("/api/ai-audit-logs", response_model=list[AIInteractionLogRead] | PaginatedResponse[AIInteractionLogRead])
 def list_ai_audit_logs(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("audit:read"))],
     limit: int = 30,
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
@@ -3729,6 +3846,7 @@ def list_ai_audit_logs(
     if query_limit is not None:
         statement = statement.limit(query_limit)
     logs = session.exec(statement).all()
+    logs = filter_by_organization_scope(logs, current_user)
     logs = filter_records(
         logs,
         q=q,
@@ -3741,9 +3859,10 @@ def list_ai_audit_logs(
     return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/ai-audit-logs/export.csv", dependencies=[Depends(require_permission("audit:read"))])
+@app.get("/api/ai-audit-logs/export.csv")
 def export_ai_audit_logs_csv(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("audit:read"))],
     q: str = "",
     operation: str = "",
     status: str = "",
@@ -3751,6 +3870,7 @@ def export_ai_audit_logs_csv(
     fallback_used: bool | None = None,
 ) -> Response:
     logs = session.exec(select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc())).all()
+    logs = filter_by_organization_scope(logs, current_user)
     logs = filter_records(
         logs,
         q=q,
@@ -3790,9 +3910,10 @@ def average_latency(logs: list[AIInteractionLog]) -> int:
     return round(sum(log.latency_ms for log in logs) / len(logs)) if logs else 0
 
 
-@app.get("/api/reports/ai-quality", response_model=AIQualityReportResponse, dependencies=[Depends(require_permission("audit:read"))])
+@app.get("/api/reports/ai-quality", response_model=AIQualityReportResponse)
 def get_ai_quality_report(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("audit:read"))],
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     operation: str = "",
@@ -3801,17 +3922,23 @@ def get_ai_quality_report(
     if date_from and date_to and date_from > date_to:
         raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
 
-    all_logs = session.exec(select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc())).all()
+    all_logs = filter_by_organization_scope(
+        session.exec(select(AIInteractionLog).order_by(AIInteractionLog.created_at.desc())).all(),
+        current_user,
+    )
     logs = [log for log in all_logs if matches_ai_quality_filters(log, date_from, date_to, operation, model)]
     total_count = len(logs)
     llm_logs = [log for log in logs if not log.fallback_used]
     fallback_logs = [log for log in logs if log.fallback_used]
 
-    recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
+    recommendations = filter_by_organization_scope(
+        session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all(),
+        current_user,
+    )
     converted_task_count = len([
         recommendation
         for recommendation in recommendations
-        if recommendation.id is not None and find_task_for_copilot_recommendation(session, recommendation.id)
+        if recommendation.id is not None and find_task_for_copilot_recommendation(session, recommendation.id, current_user.organization_id)
     ])
     recommendation_count = len(recommendations)
     recommendation_fallback_count = len([recommendation for recommendation in recommendations if recommendation.fallback_used])
@@ -3904,9 +4031,10 @@ def get_ai_quality_report(
     )
 
 
-@app.get("/api/business-audit-logs", response_model=list[BusinessAuditLogRead] | PaginatedResponse[BusinessAuditLogRead], dependencies=[Depends(require_permission("audit:read"))])
+@app.get("/api/business-audit-logs", response_model=list[BusinessAuditLogRead] | PaginatedResponse[BusinessAuditLogRead])
 def list_business_audit_logs(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("audit:read"))],
     limit: int = 40,
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
@@ -3923,6 +4051,7 @@ def list_business_audit_logs(
     if query_limit is not None:
         statement = statement.limit(query_limit)
     logs = session.exec(statement).all()
+    logs = filter_by_organization_scope(logs, current_user)
     logs = filter_records(
         logs,
         q=q,
@@ -3935,9 +4064,10 @@ def list_business_audit_logs(
     return paginate_or_list(logs, page=page, per_page=per_page)
 
 
-@app.get("/api/business-audit-logs/export.csv", dependencies=[Depends(require_permission("audit:read"))])
+@app.get("/api/business-audit-logs/export.csv")
 def export_business_audit_logs_csv(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("audit:read"))],
     q: str = "",
     action: str = "",
     entity_type: str = "",
@@ -3945,6 +4075,7 @@ def export_business_audit_logs_csv(
     status: str = "",
 ) -> Response:
     logs = session.exec(select(BusinessAuditLog).order_by(BusinessAuditLog.created_at.desc())).all()
+    logs = filter_by_organization_scope(logs, current_user)
     logs = filter_records(
         logs,
         q=q,
@@ -3979,6 +4110,7 @@ def list_orders(
     created_by_ai: bool | None = None,
 ) -> list[SalesOrderRead] | dict:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
+    orders = filter_by_organization_scope(orders, current_user)
     serialized_orders = [serialize_order(order, session) for order in orders]
     serialized_orders = filter_by_owner_scope(serialized_orders, current_user)
     serialized_orders = filter_records(
@@ -4007,6 +4139,7 @@ def list_order_approvals(
     sla_status: str = "",
 ) -> list[OrderApprovalRead] | dict:
     approvals = session.exec(select(OrderApprovalRequest).order_by(OrderApprovalRequest.created_at.desc())).all()
+    approvals = filter_by_organization_scope(approvals, current_user)
     approvals = filter_by_owner_scope(approvals, current_user)
     serialized_approvals = [serialize_order_approval(approval, session) for approval in approvals]
     serialized_approvals = filter_records(
@@ -4030,7 +4163,7 @@ def submit_order_approval_request(
     current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
 ) -> OrderApprovalRead:
     order = session.get(SalesOrder, order_id)
-    if not order:
+    if not order or not organization_matches(order, current_user):
         raise HTTPException(status_code=404, detail="订单不存在")
     require_owner_scope(current_user, order.owner)
     if order.status == "fulfilled":
@@ -4046,6 +4179,7 @@ def submit_order_approval_request(
     requested_at = datetime.utcnow()
     risk_level = evaluate_order_approval_risk_level(order, session, payload.target_order_status)
     approval = OrderApprovalRequest(
+        organization_id=current_user.organization_id,
         order_id=order.id or order_id,
         owner=order.owner,
         requester=current_user.full_name,
@@ -4084,7 +4218,7 @@ def remind_order_approval_request(
     current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
 ) -> OrderApprovalRead:
     approval = session.get(OrderApprovalRequest, approval_id)
-    if not approval:
+    if not approval or not organization_matches(approval, current_user):
         raise HTTPException(status_code=404, detail="审批申请不存在")
     if approval.status != OrderApprovalStatus.pending:
         raise HTTPException(status_code=400, detail="审批申请已处理，不能催办")
@@ -4114,7 +4248,7 @@ def assign_order_approval_request(
     current_user: Annotated[AuthUser, Depends(require_permission("approval:manage"))],
 ) -> OrderApprovalRead:
     approval = session.get(OrderApprovalRequest, approval_id)
-    if not approval:
+    if not approval or not organization_matches(approval, current_user):
         raise HTTPException(status_code=404, detail="审批申请不存在")
     if approval.status != OrderApprovalStatus.pending:
         raise HTTPException(status_code=400, detail="审批申请已处理，不能转派")
@@ -4147,12 +4281,12 @@ def decide_order_approval_request(
     current_user: Annotated[AuthUser, Depends(require_permission("approval:manage"))],
 ) -> OrderApprovalRead:
     approval = session.get(OrderApprovalRequest, approval_id)
-    if not approval:
+    if not approval or not organization_matches(approval, current_user):
         raise HTTPException(status_code=404, detail="审批申请不存在")
     if approval.status != OrderApprovalStatus.pending:
         raise HTTPException(status_code=400, detail="审批申请已处理")
     order = session.get(SalesOrder, approval.order_id)
-    if not order:
+    if not order or not organization_matches(order, current_user):
         raise HTTPException(status_code=404, detail="关联订单不存在")
 
     decision_status = OrderApprovalStatus.approved if payload.decision == "approved" else OrderApprovalStatus.rejected
@@ -4185,6 +4319,7 @@ def export_orders_csv(
     current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
 ) -> Response:
     orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
+    orders = filter_by_organization_scope(orders, current_user)
     serialized_orders = [serialize_order(order, session) for order in orders]
     serialized_orders = filter_by_owner_scope(serialized_orders, current_user)
     csv_content = build_orders_csv(serialized_orders)
@@ -4202,13 +4337,16 @@ def get_order_inventory_movements(
     current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
 ) -> list[InventoryMovementRead]:
     order = session.get(SalesOrder, order_id)
-    if not order:
+    if not order or not organization_matches(order, current_user):
         raise HTTPException(status_code=404, detail="订单不存在")
     require_owner_scope(current_user, order.owner)
     order_marker = f"订单 #{order_id} "
     movements = session.exec(
         select(InventoryMovement)
-        .where(InventoryMovement.reason.contains(order_marker))
+        .where(
+            InventoryMovement.reason.contains(order_marker),
+            InventoryMovement.organization_id == current_user.organization_id,
+        )
         .order_by(InventoryMovement.created_at.desc())
     ).all()
     return [serialize_inventory_movement(movement, session) for movement in movements]
@@ -4222,7 +4360,7 @@ def update_order(
     current_user: Annotated[AuthUser, Depends(require_permission("order:manage"))],
 ) -> SalesOrderRead:
     order = session.get(SalesOrder, order_id)
-    if not order:
+    if not order or not organization_matches(order, current_user):
         raise HTTPException(status_code=404, detail="订单不存在")
     require_owner_scope(current_user, order.owner)
     before_total = order.total_amount
@@ -4271,12 +4409,17 @@ def create_order(
     owner = normalize_payload_owner(payload.owner, current_user)
     require_payload_owner_scope(current_user, owner)
     customer = session.get(Customer, payload.customer_id)
-    if not customer:
+    if not customer or not organization_matches(customer, current_user):
         raise HTTPException(status_code=404, detail="客户不存在")
     require_owner_scope(current_user, customer.owner)
 
     product_ids = [item.product_id for item in payload.items]
-    products = session.exec(select(Product).where(Product.id.in_(product_ids))).all()
+    products = session.exec(
+        select(Product).where(
+            Product.id.in_(product_ids),
+            Product.organization_id == current_user.organization_id,
+        )
+    ).all()
     product_map = {product.id: product for product in products}
     if len(product_map) != len(product_ids):
         raise HTTPException(status_code=400, detail="存在无效商品")
@@ -4286,6 +4429,7 @@ def create_order(
             raise HTTPException(status_code=400, detail=f"{product.name} 库存不足，当前仅剩 {product.stock} 件")
 
     order = SalesOrder(
+        organization_id=current_user.organization_id,
         customer_id=payload.customer_id,
         owner=owner,
         region=payload.region,
@@ -4319,6 +4463,7 @@ def create_order(
         )
         session.add(
             InventoryMovement(
+                organization_id=current_user.organization_id,
                 product_id=product.id,
                 change_quantity=-item.quantity,
                 before_stock=before_stock,
@@ -4382,7 +4527,7 @@ def update_capture_draft(
     submitted_order = None
     if payload.submitted_order_id is not None:
         submitted_order = session.get(SalesOrder, payload.submitted_order_id)
-        if not submitted_order:
+        if not submitted_order or not organization_matches(submitted_order, current_user):
             raise HTTPException(status_code=404, detail="关联订单不存在")
         require_owner_scope(current_user, submitted_order.owner)
     if payload.status == "submitted" and submitted_order is None:
@@ -4414,8 +4559,9 @@ async def vision_extract(
     start_time = perf_counter()
     filename = file.filename or "uploaded-file"
     content_type = file.content_type or "unknown"
-    customers = filter_by_owner_scope(session.exec(select(Customer)).all(), current_user)
-    products = session.exec(select(Product)).all()
+    customers = filter_by_organization_scope(session.exec(select(Customer)).all(), current_user)
+    customers = filter_by_owner_scope(customers, current_user)
+    products = filter_by_organization_scope(session.exec(select(Product)).all(), current_user)
     result = await vision_service.extract(file, customers=customers, products=products)
     draft = CaptureDraft(
         organization_id=current_user.organization_id,
@@ -4448,6 +4594,7 @@ async def vision_extract(
         response_summary=f"{result.company} / {result.source} / {len(result.items)} items / {result.summary}",
         entity_type="capture_draft",
         entity_id=draft.id,
+        organization_id=current_user.organization_id,
     )
     return result
 
@@ -4459,14 +4606,15 @@ async def copilot_summary(
 ) -> CopilotSummaryResponse:
     start_time = perf_counter()
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
+    leads = filter_by_organization_scope(leads, current_user)
     leads = filter_by_owner_scope(leads, current_user)
-    customers = filter_by_owner_scope(session.exec(select(Customer)).all(), current_user)
-    contacts = filter_by_owner_scope(session.exec(select(Contact)).all(), current_user)
-    activities = filter_by_owner_scope(session.exec(select(CustomerActivity)).all(), current_user)
-    orders = filter_by_owner_scope(session.exec(select(SalesOrder)).all(), current_user)
-    cases = filter_by_owner_scope(session.exec(select(SupportCase)).all(), current_user)
-    recommendations = filter_by_owner_scope(session.exec(select(CopilotRecommendation)).all(), current_user)
-    tasks = filter_by_owner_scope(session.exec(select(TaskItem)).all(), current_user)
+    customers = filter_by_owner_scope(filter_by_organization_scope(session.exec(select(Customer)).all(), current_user), current_user)
+    contacts = filter_by_owner_scope(filter_by_organization_scope(session.exec(select(Contact)).all(), current_user), current_user)
+    activities = filter_by_owner_scope(filter_by_organization_scope(session.exec(select(CustomerActivity)).all(), current_user), current_user)
+    orders = filter_by_owner_scope(filter_by_organization_scope(session.exec(select(SalesOrder)).all(), current_user), current_user)
+    cases = filter_by_owner_scope(filter_by_organization_scope(session.exec(select(SupportCase)).all(), current_user), current_user)
+    recommendations = filter_by_owner_scope(filter_by_organization_scope(session.exec(select(CopilotRecommendation)).all(), current_user), current_user)
+    tasks = filter_by_owner_scope(filter_by_organization_scope(session.exec(select(TaskItem)).all(), current_user), current_user)
 
     health_profiles_by_customer = {}
     for customer in customers:
@@ -4485,7 +4633,7 @@ async def copilot_summary(
             health_profiles_by_customer[alias] = profile
 
     result = await copilot_service.summarize(leads, health_profiles_by_customer=health_profiles_by_customer)
-    add_copilot_summary_history(session, result)
+    add_copilot_summary_history(session, result, current_user.organization_id)
     save_ai_interaction(
         session,
         operation="copilot_summary",
@@ -4496,6 +4644,7 @@ async def copilot_summary(
         response_summary=result.llm_summary,
         entity_type="lead",
         entity_id=result.top_opportunity.id if result.top_opportunity else None,
+        organization_id=current_user.organization_id,
     )
     return result
 
@@ -4507,17 +4656,17 @@ async def copilot_ask(
     current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
 ) -> CopilotAskResponse:
     start_time = perf_counter()
-    customers = session.exec(select(Customer).order_by(Customer.created_at.desc())).all()
-    activities = session.exec(select(CustomerActivity).order_by(CustomerActivity.occurred_at.desc())).all()
-    leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
-    orders = session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all()
-    tasks = session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all()
-    cases = session.exec(select(SupportCase).order_by(SupportCase.created_at.desc())).all()
-    recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
+    customers = filter_by_organization_scope(session.exec(select(Customer).order_by(Customer.created_at.desc())).all(), current_user)
+    activities = filter_by_organization_scope(session.exec(select(CustomerActivity).order_by(CustomerActivity.occurred_at.desc())).all(), current_user)
+    leads = filter_by_organization_scope(session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all(), current_user)
+    orders = filter_by_organization_scope(session.exec(select(SalesOrder).order_by(SalesOrder.created_at.desc())).all(), current_user)
+    tasks = filter_by_organization_scope(session.exec(select(TaskItem).order_by(TaskItem.created_at.desc())).all(), current_user)
+    cases = filter_by_organization_scope(session.exec(select(SupportCase).order_by(SupportCase.created_at.desc())).all(), current_user)
+    recommendations = filter_by_organization_scope(session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all(), current_user)
 
     if payload.customer_id is not None:
         customer = session.get(Customer, payload.customer_id)
-        if not customer:
+        if not customer or not organization_matches(customer, current_user):
             raise HTTPException(status_code=404, detail="客户不存在")
         require_owner_scope(current_user, customer.owner)
         customers = [customer]
@@ -4555,6 +4704,7 @@ async def copilot_ask(
         response_summary=result.answer,
         entity_type="customer" if payload.customer_id is not None else "crm",
         entity_id=payload.customer_id,
+        organization_id=current_user.organization_id,
     )
     return result
 
@@ -4578,7 +4728,8 @@ def list_copilot_recommendations(
     statement = select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())
     if query_limit is not None and has_all_data_scope(current_user):
         statement = statement.limit(query_limit)
-    recommendations = [serialize_copilot_recommendation(item) for item in session.exec(statement).all()]
+    raw_recommendations = filter_by_organization_scope(session.exec(statement).all(), current_user)
+    recommendations = [serialize_copilot_recommendation(item) for item in raw_recommendations]
     recommendations = filter_by_owner_scope(recommendations, current_user)
     recommendations = filter_records(
         recommendations,
@@ -4613,7 +4764,7 @@ def update_copilot_recommendation_feedback(
     current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
 ) -> CopilotRecommendationRead:
     recommendation = session.get(CopilotRecommendation, recommendation_id)
-    if not recommendation:
+    if not recommendation or not organization_matches(recommendation, current_user):
         raise HTTPException(status_code=404, detail="Copilot 推荐不存在")
     require_owner_scope(current_user, recommendation.owner)
 
@@ -4649,11 +4800,11 @@ def create_task_from_copilot_recommendation(
     _ai_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
 ) -> TaskItem:
     recommendation = session.get(CopilotRecommendation, recommendation_id)
-    if not recommendation:
+    if not recommendation or not organization_matches(recommendation, current_user):
         raise HTTPException(status_code=404, detail="Copilot 推荐不存在")
     require_owner_scope(current_user, recommendation.owner)
 
-    existing_task = find_task_for_copilot_recommendation(session, recommendation_id)
+    existing_task = find_task_for_copilot_recommendation(session, recommendation_id, current_user.organization_id)
     if existing_task:
         require_owner_scope(current_user, existing_task.owner)
         return existing_task
@@ -4664,6 +4815,7 @@ def create_task_from_copilot_recommendation(
 
     lead = session.get(SalesLead, recommendation.lead_id) if recommendation.lead_id else None
     if lead and recommendation.next_best_action:
+        require_organization_scope(current_user, lead)
         lead.next_action = recommendation.next_best_action
         lead.ai_assisted = True
         session.add(lead)
@@ -4699,12 +4851,12 @@ async def copilot_follow_up(
 ) -> CopilotFollowUpResponse:
     start_time = perf_counter()
     lead = session.get(SalesLead, payload.lead_id) if payload.lead_id else None
-    if payload.lead_id and not lead:
+    if payload.lead_id and (not lead or not organization_matches(lead, current_user)):
         raise HTTPException(status_code=404, detail="商机不存在")
     if lead:
         require_owner_scope(current_user, lead.owner)
     result = await copilot_service.follow_up(payload, lead)
-    add_copilot_follow_up_history(session, payload, result, lead)
+    add_copilot_follow_up_history(session, payload, result, lead, current_user.organization_id)
     save_ai_interaction(
         session,
         operation="copilot_follow_up",
@@ -4715,6 +4867,7 @@ async def copilot_follow_up(
         response_summary=result.message_draft,
         entity_type="lead" if lead else "",
         entity_id=lead.id if lead else None,
+        organization_id=current_user.organization_id,
     )
     return result
 
@@ -4727,16 +4880,25 @@ async def copilot_order_draft(
 ) -> CopilotOrderDraftResponse:
     start_time = perf_counter()
     customer = session.get(Customer, payload.customer_id)
-    if not customer:
+    if not customer or not organization_matches(customer, current_user):
         raise HTTPException(status_code=404, detail="客户不存在")
     require_owner_scope(current_user, customer.owner)
 
     if payload.product_ids:
-        products = session.exec(select(Product).where(Product.id.in_(payload.product_ids))).all()
+        products = session.exec(
+            select(Product).where(
+                Product.id.in_(payload.product_ids),
+                Product.organization_id == current_user.organization_id,
+            )
+        ).all()
         if len(products) != len(set(payload.product_ids)):
             raise HTTPException(status_code=400, detail="存在无效商品")
     else:
-        products = session.exec(select(Product).order_by(Product.created_at.desc())).all()
+        products = session.exec(
+            select(Product)
+            .where(Product.organization_id == current_user.organization_id)
+            .order_by(Product.created_at.desc())
+        ).all()
 
     if not products:
         raise HTTPException(status_code=400, detail="没有可用于生成草稿的商品")
@@ -4755,6 +4917,7 @@ async def copilot_order_draft(
         response_summary=result.llm_summary,
         entity_type="customer",
         entity_id=customer.id,
+        organization_id=current_user.organization_id,
     )
     return result
 
@@ -4852,7 +5015,7 @@ def create_report_snapshot(
 ) -> ReportSnapshotRead:
     report_label = REPORT_SNAPSHOT_LABELS[payload.report_type]
     filters = normalize_report_snapshot_filters(payload.filters)
-    report_payload = build_report_snapshot_payload(session, payload.report_type, filters)
+    report_payload = build_report_snapshot_payload(session, payload.report_type, filters, current_user)
     title = payload.title or f"{report_label}快照 {datetime.utcnow().strftime('%m-%d %H:%M')}"
     summary = payload.summary or build_report_snapshot_summary(report_payload, payload.report_type)
     snapshot = ReportSnapshot(
@@ -4906,9 +5069,10 @@ def delete_report_snapshot(
     return delete_response("report_snapshot", snapshot_id)
 
 
-@app.get("/api/reports/approval-performance", response_model=ApprovalPerformanceReportResponse, dependencies=[Depends(require_permission("reports:read"))])
+@app.get("/api/reports/approval-performance", response_model=ApprovalPerformanceReportResponse)
 def get_approval_performance_report(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("reports:read"))],
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     owner: str = "",
@@ -4917,8 +5081,12 @@ def get_approval_performance_report(
     if date_from and date_to and date_from > date_to:
         raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
 
-    orders_by_id = {order.id: order for order in session.exec(select(SalesOrder)).all() if order.id is not None}
-    all_approvals = session.exec(select(OrderApprovalRequest).order_by(OrderApprovalRequest.created_at.desc())).all()
+    scoped_orders = filter_by_organization_scope(session.exec(select(SalesOrder)).all(), current_user)
+    orders_by_id = {order.id: order for order in scoped_orders if order.id is not None}
+    all_approvals = filter_by_organization_scope(
+        session.exec(select(OrderApprovalRequest).order_by(OrderApprovalRequest.created_at.desc())).all(),
+        current_user,
+    )
     approvals = [
         approval
         for approval in all_approvals
@@ -5026,9 +5194,10 @@ def get_approval_performance_report(
     )
 
 
-@app.get("/api/reports/sales-performance", response_model=SalesPerformanceReportResponse, dependencies=[Depends(require_permission("reports:read"))])
+@app.get("/api/reports/sales-performance", response_model=SalesPerformanceReportResponse)
 def get_sales_performance_report(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("reports:read"))],
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     owner: str = "",
@@ -5037,8 +5206,8 @@ def get_sales_performance_report(
     if date_from and date_to and date_from > date_to:
         raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
 
-    all_orders = session.exec(select(SalesOrder)).all()
-    all_leads = session.exec(select(SalesLead)).all()
+    all_orders = filter_by_organization_scope(session.exec(select(SalesOrder)).all(), current_user)
+    all_leads = filter_by_organization_scope(session.exec(select(SalesLead)).all(), current_user)
     orders = [order for order in all_orders if matches_report_filters(order, "order_date", date_from, date_to, owner, region)]
     leads = [lead for lead in all_leads if matches_report_filters(lead, "due_date", date_from, date_to, owner, region)]
     ai_orders = [order for order in orders if order.created_by_ai]
@@ -5057,7 +5226,7 @@ def get_sales_performance_report(
         DashboardMetric(label="AI 收入占比", value=f"{round(ai_revenue / total_revenue * 100) if total_revenue else 0}%", hint=f"{len(ai_orders)} 张 AI 订单"),
         DashboardMetric(label="在管商机额", value=f"¥{pipeline_amount:,.0f}", hint=f"{len(open_leads)} 个未关闭商机"),
         DashboardMetric(label="赢单商机额", value=f"¥{won_amount:,.0f}", hint="按商机阶段统计"),
-        DashboardMetric(label="库存风险", value=str(len(list_restock_alerts(session))), hint="低库存补货建议项"),
+        DashboardMetric(label="库存风险", value=str(len(list_restock_alerts(session, current_user.organization_id))), hint="低库存补货建议项"),
     ]
 
     revenue_bucket: dict[str, float] = defaultdict(float)
@@ -5103,7 +5272,7 @@ def get_sales_performance_report(
         region_performance=build_sales_breakdown(orders, leads, "region"),
         funnel=funnel,
         ai_impact=ai_impact,
-        inventory_risks=list_restock_alerts(session)[:6],
+        inventory_risks=list_restock_alerts(session, current_user.organization_id)[:6],
         applied_filters=applied_filters,
     )
 
@@ -5116,6 +5285,9 @@ def get_dashboard(
     orders = session.exec(select(SalesOrder)).all()
     leads = session.exec(select(SalesLead)).all()
     customers = session.exec(select(Customer)).all()
+    orders = filter_by_organization_scope(orders, current_user)
+    leads = filter_by_organization_scope(leads, current_user)
+    customers = filter_by_organization_scope(customers, current_user)
     orders = filter_by_owner_scope(orders, current_user)
     leads = filter_by_owner_scope(leads, current_user)
     customers = filter_by_owner_scope(customers, current_user)

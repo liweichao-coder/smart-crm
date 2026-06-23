@@ -111,6 +111,7 @@ def test_customer_owner_lightweight_migration_backfills_from_contacts(monkeypatc
         owner = connection.exec_driver_sql("SELECT owner FROM customer WHERE id = 1").scalar_one()
 
     assert "owner" in columns
+    assert "organization_id" in columns
     assert owner == "李伟超"
 
 
@@ -735,6 +736,117 @@ def test_auth_register_new_workspace() -> None:
     assert me.json()["user"]["organization_name"] == "课程答辩测试组"
 
 
+def test_registered_workspace_business_data_is_organization_scoped() -> None:
+    register_payload = {
+        "organization_name": "多组织隔离测试组",
+        "full_name": "租户管理员",
+        "email": "tenant-admin@smart-crm.local",
+        "phone": "18800001234",
+        "password": "Tenant@2026",
+        "confirm_password": "Tenant@2026",
+    }
+
+    with TestClient(app, auth=False) as client:
+        register = client.post("/api/auth/register", json=register_payload)
+        headers = {"Authorization": f"Bearer {register.json()['token']}"}
+
+        initial_customers = client.get("/api/customers", headers=headers)
+        initial_products = client.get("/api/products", headers=headers)
+        initial_orders = client.get("/api/orders", headers=headers)
+        initial_dashboard = client.get("/api/dashboard", headers=headers)
+        initial_sales_report = client.get("/api/reports/sales-performance", headers=headers)
+        initial_business_audit = client.get("/api/business-audit-logs", headers=headers)
+        initial_ai_audit = client.get("/api/ai-audit-logs", headers=headers)
+
+        customer = client.post(
+            "/api/customers",
+            json={
+                "name": "隔离客户",
+                "company": "隔离科技",
+                "owner": "租户管理员",
+                "industry": "软件服务",
+                "city": "深圳",
+                "contact_person": "隔离客户",
+                "phone": "18800008888",
+                "email": "isolated@example.com",
+                "source": "注册组织自建",
+                "level": "A",
+                "annual_revenue": 120000,
+                "status": "active",
+            },
+            headers=headers,
+        )
+        product = client.post(
+            "/api/products",
+            json={
+                "name": "隔离组织专属商品",
+                "sku": "AI-DEVICE-001",
+                "category": "软件",
+                "unit_price": 1000,
+                "stock": 10,
+            },
+            headers=headers,
+        )
+        order = client.post(
+            "/api/orders",
+            json={
+                "customer_id": customer.json()["id"],
+                "owner": "租户管理员",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "draft",
+                "order_date": "2026-06-22",
+                "due_date": "2026-06-29",
+                "notes": "新组织隔离订单",
+                "items": [
+                    {
+                        "product_id": product.json()["id"],
+                        "quantity": 2,
+                        "unit_price": 1000,
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        scoped_customers = client.get("/api/customers", headers=headers)
+        scoped_products = client.get("/api/products", headers=headers)
+        scoped_orders = client.get("/api/orders", headers=headers)
+        scoped_dashboard = client.get("/api/dashboard", headers=headers)
+        scoped_sales_report = client.get("/api/reports/sales-performance", headers=headers)
+        scoped_business_audit = client.get("/api/business-audit-logs", headers=headers)
+
+        demo_login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+        demo_headers = {"Authorization": f"Bearer {demo_login.json()['token']}"}
+        demo_customers = client.get("/api/customers", headers=demo_headers)
+
+    assert register.status_code == 201
+    assert initial_customers.status_code == 200
+    assert initial_customers.json() == []
+    assert initial_products.json() == []
+    assert initial_orders.json() == []
+    assert next(item for item in initial_dashboard.json()["metrics"] if item["label"] == "客户总数")["value"] == "0"
+    assert initial_sales_report.json()["metrics"][0]["value"] == "¥0"
+    assert initial_business_audit.json() == []
+    assert initial_ai_audit.json() == []
+
+    assert customer.status_code == 201
+    assert product.status_code == 201
+    assert order.status_code == 201
+    assert scoped_customers.json()[0]["company"] == "隔离科技"
+    assert len(scoped_customers.json()) == 1
+    assert scoped_products.json()[0]["sku"] == "AI-DEVICE-001"
+    assert len(scoped_products.json()) == 1
+    assert scoped_orders.json()[0]["customer_name"] == "隔离科技"
+    assert len(scoped_orders.json()) == 1
+    assert next(item for item in scoped_dashboard.json()["metrics"] if item["label"] == "客户总数")["value"] == "1"
+    assert scoped_sales_report.json()["metrics"][0]["value"] == "¥2,000"
+    assert scoped_business_audit.status_code == 200
+    assert {item["entity_type"] for item in scoped_business_audit.json()} >= {"customer", "product", "order"}
+    assert demo_login.status_code == 200
+    assert len(demo_customers.json()) == 12
+    assert all(item["company"] != "隔离科技" for item in demo_customers.json())
+
+
 def test_user_preferences_are_persisted_per_authenticated_user() -> None:
     with TestClient(app, auth=False) as client:
         unauthenticated = client.get("/api/preferences/resource:orders")
@@ -880,6 +992,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
 
         with Session(main_module.engine) as session:
             user = session.exec(select(AuthUser).where(AuthUser.email == "sales-rbac@smart-crm.local")).one()
+            user.organization_id = 1
             user.role = "销售"
             session.add(user)
             session.commit()
@@ -1486,6 +1599,7 @@ def test_customer_workspace_respects_sales_scope(monkeypatch) -> None:
         assert created.status_code == 201
         with Session(main_module.engine) as session:
             user = session.exec(select(AuthUser).where(AuthUser.email == "workspace-sales@smart-crm.local")).one()
+            user.organization_id = 1
             user.role = "销售"
             other_customer = session.exec(select(Customer).where(Customer.owner != "李伟超")).first()
             assert other_customer is not None
@@ -1633,6 +1747,7 @@ def test_order_approval_workflow() -> None:
         assert created.status_code == 201
         with Session(main_module.engine) as session:
             user = session.exec(select(AuthUser).where(AuthUser.email == "approval-sales@smart-crm.local")).one()
+            user.organization_id = 1
             user.role = "销售"
             session.add(user)
             session.commit()
