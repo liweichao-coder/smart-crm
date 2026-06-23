@@ -1396,6 +1396,7 @@ class CopilotAskResponse(BaseModel):
     evidence: list[str]
     fallback_used: bool
     model: str
+    recommendation_id: int | None = None
 
 
 class CopilotFollowUpRequest(BaseModel):

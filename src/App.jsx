@@ -3624,6 +3624,7 @@ function CopilotPage() {
     try {
       const payload = await askCopilot({ question })
       setAskResult(payload)
+      refreshHistory()
     } catch (requestError) {
       setAskError(requestError.message || '经营问答生成失败')
     } finally {
@@ -3726,7 +3727,7 @@ function CopilotPage() {
         {askResult ? (
           <div className="crm-ask-result">
             <div className="crm-script-box">
-              <span>{askResult.model}</span>
+              <span>{askResult.recommendation_id ? `${askResult.model} · 推荐历史 #${askResult.recommendation_id}` : askResult.model}</span>
               <AiText value={askResult.answer} />
             </div>
             <div className="crm-ask-columns">
@@ -3842,7 +3843,7 @@ function CopilotPage() {
             <article key={record.id} className="crm-copilot-history-card">
               <div className="crm-copilot-history-head">
                 <div>
-                  <span>{record.source === 'follow_up' ? '跟进话术' : '摘要建议'} · {formatDateTime(record.created_at)}</span>
+                  <span>{record.source === 'follow_up' ? '跟进话术' : record.source === 'ask' ? '经营问答' : '摘要建议'} · {formatDateTime(record.created_at)}</span>
                   <strong>{record.lead_title || record.customer_name || '未命名推荐'}</strong>
                 </div>
                 <div className="crm-score-pill">
@@ -3910,7 +3911,7 @@ function CopilotPage() {
           ))}
         </div>
         {!historyLoading && !historyError && !historyRecords.length ? (
-          <EmptyState icon={Bot} title="暂无推荐历史" subtitle="打开副驾摘要或生成跟进话术后会自动落库。" />
+          <EmptyState icon={Bot} title="暂无推荐历史" subtitle="打开副驾摘要、经营问答或生成跟进话术后会自动落库。" />
         ) : null}
       </section>
     </div>
