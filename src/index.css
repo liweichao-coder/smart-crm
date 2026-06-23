@@ -304,11 +304,13 @@ p {
   color: inherit;
 }
 
-.crm-user-card img {
+.crm-user-avatar {
   height: 38px;
   width: 38px;
   border-radius: 999px;
-  object-fit: cover;
+  object-fit: contain;
+  background: #fff8ef;
+  box-shadow: 0 0 0 1px rgba(181, 36, 42, 0.18);
 }
 
 .crm-main {
@@ -1408,7 +1410,9 @@ p {
   width: 88px;
   border-radius: 8px;
   border: 1px solid var(--border-strong);
-  object-fit: cover;
+  object-fit: contain;
+  background: #fff8ef;
+  padding: 8px;
   box-shadow: var(--shadow-sm);
 }
 
