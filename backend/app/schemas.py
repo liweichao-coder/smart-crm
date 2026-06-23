@@ -1059,6 +1059,32 @@ class ApprovalPerformanceReportResponse(BaseModel):
     applied_filters: dict[str, str]
 
 
+class ReportSnapshotCreate(BaseModel):
+    report_type: Literal["sales_performance", "approval_performance"]
+    title: str = Field(default="", max_length=120)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    summary: str = Field(default="", max_length=500)
+
+    @field_validator("title", "summary")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        return clean_text(value)
+
+
+class ReportSnapshotRead(BaseModel):
+    id: int
+    report_type: str
+    report_type_label: str
+    title: str
+    filters: dict[str, Any]
+    payload: dict[str, Any]
+    summary: str
+    metric_count: int
+    created_by: str
+    created_at: datetime
+
+
 class VisionExtractItem(BaseModel):
     product_name: str
     quantity: int

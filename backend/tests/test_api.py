@@ -255,6 +255,56 @@ def test_approval_performance_report_payload_and_filters() -> None:
     assert "开始日期" in invalid_range.json()["detail"]
 
 
+def test_report_snapshot_lifecycle_uses_real_report_payload() -> None:
+    with TestClient(app) as client:
+        report_response = client.get("/api/reports/sales-performance?owner=李伟超&region=华南")
+        report_payload = report_response.json()
+        created = client.post(
+            "/api/reports/snapshots",
+            json={
+                "report_type": "sales_performance",
+                "title": "华南销售复盘快照",
+                "filters": report_payload["applied_filters"],
+                "summary": "",
+            },
+        )
+        listed = client.get("/api/reports/snapshots?report_type=sales_performance&q=华南")
+        deleted = client.delete(f"/api/reports/snapshots/{created.json()['id']}")
+        audit_logs = client.get("/api/business-audit-logs?entity_type=report_snapshot")
+        invalid = client.post(
+            "/api/reports/snapshots",
+            json={"report_type": "sales_performance", "filters": {"date_from": "2026-07-01", "date_to": "2026-06-01"}},
+        )
+
+    assert report_response.status_code == 200
+    assert created.status_code == 201
+    snapshot = created.json()
+    assert snapshot["title"] == "华南销售复盘快照"
+    assert snapshot["report_type_label"] == "销售绩效"
+    assert snapshot["filters"]["owner"] == "李伟超"
+    assert snapshot["filters"]["region"] == "华南"
+    assert snapshot["metric_count"] == 6
+    assert snapshot["payload"]["metrics"][0]["label"] == "订单收入"
+    assert "订单收入" in snapshot["summary"]
+    assert snapshot["created_by"] == "李伟超"
+
+    assert listed.status_code == 200
+    listed_payload = listed.json()
+    assert len(listed_payload) == 1
+    assert listed_payload[0]["id"] == snapshot["id"]
+
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+
+    assert audit_logs.status_code == 200
+    audit_summaries = [log["summary"] for log in audit_logs.json()]
+    assert any("保存销售绩效报表快照" in summary for summary in audit_summaries)
+    assert any("删除报表快照" in summary for summary in audit_summaries)
+
+    assert invalid.status_code == 400
+    assert "开始日期" in invalid.json()["detail"]
+
+
 def test_permission_matrix_payload() -> None:
     with TestClient(app) as client:
         response = client.get("/api/admin/permission-matrix")

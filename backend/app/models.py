@@ -302,6 +302,21 @@ class BusinessAuditLog(BusinessAuditLogBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class ReportSnapshotBase(SQLModel):
+    organization_id: int = Field(foreign_key="organization.id", index=True)
+    report_type: str = Field(index=True)
+    title: str
+    filters_json: str = "{}"
+    payload_json: str = "{}"
+    summary: str = ""
+    created_by: str = Field(default="", index=True)
+
+
+class ReportSnapshot(ReportSnapshotBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class SalesOrderBase(SQLModel):
     customer_id: int = Field(foreign_key="customer.id")
     owner: str

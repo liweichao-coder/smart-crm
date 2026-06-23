@@ -27,6 +27,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  Save,
   Search,
   Shield,
   Sparkles,
@@ -79,6 +80,7 @@ import {
   createLead,
   createOrder,
   createProduct,
+  createReportSnapshot,
   createTeamMember,
   createTask,
   decideOrderApproval,
@@ -88,6 +90,7 @@ import {
   deleteGoal,
   deleteLead,
   deleteProduct,
+  deleteReportSnapshot,
   deleteTask,
   exportOrdersCsv,
   fetchCustomers,
@@ -103,6 +106,7 @@ import {
   fetchOrderApprovals,
   fetchOrders,
   fetchProducts,
+  fetchReportSnapshots,
   fetchRestockAlerts,
   fetchTasks,
   fetchUserPreference,
@@ -2696,6 +2700,14 @@ function ReportsPage() {
     loading: true,
     error: '',
   })
+  const [snapshotState, setSnapshotState] = useState({
+    items: [],
+    loading: true,
+    error: '',
+    savingType: '',
+    deletingId: '',
+  })
+  const [snapshotVersion, setSnapshotVersion] = useState(0)
 
   useEffect(() => {
     let mounted = true
@@ -2719,6 +2731,30 @@ function ReportsPage() {
       mounted = false
     }
   }, [appliedFilters])
+
+  useEffect(() => {
+    let mounted = true
+    setSnapshotState((current) => ({ ...current, loading: true, error: '' }))
+    fetchReportSnapshots({ limit: 6 })
+      .then((items) => {
+        if (mounted) {
+          setSnapshotState((current) => ({ ...current, items: Array.isArray(items) ? items : items.items ?? [], loading: false }))
+        }
+      })
+      .catch((error) => {
+        if (mounted) {
+          setSnapshotState((current) => ({
+            ...current,
+            loading: false,
+            error: error.message || '报表快照加载失败',
+          }))
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [snapshotVersion])
 
   const { report, approvalReport, loading, error } = reportState
   const metricCards = useMemo(() => buildDashboardMetrics(report), [report])
@@ -2747,6 +2783,43 @@ function ReportsPage() {
     setDraftFilters({ ...emptyFilters })
     setReportState((current) => ({ ...current, loading: true, error: '' }))
     setAppliedFilters({ ...emptyFilters })
+  }
+
+  const handleSaveSnapshot = async (reportType) => {
+    const payload = reportType === 'approval_performance' ? approvalReport : report
+    if (!payload) {
+      return
+    }
+    const label = reportType === 'approval_performance' ? '审批 SLA' : '销售绩效'
+    setSnapshotState((current) => ({ ...current, savingType: reportType, error: '' }))
+    try {
+      await createReportSnapshot({
+        report_type: reportType,
+        title: `${label}快照 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+        filters: payload.applied_filters ?? appliedFilters,
+        summary: '',
+      })
+      setSnapshotVersion((value) => value + 1)
+    } catch (saveError) {
+      setSnapshotState((current) => ({ ...current, error: saveError.message || '报表快照保存失败' }))
+    } finally {
+      setSnapshotState((current) => ({ ...current, savingType: '' }))
+    }
+  }
+
+  const handleDeleteSnapshot = async (snapshotId) => {
+    setSnapshotState((current) => ({ ...current, deletingId: snapshotId, error: '' }))
+    try {
+      await deleteReportSnapshot(snapshotId)
+      setSnapshotState((current) => ({
+        ...current,
+        items: current.items.filter((item) => item.id !== snapshotId),
+      }))
+    } catch (deleteError) {
+      setSnapshotState((current) => ({ ...current, error: deleteError.message || '报表快照删除失败' }))
+    } finally {
+      setSnapshotState((current) => ({ ...current, deletingId: '' }))
+    }
   }
 
   return (
@@ -2789,6 +2862,40 @@ function ReportsPage() {
       </form>
 
       <ResourceSyncState loading={loading} error={error} />
+
+      <section className="crm-panel">
+        <PanelHeader title="报表快照历史" subtitle="保存当前经营视图，便于周会复盘和答辩展示" actionLabel={snapshotState.loading ? '同步中' : `${snapshotState.items.length} 条快照`} />
+        <div className="crm-report-filter-actions">
+          <button className="crm-primary-button" type="button" onClick={() => handleSaveSnapshot('sales_performance')} disabled={loading || !report || snapshotState.savingType === 'sales_performance'}>
+            <Save size={16} />
+            {snapshotState.savingType === 'sales_performance' ? '保存中' : '保存销售快照'}
+          </button>
+          <button className="crm-ghost-button" type="button" onClick={() => handleSaveSnapshot('approval_performance')} disabled={loading || !approvalReport || snapshotState.savingType === 'approval_performance'}>
+            <FileText size={16} />
+            {snapshotState.savingType === 'approval_performance' ? '保存中' : '保存审批快照'}
+          </button>
+        </div>
+        {snapshotState.error ? <div className="crm-form-error">{snapshotState.error}</div> : null}
+        <div className="crm-list compact">
+          {snapshotState.items.map((snapshot) => (
+            <article key={snapshot.id} className="crm-list-item">
+              <div>
+                <strong>{snapshot.title}</strong>
+                <span>{snapshot.report_type_label} / {snapshot.metric_count} 项指标 / {snapshot.summary}</span>
+                <small>{snapshot.created_by} 保存于 {formatDateTime(snapshot.created_at)}</small>
+              </div>
+              <div className="crm-status-cluster">
+                <StatusBadge value={snapshot.report_type_label} tone={snapshot.report_type === 'approval_performance' ? 'warning' : 'info'} />
+                <button className="crm-ghost-button crm-ghost-button--danger" type="button" onClick={() => handleDeleteSnapshot(snapshot.id)} disabled={snapshotState.deletingId === snapshot.id}>
+                  <Trash2 size={15} />
+                  {snapshotState.deletingId === snapshot.id ? '删除中' : '删除'}
+                </button>
+              </div>
+            </article>
+          ))}
+          {!snapshotState.loading && !snapshotState.items.length ? <EmptyState icon={FileText} title="暂无报表快照" subtitle="保存一次销售或审批报表后会出现在这里。" /> : null}
+        </div>
+      </section>
 
       <section className="crm-metric-grid crm-report-metric-grid">
         {metricCards.map((metric) => (

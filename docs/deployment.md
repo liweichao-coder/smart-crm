@@ -229,9 +229,17 @@ Sales report smoke:
 ```powershell
 Invoke-RestMethod -Headers $auth http://127.0.0.1:8000/api/reports/sales-performance
 Invoke-RestMethod -Headers $auth "http://127.0.0.1:8000/api/reports/sales-performance?owner=李伟超&region=华南"
+Invoke-RestMethod -Headers $auth http://127.0.0.1:8000/api/reports/approval-performance
+
+$snapshot = Invoke-RestMethod -Method Post -Headers $auth -ContentType "application/json" `
+  -Body '{"report_type":"sales_performance","title":"华南销售复盘快照","filters":{"owner":"李伟超","region":"华南"}}' `
+  http://127.0.0.1:8000/api/reports/snapshots
+
+Invoke-RestMethod -Headers $auth "http://127.0.0.1:8000/api/reports/snapshots?report_type=sales_performance&limit=5"
+Invoke-RestMethod -Method Delete -Headers $auth "http://127.0.0.1:8000/api/reports/snapshots/$($snapshot.id)"
 ```
 
-The report response is aggregated from real orders, opportunities, AI order markers, and inventory risk rules. It includes `metrics`, `revenue_trend`, `owner_performance`, `region_performance`, `funnel`, `ai_impact`, and `inventory_risks`.
+The sales report response is aggregated from real orders, opportunities, AI order markers, and inventory risk rules. It includes `metrics`, `revenue_trend`, `owner_performance`, `region_performance`, `funnel`, `ai_impact`, and `inventory_risks`. Report snapshots are recomputed on the backend from the submitted filters, then persisted in SQLite and audited through `BusinessAuditLog`.
 
 Permission matrix smoke:
 

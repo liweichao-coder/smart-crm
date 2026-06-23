@@ -177,6 +177,23 @@ export function fetchApprovalPerformanceReport(params) {
   return request(`/api/reports/approval-performance${buildQueryString(params)}`)
 }
 
+export function fetchReportSnapshots(params) {
+  return request(`/api/reports/snapshots${buildQueryString(params)}`)
+}
+
+export function createReportSnapshot(payload) {
+  return request('/api/reports/snapshots', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteReportSnapshot(snapshotId) {
+  return request(`/api/reports/snapshots/${snapshotId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function fetchPermissionMatrix() {
   return request('/api/admin/permission-matrix')
 }

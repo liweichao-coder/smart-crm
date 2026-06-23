@@ -24,6 +24,7 @@ from .models import (  # noqa: F401
     OrderItem,
     Organization,
     Product,
+    ReportSnapshot,
     SalesGoal,
     SalesLead,
     SalesOrder,

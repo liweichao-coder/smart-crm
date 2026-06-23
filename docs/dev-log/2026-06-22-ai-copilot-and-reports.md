@@ -193,8 +193,10 @@ The course exam requires a full software engineering process package, not only c
 - Added a root `.env.example` and clarified deployment docs so teammates keep `VITE_API_BASE_URL` aligned with the backend port and `SMART_CRM_CORS_ORIGINS` aligned with the frontend port. Browser smoke on clean ports verified login, organization selection, and dashboard sidebar rendering with the SVG emblem.
 - Added explicit database lifecycle commands: `python -m app.manage migrate` preserves existing data while applying lightweight SQLite migrations, `backup-db` exports a file-backed SQLite snapshot, and `restore-db` restores a teammate/demo snapshot before running `doctor`.
 - Targeted management regression succeeded: a real SQLite demo database was seeded, backed up to a snapshot directory, deliberately reduced from 12 to 11 customers, then restored back to the 12-customer demo target.
+- Added report snapshot history: `ReportSnapshot`, `/api/reports/snapshots`, and the Sales Reports page can save sales-performance or approval-performance snapshots. Snapshot payloads are recomputed on the backend from submitted filters, persisted with creator and organization scope, and create/delete actions are written to `BusinessAuditLog`.
+- Targeted report snapshot regression succeeded: the test fetches a real filtered sales report, saves a snapshot without sending a client payload, lists it by type/search term, deletes it, verifies audit logs, and checks invalid date ranges return 400.
 
 ## Next Steps
 
-- Add fuller end-to-end browser smoke coverage, feedback note editing, and more operating BI dimensions.
+- Add fuller end-to-end browser smoke coverage, feedback note editing, and longer-term report trend comparison.
 - Capture screenshots and export Word/PPT final materials.

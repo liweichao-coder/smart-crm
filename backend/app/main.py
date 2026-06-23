@@ -19,7 +19,7 @@ from .auth import generate_session_token, hash_password, hash_session_token, ver
 from .config import settings
 from .consistency import build_consistency_payload
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem, UserPreference
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, ReportSnapshot, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem, UserPreference
 from .schemas import (
     AIInteractionLogRead,
     AIQualityModelBreakdown,
@@ -82,6 +82,8 @@ from .schemas import (
     ProductRead,
     ProductUpdate,
     RevenuePoint,
+    ReportSnapshotCreate,
+    ReportSnapshotRead,
     SalesGoalCreate,
     SalesGoalRead,
     SalesGoalUpdate,
@@ -643,6 +645,103 @@ def decode_preference_value(raw: str) -> dict:
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def encode_json_object(value: dict) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def decode_json_object(raw: str) -> dict:
+    try:
+        payload = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+REPORT_SNAPSHOT_LABELS = {
+    "sales_performance": "销售绩效",
+    "approval_performance": "审批 SLA",
+}
+
+
+def parse_snapshot_date_filter(filters: dict, key: str) -> date | None:
+    value = str(filters.get(key) or "").strip()
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{key} 日期格式无效") from exc
+
+
+def normalize_report_snapshot_filters(filters: dict) -> dict[str, str]:
+    normalized_filters = {
+        "date_from": str(filters.get("date_from") or "").strip(),
+        "date_to": str(filters.get("date_to") or "").strip(),
+        "owner": str(filters.get("owner") or "").strip(),
+        "region": str(filters.get("region") or "").strip(),
+    }
+    date_from = parse_snapshot_date_filter(normalized_filters, "date_from")
+    date_to = parse_snapshot_date_filter(normalized_filters, "date_to")
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+    return normalized_filters
+
+
+def build_report_snapshot_payload(session: Session, report_type: str, filters: dict[str, str]) -> dict:
+    date_from = parse_snapshot_date_filter(filters, "date_from")
+    date_to = parse_snapshot_date_filter(filters, "date_to")
+    if report_type == "sales_performance":
+        report = get_sales_performance_report(
+            session,
+            date_from=date_from,
+            date_to=date_to,
+            owner=filters.get("owner", ""),
+            region=filters.get("region", ""),
+        )
+    else:
+        report = get_approval_performance_report(
+            session,
+            date_from=date_from,
+            date_to=date_to,
+            owner=filters.get("owner", ""),
+            region=filters.get("region", ""),
+        )
+    return report.model_dump(mode="json")
+
+
+def build_report_snapshot_summary(payload: dict, report_type: str) -> str:
+    metrics = payload.get("metrics")
+    if isinstance(metrics, list) and metrics:
+        metric_parts = []
+        for metric in metrics[:3]:
+            if isinstance(metric, dict):
+                label = str(metric.get("label") or "").strip()
+                value = str(metric.get("value") or "").strip()
+                if label and value:
+                    metric_parts.append(f"{label} {value}")
+        if metric_parts:
+            return "；".join(metric_parts)
+    return f"{REPORT_SNAPSHOT_LABELS.get(report_type, report_type)} 报表快照已保存"
+
+
+def serialize_report_snapshot(snapshot: ReportSnapshot) -> ReportSnapshotRead:
+    payload = decode_json_object(snapshot.payload_json)
+    metrics = payload.get("metrics")
+    metric_count = len(metrics) if isinstance(metrics, list) else 0
+    return ReportSnapshotRead(
+        id=snapshot.id or 0,
+        report_type=snapshot.report_type,
+        report_type_label=REPORT_SNAPSHOT_LABELS.get(snapshot.report_type, snapshot.report_type),
+        title=snapshot.title,
+        filters=decode_json_object(snapshot.filters_json),
+        payload=payload,
+        summary=snapshot.summary,
+        metric_count=metric_count,
+        created_by=snapshot.created_by,
+        created_at=snapshot.created_at,
+    )
 
 
 def serialize_user_preference(preference: UserPreference | None, namespace: str) -> UserPreferenceRead:
@@ -3813,6 +3912,96 @@ def matches_approval_report_filters(
         if not order or order.region != region:
             return False
     return True
+
+
+@app.get("/api/reports/snapshots", response_model=list[ReportSnapshotRead] | PaginatedResponse[ReportSnapshotRead], dependencies=[Depends(require_permission("reports:read"))])
+def list_report_snapshots(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("reports:read"))],
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    report_type: str = "",
+    q: str = "",
+    limit: int = 12,
+) -> list[ReportSnapshotRead] | dict:
+    safe_limit = min(max(limit, 1), 80)
+    statement = (
+        select(ReportSnapshot)
+        .where(ReportSnapshot.organization_id == current_user.organization_id)
+        .order_by(ReportSnapshot.created_at.desc())
+    )
+    if page is None and per_page is None and not q.strip() and not report_type.strip():
+        statement = statement.limit(safe_limit)
+    snapshots = [serialize_report_snapshot(snapshot) for snapshot in session.exec(statement).all()]
+    snapshots = filter_records(
+        snapshots,
+        q=q,
+        fields=("title", "summary", "created_by", "report_type_label"),
+        report_type=report_type,
+    )
+    return paginate_or_list(snapshots, page=page, per_page=per_page)
+
+
+@app.post("/api/reports/snapshots", response_model=ReportSnapshotRead, status_code=201)
+def create_report_snapshot(
+    payload: ReportSnapshotCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("reports:read"))],
+) -> ReportSnapshotRead:
+    report_label = REPORT_SNAPSHOT_LABELS[payload.report_type]
+    filters = normalize_report_snapshot_filters(payload.filters)
+    report_payload = build_report_snapshot_payload(session, payload.report_type, filters)
+    title = payload.title or f"{report_label}快照 {datetime.utcnow().strftime('%m-%d %H:%M')}"
+    summary = payload.summary or build_report_snapshot_summary(report_payload, payload.report_type)
+    snapshot = ReportSnapshot(
+        organization_id=current_user.organization_id,
+        report_type=payload.report_type,
+        title=summarize_text(title, limit=120),
+        filters_json=encode_json_object(filters),
+        payload_json=encode_json_object(report_payload),
+        summary=summarize_text(summary, limit=500),
+        created_by=current_user.full_name,
+    )
+    session.add(snapshot)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="report_snapshot",
+        entity_id=snapshot.id,
+        operator=current_user.full_name,
+        summary=f"保存{report_label}报表快照 {snapshot.title}",
+        detail=snapshot.summary,
+    )
+    session.commit()
+    session.refresh(snapshot)
+    return serialize_report_snapshot(snapshot)
+
+
+@app.delete("/api/reports/snapshots/{snapshot_id}")
+def delete_report_snapshot(
+    snapshot_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("reports:read"))],
+) -> dict[str, bool | int | str]:
+    snapshot = session.get(ReportSnapshot, snapshot_id)
+    if not snapshot or snapshot.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="报表快照不存在")
+    if snapshot.created_by != current_user.full_name and not has_all_data_scope(current_user):
+        raise HTTPException(status_code=403, detail="只能删除自己保存的报表快照")
+    title = snapshot.title
+    session.delete(snapshot)
+    add_business_audit(
+        session,
+        action="delete",
+        entity_type="report_snapshot",
+        entity_id=snapshot_id,
+        operator=current_user.full_name,
+        summary=f"删除报表快照 {title}",
+        detail=f"快照 ID {snapshot_id}",
+    )
+    session.commit()
+    return delete_response("report_snapshot", snapshot_id)
 
 
 @app.get("/api/reports/approval-performance", response_model=ApprovalPerformanceReportResponse, dependencies=[Depends(require_permission("reports:read"))])
