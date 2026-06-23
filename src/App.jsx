@@ -138,6 +138,7 @@ import {
   updateCustomer,
   updateGoal,
   updateLead,
+  updateLeadStage,
   updateNotificationState,
   updateOrder,
   updateProduct,
@@ -153,6 +154,7 @@ import {
   buildCustomerPayload,
   buildGoalPayload,
   buildLeadPayload,
+  normalizeLeadStage,
   buildOrderUpdatePayload,
   buildProductPayload,
   buildTaskPayload,
@@ -287,15 +289,19 @@ const boardToneMap = {
 
 const stageLabelMap = {
   new: 'New',
+  contacted: 'Contacted',
   qualified: 'Qualified',
   proposal: 'Proposal',
   negotiation: 'Negotiation',
   won: 'Won',
   lost: 'Lost',
 }
+const leadPipelineStages = Object.entries(stageLabelMap).map(([value, label]) => ({ value, label }))
+const leadPipelineLabels = leadPipelineStages.map((stage) => stage.label)
 
 const dashboardStageMeta = {
   new: { label: '新线索', tone: 'new' },
+  contacted: { label: '已联系', tone: 'contacted' },
   qualified: { label: '资格确认', tone: 'qualified' },
   proposal: { label: '方案提案', tone: 'proposal' },
   negotiation: { label: '商务谈判', tone: 'negotiation' },
@@ -2084,11 +2090,12 @@ function LeadsPage() {
   const { userProfile: activeProfile } = useOutletContext()
   const ownerDraftDefaults = useMemo(() => ({ owner: activeProfile.name }), [activeProfile.name])
   const { records, loading, error } = useRemoteRecords(fetchLeads, mapLeadRecord)
+  const handleStageChange = (record, nextStage) => updateLeadStage(record.id, normalizeLeadStage(nextStage)).then(mapLeadRecord)
 
   return (
     <BoardResourcePage
       title="线索"
-      subtitle="在列表和看板之间切换，快速管理线索评级与跟进进度。"
+      subtitle="在列表和看板之间切换，拖动卡片或一键推进线索阶段。"
       icon={Target}
       records={records}
       loading={loading}
@@ -2097,8 +2104,10 @@ function LeadsPage() {
       onCreateRecord={(draft) => createLead(buildLeadPayload(draft, activeProfile.name)).then(mapLeadRecord)}
       onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, activeProfile.name)).then(mapLeadRecord)}
       onDeleteRecord={deleteLead}
+      onWorkflowChange={handleStageChange}
       createLabel="新建线索"
       boardKey="stage"
+      workflowOptions={leadPipelineLabels}
       columns={[
         { key: 'name', label: '线索', defaultValue: '' },
         { key: 'company', label: '公司', defaultValue: '' },
@@ -2114,11 +2123,12 @@ function OpportunitiesPage() {
   const { userProfile: activeProfile } = useOutletContext()
   const ownerDraftDefaults = useMemo(() => ({ owner: activeProfile.name }), [activeProfile.name])
   const { records, loading, error } = useRemoteRecords(fetchLeads, mapOpportunityRecord)
+  const handleStageChange = (record, nextStage) => updateLeadStage(record.id, normalizeLeadStage(nextStage)).then(mapOpportunityRecord)
 
   return (
     <BoardResourcePage
       title="商机"
-      subtitle="聚焦阶段、金额和预计成交时间，保持销售管道清晰。"
+      subtitle="聚焦阶段、金额和预计成交时间，拖动卡片即可推进销售管道。"
       icon={Sparkles}
       records={records}
       loading={loading}
@@ -2127,8 +2137,10 @@ function OpportunitiesPage() {
       onCreateRecord={(draft) => createLead(buildLeadPayload(draft, activeProfile.name)).then(mapOpportunityRecord)}
       onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, activeProfile.name)).then(mapOpportunityRecord)}
       onDeleteRecord={deleteLead}
+      onWorkflowChange={handleStageChange}
       createLabel="新建商机"
       boardKey="stage"
+      workflowOptions={leadPipelineLabels}
       columns={[
         { key: 'name', label: '商机', defaultValue: '' },
         { key: 'account', label: '客户', defaultValue: '' },
@@ -6310,18 +6322,22 @@ function BoardResourcePage({
   columns,
   createLabel,
   boardKey,
+  workflowOptions,
   loading = false,
   error = '',
   defaultDraftValues = {},
   onCreateRecord,
   onUpdateRecord,
   onDeleteRecord,
+  onWorkflowChange,
   preferenceNamespace = `resource:${title}`,
 }) {
   const [rows, setRows] = useState(records)
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
   const [deleteSaving, setDeleteSaving] = useState(false)
+  const [workflowSavingId, setWorkflowSavingId] = useState('')
+  const [dragOverGroup, setDragOverGroup] = useState('')
   const [editingRecord, setEditingRecord] = useState(null)
   const [createError, setCreateError] = useState('')
   const [confirmRequest, setConfirmRequest] = useState(null)
@@ -6332,7 +6348,11 @@ function BoardResourcePage({
     defaultView: 'list',
     preferenceNamespace,
   })
-  const boardValues = useMemo(() => [...new Set(rows.map((record) => record[boardKey]))], [boardKey, rows])
+  const boardValues = useMemo(() => {
+    const configuredValues = workflowOptions?.length ? workflowOptions : []
+    const rowValues = rows.map((record) => record[boardKey]).filter(Boolean)
+    return [...new Set([...configuredValues, ...rowValues])]
+  }, [boardKey, rows, workflowOptions])
   const workflowField = useMemo(
     () => ({ key: boardKey, label: '阶段', value: boardValues[0] ?? 'New', options: boardValues.length ? boardValues : ['New'] }),
     [boardKey, boardValues],
@@ -6359,8 +6379,58 @@ function BoardResourcePage({
       const key = record[boardKey]
       accumulator[key] = accumulator[key] ? [...accumulator[key], record] : [record]
       return accumulator
-    }, {})
-  }, [boardKey, visibleRecords])
+    }, Object.fromEntries(boardValues.map((value) => [value, []])))
+  }, [boardKey, boardValues, visibleRecords])
+
+  const handleWorkflowMove = async (record, nextValue) => {
+    if (!onWorkflowChange || !nextValue || record[boardKey] === nextValue || workflowSavingId) {
+      return
+    }
+    const previousValue = record[boardKey]
+    const recordId = String(record.id)
+    setWorkflowSavingId(recordId)
+    setCreateError('')
+    setRows((currentRows) => currentRows.map((item) => (item.id === record.id ? { ...item, [boardKey]: nextValue } : item)))
+    try {
+      const updatedRecord = await onWorkflowChange(record, nextValue)
+      setRows((currentRows) => currentRows.map((item) => (item.id === record.id ? updatedRecord : item)))
+    } catch (nextError) {
+      setRows((currentRows) => currentRows.map((item) => (item.id === record.id ? { ...item, [boardKey]: previousValue } : item)))
+      setCreateError(nextError.message || '阶段流转失败')
+    } finally {
+      setWorkflowSavingId('')
+      setDragOverGroup('')
+    }
+  }
+
+  const handleCardDragStart = (event, record) => {
+    if (!onWorkflowChange) {
+      return
+    }
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(record.id))
+  }
+
+  const handleColumnDragOver = (event, group) => {
+    if (!onWorkflowChange) {
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDragOverGroup(group)
+  }
+
+  const handleColumnDrop = (event, group) => {
+    if (!onWorkflowChange) {
+      return
+    }
+    event.preventDefault()
+    const recordId = event.dataTransfer.getData('text/plain')
+    const record = rows.find((item) => String(item.id) === recordId)
+    if (record) {
+      handleWorkflowMove(record, group)
+    }
+  }
 
   const handleOpenCreate = () => {
     setEditingRecord(null)
@@ -6445,7 +6515,7 @@ function BoardResourcePage({
         onExport={handleExportCsv}
         exportDisabled={!visibleRecords.length}
       />
-      <ResourceSyncState loading={loading || createSaving || deleteSaving} error={error || createError} />
+      <ResourceSyncState loading={loading || createSaving || deleteSaving || Boolean(workflowSavingId)} error={error || createError} />
       <ResourceToolbar query={query} onQueryChange={setQuery} columnCount={columns.length} inputRef={searchInputRef} preferenceStatus={preferenceStatus}>
         <div className="crm-view-toggle">
           <button className={view === 'list' ? 'is-active' : ''} type="button" onClick={() => setView('list')}>
@@ -6508,7 +6578,13 @@ function BoardResourcePage({
       ) : (
         <div className="crm-board-grid">
           {Object.entries(groups).map(([group, items]) => (
-            <section key={group} className="crm-board-column">
+            <section
+              key={group}
+              className={`crm-board-column${dragOverGroup === group ? ' is-drag-over' : ''}`}
+              onDragOver={(event) => handleColumnDragOver(event, group)}
+              onDragLeave={() => setDragOverGroup((currentGroup) => (currentGroup === group ? '' : currentGroup))}
+              onDrop={(event) => handleColumnDrop(event, group)}
+            >
               <div className="crm-board-head">
                 <div>
                   <strong>{group}</strong>
@@ -6517,35 +6593,71 @@ function BoardResourcePage({
                 <StatusBadge value={items.length} tone={boardToneMap[group] ?? 'neutral'} isNumeric />
               </div>
               <div className="crm-board-list">
-                {items.map((item) => (
-                  <article key={item.id} className="crm-board-card">
-                    <strong>{item.name ?? item.title}</strong>
-                    <p>{item.company ?? item.account ?? item.owner}</p>
-                    {'amount' in item ? <span>{formatCurrency(item.amount)}</span> : null}
-                    {'nextStep' in item ? <span>{item.nextStep}</span> : null}
-                    {'priority' in item ? <StatusBadge value={item.priority} tone={statusToneMap[item.priority] ?? 'neutral'} /> : null}
-                    {hasActions ? (
-                      <div className="crm-board-card-actions">
-                        {onUpdateRecord ? (
-                          <button className="crm-icon-button" type="button" aria-label="编辑记录" title="编辑" onClick={() => handleOpenEdit(item)}>
-                            <Pencil size={15} />
-                          </button>
-                        ) : null}
-                        {onDeleteRecord ? (
+                {items.map((item) => {
+                  const groupIndex = boardValues.indexOf(item[boardKey])
+                  const previousGroup = boardValues[groupIndex - 1]
+                  const nextGroup = boardValues[groupIndex + 1]
+                  const isWorkflowSaving = workflowSavingId === String(item.id)
+                  return (
+                    <article
+                      key={item.id}
+                      className={`crm-board-card${onWorkflowChange ? ' is-draggable' : ''}${isWorkflowSaving ? ' is-saving' : ''}`}
+                      draggable={Boolean(onWorkflowChange) && !isWorkflowSaving}
+                      onDragStart={(event) => handleCardDragStart(event, item)}
+                    >
+                      <strong>{item.name ?? item.title}</strong>
+                      <p>{item.company ?? item.account ?? item.owner}</p>
+                      {'amount' in item ? <span>{formatCurrency(item.amount)}</span> : null}
+                      {'nextStep' in item ? <span>{item.nextStep}</span> : null}
+                      {'priority' in item ? <StatusBadge value={item.priority} tone={statusToneMap[item.priority] ?? 'neutral'} /> : null}
+                      {onWorkflowChange ? (
+                        <div className="crm-board-flow-actions" aria-label="阶段流转">
                           <button
-                            className="crm-icon-button crm-icon-button--danger"
+                            className="crm-icon-button"
                             type="button"
-                            aria-label="删除记录"
-                            title="删除"
-                            onClick={() => handleDeleteRecord(item)}
+                            aria-label={`退回到${previousGroup ?? '上一阶段'}`}
+                            title={previousGroup ? `退回到${previousGroup}` : '已在第一阶段'}
+                            disabled={!previousGroup || isWorkflowSaving}
+                            onClick={() => handleWorkflowMove(item, previousGroup)}
                           >
-                            <Trash2 size={15} />
+                            <ChevronLeft size={15} />
                           </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </article>
-                ))}
+                          <button
+                            className="crm-icon-button"
+                            type="button"
+                            aria-label={`推进到${nextGroup ?? '下一阶段'}`}
+                            title={nextGroup ? `推进到${nextGroup}` : '已在最后阶段'}
+                            disabled={!nextGroup || isWorkflowSaving}
+                            onClick={() => handleWorkflowMove(item, nextGroup)}
+                          >
+                            <ChevronRight size={15} />
+                          </button>
+                        </div>
+                      ) : null}
+                      {hasActions ? (
+                        <div className="crm-board-card-actions">
+                          {onUpdateRecord ? (
+                            <button className="crm-icon-button" type="button" aria-label="编辑记录" title="编辑" onClick={() => handleOpenEdit(item)}>
+                              <Pencil size={15} />
+                            </button>
+                          ) : null}
+                          {onDeleteRecord ? (
+                            <button
+                              className="crm-icon-button crm-icon-button--danger"
+                              type="button"
+                              aria-label="删除记录"
+                              title="删除"
+                              onClick={() => handleDeleteRecord(item)}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </article>
+                  )
+                })}
+                {!items.length ? <div className="crm-board-empty">拖入卡片或新建记录后进入该阶段。</div> : null}
               </div>
             </section>
           ))}

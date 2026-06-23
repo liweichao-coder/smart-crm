@@ -233,6 +233,7 @@ MODULE_PERMISSIONS = [
 ]
 REPORT_STAGE_LABELS = {
     "new": "新线索",
+    "contacted": "已联系",
     "qualified": "资格确认",
     "proposal": "方案提案",
     "negotiation": "商务谈判",

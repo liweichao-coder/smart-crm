@@ -13,6 +13,7 @@ import {
   revokeAuthSession,
   revokeOtherAuthSessions,
   updateCaptureDraft,
+  updateLeadStage,
 } from './api.js'
 
 test('fetchAuthAuditLogs sends paginated auth audit filters to the backend', async (t) => {
@@ -248,4 +249,32 @@ test('capture draft helpers list and update persisted drafts', async (t) => {
   assert.equal(calls[1].url, 'http://127.0.0.1:8000/api/vision-extract/drafts/7')
   assert.equal(calls[1].init.method, 'PATCH')
   assert.equal(calls[1].init.body, JSON.stringify({ status: 'submitted', submitted_order_id: 13 }))
+})
+
+test('updateLeadStage patches only the pipeline stage', async (t) => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init })
+    return new Response(JSON.stringify({
+      id: 15,
+      stage: 'proposal',
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  const payload = await updateLeadStage(15, 'proposal')
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'http://127.0.0.1:8000/api/leads/15')
+  assert.equal(calls[0].init.method, 'PATCH')
+  assert.equal(calls[0].init.body, JSON.stringify({ stage: 'proposal' }))
+  assert.equal(payload.stage, 'proposal')
 })
