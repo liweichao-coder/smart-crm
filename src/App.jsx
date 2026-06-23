@@ -143,7 +143,7 @@ import {
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { toDraftOwner } from './ownerUtils.js'
-import { buildContactPayload, buildCustomerPayload, buildProductPayload, buildTeamMemberPayload } from './payloadUtils.js'
+import { buildContactPayload, buildCustomerPayload, buildLeadPayload, buildProductPayload, buildTeamMemberPayload } from './payloadUtils.js'
 import {
   buildBulkEditPatch,
   buildClientRecord,
@@ -569,23 +569,6 @@ function normalizePaginatedPayload(payload, fallbackPage = 1, fallbackPerPage = 
     has_next: Array.isArray(payload) ? false : Boolean(payload?.has_next),
     has_previous: Array.isArray(payload) ? false : Boolean(payload?.has_previous),
   }
-}
-
-function buildLeadPayload(draft, mode = 'lead', ownerFallback = userProfile.name) {
-  const payload = {
-    title: toDraftText(draft.name, mode === 'opportunity' ? '新商机' : '新线索'),
-    customer_name: toDraftText(draft.company ?? draft.account, '未关联客户'),
-    owner: toDraftOwner(draft.owner, ownerFallback),
-    region: '华南',
-    expected_amount: toDraftNumber(draft.amount),
-    stage: normalizeStage(draft.stage ?? 'new'),
-    next_action: toDraftText(draft.nextStep, mode === 'opportunity' ? '推进方案确认' : '安排首次跟进'),
-    ai_assisted: false,
-  }
-  if (draft.closeDate) {
-    payload.due_date = draft.closeDate
-  }
-  return payload
 }
 
 function buildCasePayload(draft, ownerFallback = userProfile.name) {
@@ -2156,16 +2139,16 @@ function LeadsPage() {
       loading={loading}
       error={error}
       defaultDraftValues={ownerDraftDefaults}
-      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'lead', activeProfile.name)).then(mapLeadRecord)}
-      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, 'lead', activeProfile.name)).then(mapLeadRecord)}
+      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, activeProfile.name)).then(mapLeadRecord)}
+      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, activeProfile.name)).then(mapLeadRecord)}
       onDeleteRecord={deleteLead}
       createLabel="新建线索"
       boardKey="stage"
       columns={[
-        { key: 'name', label: '线索' },
-        { key: 'company', label: '公司' },
+        { key: 'name', label: '线索', defaultValue: '' },
+        { key: 'company', label: '公司', defaultValue: '' },
         { key: 'owner', label: '负责人' },
-        { key: 'nextStep', label: '下一步' },
+        { key: 'nextStep', label: '下一步', defaultValue: '' },
         { key: 'rating', label: '评级', type: 'badge' },
       ]}
     />
@@ -2186,17 +2169,17 @@ function OpportunitiesPage() {
       loading={loading}
       error={error}
       defaultDraftValues={ownerDraftDefaults}
-      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, 'opportunity', activeProfile.name)).then(mapOpportunityRecord)}
-      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, 'opportunity', activeProfile.name)).then(mapOpportunityRecord)}
+      onCreateRecord={(draft) => createLead(buildLeadPayload(draft, activeProfile.name)).then(mapOpportunityRecord)}
+      onUpdateRecord={(id, draft) => updateLead(id, buildLeadPayload(draft, activeProfile.name)).then(mapOpportunityRecord)}
       onDeleteRecord={deleteLead}
       createLabel="新建商机"
       boardKey="stage"
       columns={[
-        { key: 'name', label: '商机' },
-        { key: 'account', label: '客户' },
+        { key: 'name', label: '商机', defaultValue: '' },
+        { key: 'account', label: '客户', defaultValue: '' },
         { key: 'owner', label: '负责人' },
         { key: 'amount', label: '金额', format: 'currency' },
-        { key: 'closeDate', label: '预计成交' },
+        { key: 'closeDate', label: '预计成交', inputType: 'date', defaultValue: '' },
       ]}
     />
   )
