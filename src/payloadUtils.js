@@ -10,6 +10,36 @@ const leadStageLabelMap = {
   lost: '已丢单',
 }
 
+const caseStatusValueMap = {
+  Open: 'open',
+  Pending: 'working',
+  Resolved: 'closed',
+  open: 'open',
+  working: 'working',
+  closed: 'closed',
+}
+
+const caseStatusLabelMap = {
+  open: 'Open',
+  working: 'Pending',
+  closed: 'Resolved',
+}
+
+const taskStatusValueMap = {
+  今天: 'today',
+  本周: 'week',
+  逾期: 'overdue',
+  today: 'today',
+  week: 'week',
+  overdue: 'overdue',
+}
+
+const taskStatusLabelMap = {
+  today: '今天',
+  week: '本周',
+  overdue: '逾期',
+}
+
 export function cleanText(value, fallback = '') {
   const text = String(value ?? '').trim()
   return text || fallback
@@ -84,6 +114,44 @@ export function buildLeadPayload(draft, ownerFallback) {
     payload.due_date = dueDate
   }
   return payload
+}
+
+export function buildCasePayload(draft, ownerFallback) {
+  const statusText = cleanText(draft.status)
+  const statusLabelText = cleanText(draft.statusLabel)
+  const status = caseStatusValueMap[statusLabelText] ?? caseStatusValueMap[statusText] ?? 'open'
+  return {
+    title: cleanText(draft.title),
+    account: cleanText(draft.account),
+    owner: toDraftOwner(draft.owner, ownerFallback),
+    priority: cleanText(draft.priority, 'warm'),
+    status,
+    status_label: statusLabelText || caseStatusLabelMap[status],
+  }
+}
+
+export function buildTaskPayload(draft, ownerFallback) {
+  const status = taskStatusValueMap[cleanText(draft.statusLabel || draft.status)] ?? 'week'
+  return {
+    title: cleanText(draft.title),
+    description: cleanText(draft.description),
+    owner: toDraftOwner(draft.owner, ownerFallback),
+    due_date: cleanText(draft.dueDate),
+    priority: cleanText(draft.priority, 'warm'),
+    status,
+    status_label: taskStatusLabelMap[status],
+  }
+}
+
+export function buildGoalPayload(draft, ownerFallback) {
+  return {
+    name: cleanText(draft.name),
+    period: cleanText(draft.period),
+    owner: toDraftOwner(draft.owner, ownerFallback),
+    current: cleanNumber(draft.current),
+    target: cleanNumber(draft.target),
+    note: cleanText(draft.note),
+  }
 }
 
 export function buildTeamMemberPayload(draft, isEditing = false) {

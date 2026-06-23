@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  buildClientRecord,
   buildBulkEditPatch,
   buildCsvContent,
   createBulkEditDraft,
@@ -19,7 +18,7 @@ import {
   toggleVisibleSelection,
 } from './resourceUtils.js'
 
-test('createDraftFromColumns builds sensible defaults for resource forms', () => {
+test('createDraftFromColumns keeps text fields empty unless defaults are explicit', () => {
   const draft = createDraftFromColumns(
     [
       { key: 'name', label: '名称' },
@@ -30,9 +29,9 @@ test('createDraftFromColumns builds sensible defaults for resource forms', () =>
   )
 
   assert.deepEqual(draft, {
-    name: '新建记录',
+    name: '',
     amount: 0,
-    owner: '未分配',
+    owner: '',
     stage: 'Prospecting',
   })
 })
@@ -50,29 +49,6 @@ test('createDraftFromColumns honors explicit column defaults', () => {
     industry: '',
     email: '',
     status: 'active',
-  })
-})
-
-test('buildClientRecord normalizes text and currency values', () => {
-  const record = buildClientRecord({
-    existingCount: 3,
-    draft: {
-      name: '  新商机  ',
-      amount: '128000',
-      stage: 'Proposal',
-    },
-    columns: [
-      { key: 'name', label: '名称' },
-      { key: 'amount', label: '金额', format: 'currency' },
-    ],
-    workflowField: { key: 'stage', value: 'Prospecting' },
-  })
-
-  assert.deepEqual(record, {
-    id: 'local-4',
-    name: '新商机',
-    amount: 128000,
-    stage: 'Proposal',
   })
 })
 

@@ -723,6 +723,14 @@ class SupportCaseCreate(BaseModel):
     status_label: str = "Open"
     due_date: date = Field(default_factory=date.today)
 
+    @field_validator("title", "account", "owner", "status_label")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        text = clean_text(value)
+        if not text:
+            raise ValueError("字段不能为空")
+        return text
+
     @field_validator("priority")
     @classmethod
     def validate_priority(cls, value: str) -> str:
@@ -742,6 +750,14 @@ class SupportCaseUpdate(BaseModel):
     status: str | None = None
     status_label: str | None = None
     due_date: date | None = None
+
+    @field_validator("title", "account", "owner", "status_label")
+    @classmethod
+    def validate_text(cls, value: str | None) -> str | None:
+        text = optional_clean_text(value)
+        if text == "" and value is not None:
+            raise ValueError("字段不能为空")
+        return text
 
     @field_validator("priority")
     @classmethod
@@ -777,6 +793,19 @@ class TaskItemCreate(BaseModel):
     status: str = "week"
     status_label: str = "本周"
 
+    @field_validator("title", "owner", "due_date", "status_label")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        text = clean_text(value)
+        if not text:
+            raise ValueError("字段不能为空")
+        return text
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str) -> str:
+        return clean_text(value)
+
     @field_validator("priority")
     @classmethod
     def validate_priority(cls, value: str) -> str:
@@ -796,6 +825,19 @@ class TaskItemUpdate(BaseModel):
     priority: str | None = None
     status: str | None = None
     status_label: str | None = None
+
+    @field_validator("title", "owner", "due_date", "status_label")
+    @classmethod
+    def validate_text(cls, value: str | None) -> str | None:
+        text = optional_clean_text(value)
+        if text == "" and value is not None:
+            raise ValueError("字段不能为空")
+        return text
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        return optional_clean_text(value)
 
     @field_validator("priority")
     @classmethod
@@ -831,6 +873,19 @@ class SalesGoalCreate(BaseModel):
     progress: int | None = Field(default=None, ge=0, le=100)
     note: str = ""
 
+    @field_validator("name", "period", "owner")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        text = clean_text(value)
+        if not text:
+            raise ValueError("字段不能为空")
+        return text
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, value: str) -> str:
+        return clean_text(value)
+
 
 class SalesGoalUpdate(BaseModel):
     name: str | None = None
@@ -840,6 +895,19 @@ class SalesGoalUpdate(BaseModel):
     target: float | None = Field(default=None, gt=0)
     progress: int | None = Field(default=None, ge=0, le=100)
     note: str | None = None
+
+    @field_validator("name", "period", "owner")
+    @classmethod
+    def validate_text(cls, value: str | None) -> str | None:
+        text = optional_clean_text(value)
+        if text == "" and value is not None:
+            raise ValueError("字段不能为空")
+        return text
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, value: str | None) -> str | None:
+        return optional_clean_text(value)
 
 
 class AIInteractionLogRead(BaseModel):
