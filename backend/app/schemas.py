@@ -464,7 +464,28 @@ class NotificationRead(BaseModel):
     action_label: str
     entity_type: str
     entity_id: int | None = None
+    is_read: bool = False
+    dismissed: bool = False
+    state_updated_at: datetime | None = None
     created_at: datetime
+
+
+class NotificationStateUpdate(BaseModel):
+    action: Literal["read", "unread", "dismiss"]
+
+
+class NotificationStateResponse(BaseModel):
+    notification_id: str
+    status: str
+    is_read: bool
+    dismissed: bool
+    read_at: datetime | None = None
+    dismissed_at: datetime | None = None
+    updated_at: datetime
+
+
+class NotificationBulkUpdateResponse(BaseModel):
+    updated_count: int
 
 
 class ProductRestockRequest(BaseModel):

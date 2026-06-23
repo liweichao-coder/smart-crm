@@ -97,6 +97,21 @@ class UserPreference(UserPreferenceBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class NotificationStateBase(SQLModel):
+    user_id: int = Field(foreign_key="authuser.id", index=True)
+    organization_id: int = Field(foreign_key="organization.id", index=True)
+    notification_id: str = Field(index=True)
+    status: str = Field(default="unread", index=True)
+    read_at: Optional[datetime] = None
+    dismissed_at: Optional[datetime] = None
+
+
+class NotificationState(NotificationStateBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class CustomerBase(SQLModel):
     name: str = Field(index=True)
     company: str

@@ -396,6 +396,13 @@ p {
   color: var(--text-primary);
 }
 
+.crm-notification-actions {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px !important;
+}
+
 .crm-notification-head span,
 .crm-notification-item span,
 .crm-notification-item small,
@@ -415,15 +422,47 @@ p {
   width: 100%;
   border: 1px solid var(--border-default);
   border-radius: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.035);
   color: inherit;
   text-align: left;
 }
 
+.crm-notification-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.crm-notification-dismiss {
+  align-self: start;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.crm-notification-dismiss:hover {
+  border-color: rgba(181, 36, 42, 0.24);
+  color: var(--color-primary-default);
+}
+
 .crm-notification-item:hover {
   border-color: rgba(255, 122, 89, 0.42);
   background: rgba(255, 122, 89, 0.08);
+}
+
+.crm-notification-item.is-read {
+  opacity: 0.68;
 }
 
 .crm-notification-item strong {

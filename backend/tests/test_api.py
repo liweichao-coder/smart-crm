@@ -245,6 +245,17 @@ def test_notifications_are_data_driven(monkeypatch) -> None:
         response = client.get("/api/notifications")
         client.get("/api/copilot/summary")
         copilot_response = client.get("/api/notifications?limit=50")
+        target_id = response.json()[0]["id"]
+        marked_read = client.patch(f"/api/notifications/{target_id}", json={"action": "read"})
+        after_read = client.get("/api/notifications?limit=50")
+        unread_only = client.get("/api/notifications?limit=50&unread_only=true")
+        dismissed = client.patch(f"/api/notifications/{target_id}", json={"action": "dismiss"})
+        after_dismiss = client.get("/api/notifications?limit=50")
+        with_dismissed = client.get("/api/notifications?limit=50&include_dismissed=true")
+        restored = client.patch(f"/api/notifications/{target_id}", json={"action": "unread"})
+        missing = client.patch("/api/notifications/not-owned", json={"action": "read"})
+        marked_all = client.post("/api/notifications/read-all")
+        after_mark_all = client.get("/api/notifications?limit=50")
 
     assert response.status_code == 200
     notifications = response.json()
@@ -259,6 +270,22 @@ def test_notifications_are_data_driven(monkeypatch) -> None:
     assert any(item["entity_type"] == "copilot_recommendation" for item in copilot_notifications)
     assert any(item["entity_type"] == "ai_interaction" and item["severity"] == "warning" for item in copilot_notifications)
     assert any(item["entity_type"] == "order_approval" and "SLA" in item["message"] for item in copilot_notifications)
+
+    assert marked_read.status_code == 200
+    assert marked_read.json()["is_read"] is True
+    assert any(item["id"] == target_id and item["is_read"] is True for item in after_read.json())
+    assert all(item["id"] != target_id for item in unread_only.json())
+    assert dismissed.status_code == 200
+    assert dismissed.json()["dismissed"] is True
+    assert all(item["id"] != target_id for item in after_dismiss.json())
+    assert any(item["id"] == target_id and item["dismissed"] is True for item in with_dismissed.json())
+    assert restored.status_code == 200
+    assert restored.json()["status"] == "unread"
+    assert missing.status_code == 404
+    assert marked_all.status_code == 200
+    assert marked_all.json()["updated_count"] >= 1
+    assert after_mark_all.json()
+    assert all(item["is_read"] is True for item in after_mark_all.json())
 
 
 def test_sales_performance_report_payload_and_filters() -> None:
