@@ -143,6 +143,7 @@ import {
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { toDraftOwner } from './ownerUtils.js'
+import { buildContactPayload, buildCustomerPayload } from './payloadUtils.js'
 import {
   buildBulkEditPatch,
   buildClientRecord,
@@ -570,35 +571,6 @@ function normalizePaginatedPayload(payload, fallbackPage = 1, fallbackPerPage = 
   }
 }
 
-function buildCustomerPayload(draft, ownerFallback = userProfile.name) {
-  const company = toDraftText(draft.name, '新客户')
-  const owner = toDraftOwner(draft.owner, ownerFallback)
-  return {
-    company,
-    name: toDraftText(draft.contactPerson, owner),
-    owner,
-    industry: toDraftText(draft.industry, '待补充'),
-    contact_person: toDraftText(draft.contactPerson, owner),
-    annual_revenue: toDraftNumber(draft.revenue),
-    status: toDraftText(draft.status, 'active'),
-    city: '深圳',
-    source: '前端创建',
-    level: 'B',
-    email: 'customer@demo.smart-crm.local',
-  }
-}
-
-function buildContactPayload(draft, ownerFallback = userProfile.name) {
-  return {
-    name: toDraftText(draft.name, '新联系人'),
-    company: toDraftText(draft.company, '未关联客户'),
-    role: toDraftText(draft.role, '待确认'),
-    email: toDraftText(draft.email, 'contact@demo.smart-crm.local'),
-    owner: toDraftOwner(draft.owner, ownerFallback),
-    status: toDraftText(draft.status, 'active'),
-  }
-}
-
 function buildLeadPayload(draft, mode = 'lead', ownerFallback = userProfile.name) {
   const payload = {
     title: toDraftText(draft.name, mode === 'opportunity' ? '新商机' : '新线索'),
@@ -835,6 +807,12 @@ function mapCustomerRecord(customer) {
     id: customer.id,
     name: customer.company,
     industry: customer.industry,
+    contactPerson: customer.contact_person,
+    phone: customer.phone,
+    email: customer.email,
+    city: customer.city,
+    source: customer.source,
+    level: customer.level,
     owner: customer.owner ?? customer.contact_person,
     revenue: customer.annual_revenue,
     status: customer.status,
@@ -859,6 +837,7 @@ function mapContactRecord(contact) {
     company: contact.company,
     role: contact.role,
     email: contact.email,
+    phone: contact.phone,
     owner: contact.owner,
     status: contact.status,
   }
@@ -1549,11 +1528,17 @@ function AccountsPage() {
       openRecordLabel="打开客户工作台"
       createLabel="新建客户"
       columns={[
-        { key: 'name', label: '客户名称' },
-        { key: 'industry', label: '行业' },
+        { key: 'name', label: '客户名称', defaultValue: '' },
+        { key: 'industry', label: '行业', defaultValue: '' },
+        { key: 'contactPerson', label: '联系人', defaultValue: '' },
+        { key: 'phone', label: '电话', inputType: 'tel', defaultValue: '' },
+        { key: 'email', label: '邮箱', inputType: 'email', defaultValue: '' },
+        { key: 'city', label: '城市', defaultValue: '深圳' },
+        { key: 'source', label: '来源', defaultValue: '前端录入' },
+        { key: 'level', label: '等级', type: 'badge', inputType: 'select', options: ['S', 'A', 'B', 'C'], defaultValue: 'B' },
         { key: 'owner', label: '负责人' },
         { key: 'revenue', label: '年度收入', format: 'currency' },
-        { key: 'status', label: '状态', type: 'badge' },
+        { key: 'status', label: '状态', type: 'badge', inputType: 'select', options: ['active', 'nurturing', 'proposal', 'closed'], optionLabels: { active: '活跃', nurturing: '培育中', proposal: '方案中', closed: '关闭' }, defaultValue: 'active' },
       ]}
       tabs={[
         { key: 'all', label: '全部' },
@@ -2168,12 +2153,13 @@ function ContactsPage() {
       onDeleteRecord={deleteContact}
       createLabel="新建联系人"
       columns={[
-        { key: 'name', label: '姓名' },
-        { key: 'company', label: '所属客户' },
-        { key: 'role', label: '职位' },
-        { key: 'email', label: '邮箱' },
+        { key: 'name', label: '姓名', defaultValue: '' },
+        { key: 'company', label: '所属客户', defaultValue: '' },
+        { key: 'role', label: '职位', defaultValue: '' },
+        { key: 'email', label: '邮箱', inputType: 'email', defaultValue: '' },
+        { key: 'phone', label: '电话', inputType: 'tel', defaultValue: '' },
         { key: 'owner', label: '负责人' },
-        { key: 'status', label: '状态', type: 'badge' },
+        { key: 'status', label: '状态', type: 'badge', inputType: 'select', options: ['active', 'nurturing', 'closed'], optionLabels: { active: '活跃', nurturing: '培育中', closed: '关闭' }, defaultValue: 'active' },
       ]}
       tabs={[
         { key: 'all', label: '全部' },
@@ -7292,14 +7278,24 @@ function CreateRecordModal({ open, title, columns, workflowField, draft, onDraft
           {columns.map((column) => (
             <label key={column.key} className="crm-field">
               <span>{column.label}</span>
-              <input
-                type={column.format === 'currency' ? 'number' : 'text'}
-                min={column.format === 'currency' ? '0' : undefined}
-                step={column.format === 'currency' ? '1000' : undefined}
-                value={draft[column.key] ?? ''}
-                onChange={(event) => handleChange(column.key, event.target.value)}
-                required
-              />
+              {column.options ? (
+                <select value={draft[column.key] ?? column.defaultValue ?? column.options[0] ?? ''} onChange={(event) => handleChange(column.key, event.target.value)} required={column.required !== false}>
+                  {column.options.map((option) => (
+                    <option key={option} value={option}>
+                      {column.optionLabels?.[option] ?? option}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={column.inputType ?? (column.format === 'currency' ? 'number' : 'text')}
+                  min={column.format === 'currency' ? '0' : undefined}
+                  step={column.format === 'currency' ? '1000' : undefined}
+                  value={draft[column.key] ?? ''}
+                  onChange={(event) => handleChange(column.key, event.target.value)}
+                  required={column.required !== false}
+                />
+              )}
             </label>
           ))}
         </div>
@@ -7368,15 +7364,29 @@ function BulkEditModal({ open, title, columns, draft, selectedCount, onDraftChan
                   <input type="checkbox" checked={field.enabled} onChange={() => handleToggleField(column.key)} />
                   <strong>{column.label}</strong>
                 </span>
-                <input
-                  type={column.format === 'currency' ? 'number' : 'text'}
-                  min={column.format === 'currency' ? '0' : undefined}
-                  step={column.format === 'currency' ? '1000' : undefined}
-                  value={field.value}
-                  disabled={!field.enabled}
-                  placeholder={`批量设置${column.label}`}
-                  onChange={(event) => handleChangeValue(column.key, event.target.value)}
-                />
+                {column.options ? (
+                  <select
+                    value={field.value || column.defaultValue || column.options[0] || ''}
+                    disabled={!field.enabled}
+                    onChange={(event) => handleChangeValue(column.key, event.target.value)}
+                  >
+                    {column.options.map((option) => (
+                      <option key={option} value={option}>
+                        {column.optionLabels?.[option] ?? option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type={column.inputType ?? (column.format === 'currency' ? 'number' : 'text')}
+                    min={column.format === 'currency' ? '0' : undefined}
+                    step={column.format === 'currency' ? '1000' : undefined}
+                    value={field.value}
+                    disabled={!field.enabled}
+                    placeholder={`批量设置${column.label}`}
+                    onChange={(event) => handleChangeValue(column.key, event.target.value)}
+                  />
+                )}
               </label>
             )
           })}
