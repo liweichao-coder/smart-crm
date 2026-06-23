@@ -1,10 +1,12 @@
 # Smart CRM
 
-一个用于课程设计演示的智能销售管理系统。目前仓库同时包含：
+一个用于课程设计演示的智能销售管理系统。目前仓库交付入口为：
 
 - 根目录 React + Vite 前端管理台，已包装为深大 AI CRM 风格
 - `backend/` FastAPI + SQLite 后端 API
 - 可配置 OpenAI-compatible 多模态模型的 AI 智能录单流程
+
+最终冲刺阶段已移除旧版 `frontend/` React + TypeScript 模板应用，避免把 4 月旧演示页面、旧截图或旧构建产物误当成正式交付。当前唯一前端源码位于根目录 `src/`，启动、构建和测试都在仓库根目录执行。
 
 ## 当前功能
 
@@ -159,5 +161,5 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 - `src/`: 根目录 React 前端源码
 - `public/`: 前端静态资源
 - `backend/`: FastAPI 后端项目
-- `frontend/`: 旧版 React + TypeScript 前端，暂时保留用于参考和迁移
+- `docs/`: 开发日志、部署说明和工程记录
 - `_private/`: 本地内部资料目录，不参与代码仓库提交
