@@ -149,6 +149,7 @@ import {
   buildCustomerPayload,
   buildGoalPayload,
   buildLeadPayload,
+  buildOrderUpdatePayload,
   buildProductPayload,
   buildTaskPayload,
   buildTeamMemberPayload,
@@ -630,30 +631,15 @@ function buildPasswordPayload(draft) {
 function buildOrderDraft(order, ownerFallback = userProfile.name) {
   return {
     owner: order?.owner ?? ownerFallback,
-    region: order?.region ?? '华南',
-    status: order?.status ?? 'draft',
-    dueDate: order?.due_date ?? new Date().toISOString().slice(0, 10),
+    region: order?.region ?? '',
+    status: order?.status ?? '',
+    dueDate: order?.due_date ?? '',
     notes: order?.notes ?? '',
     items: (order?.items ?? []).map((item, index) => ({
       draftId: `existing-${item.id ?? index}`,
       productId: String(item.product_id ?? ''),
       quantity: String(item.quantity ?? 1),
       unitPrice: String(item.unit_price ?? 1),
-    })),
-  }
-}
-
-function buildOrderUpdatePayload(draft, ownerFallback = userProfile.name) {
-  return {
-    owner: toDraftOwner(draft.owner, ownerFallback),
-    region: toDraftText(draft.region, '华南'),
-    status: toDraftText(draft.status, 'draft'),
-    due_date: toDraftText(draft.dueDate, new Date().toISOString().slice(0, 10)),
-    notes: toDraftText(draft.notes, '订单状态已更新。'),
-    items: (draft.items ?? []).map((item) => ({
-      product_id: Math.round(toDraftNumber(item.productId, 0)),
-      quantity: Math.max(1, Math.round(toDraftNumber(item.quantity, 1))),
-      unit_price: Math.max(0.01, toDraftNumber(item.unitPrice, 1)),
     })),
   }
 }
@@ -5338,8 +5324,8 @@ function OrdersPage() {
   const orderEditColumns = useMemo(() => [
     { key: 'owner', label: '负责人' },
     { key: 'region', label: '区域' },
-    { key: 'dueDate', label: '交付日期' },
-    { key: 'notes', label: '备注' },
+    { key: 'dueDate', label: '交付日期', inputType: 'date', defaultValue: '' },
+    { key: 'notes', label: '备注', defaultValue: '', required: false },
   ], [])
   const orderStatusField = useMemo(() => ({
     key: 'status',

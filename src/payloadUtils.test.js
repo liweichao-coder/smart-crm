@@ -7,6 +7,7 @@ import {
   buildCustomerPayload,
   buildGoalPayload,
   buildLeadPayload,
+  buildOrderUpdatePayload,
   buildProductPayload,
   buildTaskPayload,
   buildTeamMemberPayload,
@@ -220,6 +221,54 @@ test('buildGoalPayload keeps real goal fields and lets backend reject empty targ
     current: 120000,
     target: 0,
     note: '聚焦存量续费',
+  })
+})
+
+test('buildOrderUpdatePayload preserves real order edit fields without default notes or dates', () => {
+  const payload = buildOrderUpdatePayload({
+    owner: ' 未分配 ',
+    region: ' 华南 ',
+    status: 'confirmed',
+    dueDate: '2026-07-08',
+    notes: '  客户确认分批交付  ',
+    items: [
+      { productId: '3', quantity: '2', unitPrice: '12800' },
+    ],
+  }, '李伟超')
+
+  assert.deepEqual(payload, {
+    owner: '李伟超',
+    region: '华南',
+    status: 'confirmed',
+    due_date: '2026-07-08',
+    notes: '客户确认分批交付',
+    items: [
+      { product_id: 3, quantity: 2, unit_price: 12800 },
+    ],
+  })
+})
+
+test('buildOrderUpdatePayload leaves missing order edit fields empty for backend validation', () => {
+  const payload = buildOrderUpdatePayload({
+    owner: '',
+    region: '',
+    status: '',
+    dueDate: '',
+    notes: '',
+    items: [
+      { productId: '', quantity: '', unitPrice: '' },
+    ],
+  }, '徐柠')
+
+  assert.deepEqual(payload, {
+    owner: '徐柠',
+    region: '',
+    status: '',
+    due_date: '',
+    notes: '',
+    items: [
+      { product_id: 0, quantity: 1, unit_price: 0.01 },
+    ],
   })
 })
 

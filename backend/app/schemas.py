@@ -983,6 +983,19 @@ class SalesOrderCreate(BaseModel):
     ai_confidence_score: float = Field(default=0, ge=0, le=1)
     items: list[OrderItemPayload] = Field(min_length=1)
 
+    @field_validator("owner", "region")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        text = clean_text(value)
+        if not text:
+            raise ValueError("字段不能为空")
+        return text
+
+    @field_validator("notes")
+    @classmethod
+    def validate_notes(cls, value: str) -> str:
+        return clean_text(value)
+
     @field_validator("currency")
     @classmethod
     def validate_currency(cls, value: str) -> str:
@@ -1005,6 +1018,19 @@ class SalesOrderUpdate(BaseModel):
     due_date: date | None = None
     notes: str | None = None
     items: list[OrderItemPayload] | None = Field(default=None, min_length=1)
+
+    @field_validator("owner", "region")
+    @classmethod
+    def validate_text(cls, value: str | None) -> str | None:
+        text = optional_clean_text(value)
+        if text == "" and value is not None:
+            raise ValueError("字段不能为空")
+        return text
+
+    @field_validator("notes")
+    @classmethod
+    def validate_notes(cls, value: str | None) -> str | None:
+        return optional_clean_text(value)
 
 
 class OrderItemRead(BaseModel):
