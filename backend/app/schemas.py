@@ -145,6 +145,15 @@ class AuthMeResponse(BaseModel):
     organizations: list[AuthOrganizationRead]
 
 
+class AuthSessionRead(BaseModel):
+    id: int
+    current: bool
+    status: Literal["active", "expired", "revoked"]
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None = None
+
+
 class AuthLogoutResponse(BaseModel):
     revoked: bool
 
@@ -187,6 +196,10 @@ class AuthPasswordChangeRequest(BaseModel):
 
 class AuthPasswordChangeResponse(BaseModel):
     changed: bool
+    revoked_sessions: int
+
+
+class AuthSessionBulkRevokeResponse(BaseModel):
     revoked_sessions: int
 
 

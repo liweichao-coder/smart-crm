@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   ArrowRight,
@@ -60,6 +60,7 @@ import {
   assignOrderApproval,
   askCopilot,
   changeAuthPassword,
+  fetchAuthSessions,
   fetchCases,
   fetchAuthAuditLogs,
   fetchAiAuditLogs,
@@ -124,6 +125,8 @@ import {
   markAllNotificationsRead,
   register,
   restockProduct,
+  revokeAuthSession,
+  revokeOtherAuthSessions,
   remindOrderApproval,
   saveUserPreference,
   submitOrderApproval,
@@ -396,6 +399,7 @@ const authAuditEventLabelMap = {
   profile_update: '资料更新',
   password_change: '密码修改',
   logout: '退出登录',
+  session_revoke: '会话撤销',
   team_create: '团队成员创建',
   team_update: '团队成员更新',
 }
@@ -403,6 +407,19 @@ const authAuditEventLabelMap = {
 const authAuditStatusLabelMap = {
   success: '成功',
   failed: '失败',
+  blocked: '临时锁定',
+}
+
+const authSessionStatusLabelMap = {
+  active: '活跃',
+  expired: '已过期',
+  revoked: '已撤销',
+}
+
+const authSessionStatusToneMap = {
+  active: 'success',
+  expired: 'warning',
+  revoked: 'neutral',
 }
 
 const businessActionLabelMap = {
@@ -6686,6 +6703,12 @@ function ProfilePage() {
   const [passwordSaving, setPasswordSaving] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [passwordError, setPasswordError] = useState('')
+  const [sessions, setSessions] = useState([])
+  const [sessionsLoading, setSessionsLoading] = useState(true)
+  const [sessionsError, setSessionsError] = useState('')
+  const [sessionStatus, setSessionStatus] = useState('')
+  const [revokingSessionId, setRevokingSessionId] = useState(null)
+  const [bulkRevokingSessions, setBulkRevokingSessions] = useState(false)
   const [profileStatus, setProfileStatus] = useState('')
   const [passwordStatus, setPasswordStatus] = useState('')
   const {
@@ -6709,6 +6732,23 @@ function ProfilePage() {
     })
   }, [profileId, profileName, profileEmail, profilePhone, profilePosition, profileDepartment, profileLocation])
 
+  const loadAuthSessions = useCallback(async () => {
+    setSessionsLoading(true)
+    setSessionsError('')
+    try {
+      const payload = await fetchAuthSessions()
+      setSessions(Array.isArray(payload) ? payload : [])
+    } catch (requestError) {
+      setSessionsError(requestError.message || '会话同步失败')
+    } finally {
+      setSessionsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadAuthSessions()
+  }, [loadAuthSessions])
+
   const securityInfo = [
     { label: '登录方式', value: '账号密码', tone: 'neutral' },
     { label: '账户状态', value: activeProfile.status === 'active' ? '正常' : '停用', tone: activeProfile.status === 'active' ? 'success' : 'danger' },
@@ -6716,6 +6756,9 @@ function ProfilePage() {
     { label: '权限策略', value: activeProfile.permissions.includes('*') ? '全部权限' : `${activeProfile.permissions.length} 项权限`, tone: 'info' },
     { label: '数据范围', value: dataScopeLabelMap[activeProfile.dataScope] ?? activeProfile.dataScope, tone: activeProfile.dataScope === 'own' ? 'warning' : 'success' },
   ]
+
+  const activeSessionCount = sessions.filter((session) => session.status === 'active').length
+  const otherActiveSessionCount = sessions.filter((session) => session.status === 'active' && !session.current).length
 
   const handleProfileDraftChange = (field, value) => {
     setProfileDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
@@ -6754,10 +6797,41 @@ function ProfilePage() {
       await changeAuthPassword(buildPasswordPayload(passwordDraft))
       setPasswordDraft(createPasswordDraft())
       setPasswordStatus('密码已更新，其他设备的旧会话已撤销')
+      loadAuthSessions()
     } catch (requestError) {
       setPasswordError(requestError.message || '密码修改失败')
     } finally {
       setPasswordSaving(false)
+    }
+  }
+
+  const handleRevokeSession = async (sessionId) => {
+    setRevokingSessionId(sessionId)
+    setSessionStatus('')
+    setSessionsError('')
+    try {
+      await revokeAuthSession(sessionId)
+      setSessionStatus('会话已撤销')
+      await loadAuthSessions()
+    } catch (requestError) {
+      setSessionsError(requestError.message || '会话撤销失败')
+    } finally {
+      setRevokingSessionId(null)
+    }
+  }
+
+  const handleRevokeOtherSessions = async () => {
+    setBulkRevokingSessions(true)
+    setSessionStatus('')
+    setSessionsError('')
+    try {
+      const payload = await revokeOtherAuthSessions()
+      setSessionStatus(`已撤销其他会话 ${payload.revoked_sessions ?? 0} 个`)
+      await loadAuthSessions()
+    } catch (requestError) {
+      setSessionsError(requestError.message || '批量撤销失败')
+    } finally {
+      setBulkRevokingSessions(false)
     }
   }
 
@@ -6895,6 +6969,63 @@ function ProfilePage() {
                 <span>工作区状态</span>
                 <StatusBadge value="已连接" tone="success" />
               </div>
+            </div>
+          </article>
+
+          <article className="crm-panel crm-profile-card">
+            <PanelHeader
+              title="登录会话"
+              subtitle="从后端 AuthSession 表读取，可撤销当前账号的其他活跃会话。"
+              actionLabel={sessionsLoading ? '同步中' : `${activeSessionCount} 个活跃`}
+            />
+            {sessionsError ? <div className="crm-form-error">{sessionsError}</div> : null}
+            {sessionStatus ? <div className="crm-form-success">{sessionStatus}</div> : null}
+            <div className="crm-profile-session-list">
+              {sessions.map((session) => (
+                <div key={session.id} className="crm-profile-session-item">
+                  <div className="crm-profile-session-head">
+                    <div>
+                      <strong>{session.current ? '当前会话' : `会话 #${session.id}`}</strong>
+                      <span>创建 {formatDateTime(session.created_at)}</span>
+                    </div>
+                    <StatusBadge
+                      value={session.current ? '当前' : authSessionStatusLabelMap[session.status] ?? session.status}
+                      tone={session.current ? 'accent' : authSessionStatusToneMap[session.status] ?? 'neutral'}
+                    />
+                  </div>
+                  <div className="crm-profile-session-meta">
+                    <span>过期 {formatDateTime(session.expires_at)}</span>
+                    {session.revoked_at ? <span>撤销 {formatDateTime(session.revoked_at)}</span> : null}
+                  </div>
+                  {session.status === 'active' && !session.current ? (
+                    <button
+                      className="crm-ghost-button crm-ghost-button--danger"
+                      type="button"
+                      onClick={() => handleRevokeSession(session.id)}
+                      disabled={revokingSessionId === session.id}
+                    >
+                      <Trash2 size={16} />
+                      {revokingSessionId === session.id ? '撤销中...' : '撤销会话'}
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            {!sessionsLoading && !sessions.length ? <EmptyState icon={Shield} title="暂无会话记录" subtitle="重新登录后会显示当前账号的会话。" /> : null}
+            <div className="crm-form-actions">
+              <button className="crm-ghost-button" type="button" onClick={loadAuthSessions} disabled={sessionsLoading}>
+                <RefreshCw size={16} />
+                刷新会话
+              </button>
+              <button
+                className="crm-ghost-button crm-ghost-button--danger"
+                type="button"
+                onClick={handleRevokeOtherSessions}
+                disabled={bulkRevokingSessions || otherActiveSessionCount === 0}
+              >
+                <Shield size={16} />
+                {bulkRevokingSessions ? '撤销中...' : `撤销其他 ${otherActiveSessionCount} 个`}
+              </button>
             </div>
           </article>
         </div>
