@@ -494,6 +494,7 @@ def test_auth_login_me_logout_and_audit() -> None:
         token = login.json()["token"]
         me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         audit_logs = client.get("/api/auth/audit-logs?page=1&per_page=5&event=login").json()
+        audit_export = client.get("/api/auth/audit-logs/export.csv?event=login&status=failed&q=demo")
         logout = client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
         revoked_me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
 
@@ -508,6 +509,12 @@ def test_auth_login_me_logout_and_audit() -> None:
     assert audit_logs["total"] >= 2
     statuses = {item["status"] for item in audit_logs["items"]}
     assert {"success", "failed"} <= statuses
+    assert audit_export.status_code == 200
+    assert audit_export.headers["content-type"].startswith("text/csv")
+    assert "attachment" in audit_export.headers["content-disposition"]
+    assert "日志ID,时间,事件,状态,账号" in audit_export.text
+    assert "login,failed,demo@smart-crm.local" in audit_export.text
+    assert "login,success" not in audit_export.text
     assert logout.status_code == 200
     assert logout.json()["revoked"] is True
     assert revoked_me.status_code == 401
@@ -930,6 +937,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
             json={"name": "无权限商品", "sku": "RBAC-DENIED-001", "category": "软件", "unit_price": 100, "stock": 1},
             headers=headers,
         )
+        denied_auth_audit_export = client.get("/api/auth/audit-logs/export.csv", headers=headers)
         denied_audit = client.get("/api/business-audit-logs", headers=headers)
         denied_ai_quality = client.get("/api/reports/ai-quality", headers=headers)
         denied_consistency = client.get("/api/system/consistency-checks", headers=headers)
@@ -995,6 +1003,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert denied_recommendation_feedback.status_code == 403
     assert denied_recommendation_task.status_code == 403
     assert denied_product.status_code == 403
+    assert denied_auth_audit_export.status_code == 403
     assert denied_audit.status_code == 403
     assert denied_ai_quality.status_code == 403
     assert denied_consistency.status_code == 403

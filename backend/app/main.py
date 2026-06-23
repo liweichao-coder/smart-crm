@@ -1901,6 +1901,26 @@ def build_orders_csv(orders: list[SalesOrderRead]) -> str:
     return "\ufeff" + output.getvalue()
 
 
+def build_auth_audit_csv(logs: list[AuthAuditLog]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["日志ID", "时间", "事件", "状态", "账号", "用户ID", "组织ID", "详情"])
+    for log in logs:
+        writer.writerow(
+            [
+                log.id,
+                log.created_at.isoformat(timespec="seconds"),
+                log.event,
+                log.status,
+                log.account,
+                log.user_id or "",
+                log.organization_id or "",
+                log.detail,
+            ]
+        )
+    return "\ufeff" + output.getvalue()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     create_db_and_tables()
@@ -2388,6 +2408,22 @@ def list_auth_audit_logs(
     logs = session.exec(select(AuthAuditLog).order_by(AuthAuditLog.created_at.desc())).all()
     logs = filter_records(logs, q=q, fields=("event", "account", "status", "detail"), event=event, status=status)
     return paginate_or_list(logs, page=page, per_page=per_page)
+
+
+@app.get("/api/auth/audit-logs/export.csv", dependencies=[Depends(require_permission("audit:read"))])
+def export_auth_audit_logs_csv(
+    session: SessionDep,
+    q: str = "",
+    event: str = "",
+    status: str = "",
+) -> Response:
+    logs = session.exec(select(AuthAuditLog).order_by(AuthAuditLog.created_at.desc())).all()
+    logs = filter_records(logs, q=q, fields=("event", "account", "status", "detail"), event=event, status=status)
+    return Response(
+        content=build_auth_audit_csv(logs),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="smart-crm-auth-audit.csv"'},
+    )
 
 
 @app.get("/api/customers", response_model=list[CustomerRead] | PaginatedResponse[CustomerRead])

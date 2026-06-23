@@ -96,6 +96,7 @@ import {
   deleteProduct,
   deleteReportSnapshot,
   deleteTask,
+  exportAuthAuditLogsCsv,
   exportOrdersCsv,
   fetchCustomers,
   fetchCustomerWorkspace,
@@ -3927,6 +3928,7 @@ function AuthAuditPage() {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [exportSaving, setExportSaving] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -3993,6 +3995,27 @@ function AuthAuditPage() {
     setFilters((current) => ({ ...current, page: Math.max(1, nextPage) }))
   }
 
+  const handleExportAuditLogs = async () => {
+    setExportSaving(true)
+    setError('')
+    try {
+      const { q, event, status } = filters
+      const blob = await exportAuthAuditLogsCsv({ q, event, status })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `smart-crm-auth-audit-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (nextError) {
+      setError(nextError.message || '认证审计导出失败')
+    } finally {
+      setExportSaving(false)
+    }
+  }
+
   return (
     <div className="crm-page-stack">
       <section className="crm-hero-panel crm-copilot-hero">
@@ -4038,6 +4061,10 @@ function AuthAuditPage() {
           <button className="crm-ghost-button" type="button" onClick={handleFilterReset} disabled={loading}>
             <RefreshCw size={16} />
             重置
+          </button>
+          <button className="crm-ghost-button" type="button" onClick={handleExportAuditLogs} disabled={loading || exportSaving}>
+            <Download size={16} />
+            {exportSaving ? '导出中' : '导出 CSV'}
           </button>
         </div>
       </form>

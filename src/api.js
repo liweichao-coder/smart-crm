@@ -181,6 +181,18 @@ export function fetchAuthAuditLogs(params) {
   return request(`/api/auth/audit-logs${buildQueryString(params)}`)
 }
 
+export async function exportAuthAuditLogsCsv(params) {
+  const token = readStoredAuthToken()
+  const response = await fetch(`${API_BASE_URL}/api/auth/audit-logs/export.csv${buildQueryString(params)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) {
+    const payload = await readResponsePayload(response)
+    throw new Error(typeof payload === 'string' ? payload : payload?.detail ?? '认证审计导出失败')
+  }
+  return response.blob()
+}
+
 export function fetchAiAuditLogs(params) {
   return request(`/api/ai-audit-logs${buildQueryString(params)}`)
 }
