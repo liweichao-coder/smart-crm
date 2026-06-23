@@ -59,6 +59,7 @@ import {
   AUTH_STORAGE_KEY,
   assignOrderApproval,
   askCopilot,
+  changeAuthPassword,
   fetchCases,
   fetchAiAuditLogs,
   fetchAiQualityReport,
@@ -121,6 +122,7 @@ import {
   remindOrderApproval,
   saveUserPreference,
   submitOrderApproval,
+  updateAuthProfile,
   updateCase,
   updateContact,
   updateCustomer,
@@ -185,6 +187,7 @@ const userProfile = {
   position: 'CRM 运营管理员',
   department: '客户增长中心',
   location: '上海 · 浦东',
+  status: 'active',
   joinDate: '2024 年 2 月 18 日',
   permissions: ['*'],
   dataScope: 'all',
@@ -666,6 +669,44 @@ function createTeamMemberDraft(member = null) {
   }
 }
 
+function createProfileDraft(profile = userProfile) {
+  return {
+    fullName: profile.name ?? '',
+    email: profile.email ?? '',
+    phone: profile.phone ?? '',
+    position: profile.position ?? '',
+    department: profile.department ?? '',
+    location: profile.location ?? '',
+  }
+}
+
+function buildProfilePayload(draft) {
+  return {
+    full_name: toDraftText(draft.fullName),
+    email: toDraftText(draft.email),
+    phone: toDraftText(draft.phone),
+    position: toDraftText(draft.position),
+    department: toDraftText(draft.department),
+    location: toDraftText(draft.location),
+  }
+}
+
+function createPasswordDraft() {
+  return {
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  }
+}
+
+function buildPasswordPayload(draft) {
+  return {
+    current_password: draft.currentPassword,
+    new_password: draft.newPassword,
+    confirm_password: draft.confirmPassword,
+  }
+}
+
 function buildOrderDraft(order, ownerFallback = userProfile.name) {
   return {
     owner: order?.owner ?? ownerFallback,
@@ -1104,6 +1145,22 @@ function App() {
     setAuthSession(session)
   }
 
+  const handleSessionRefresh = (payload) => {
+    setAuthSession((currentSession) => {
+      if (!currentSession) {
+        return currentSession
+      }
+      const refreshedSession = {
+        ...currentSession,
+        expires_at: payload.expires_at ?? currentSession.expires_at,
+        user: payload.user ?? currentSession.user,
+        organizations: payload.organizations ?? currentSession.organizations,
+      }
+      persistAuthSession(refreshedSession)
+      return refreshedSession
+    })
+  }
+
   const handleLogout = async () => {
     try {
       if (authSession?.token) {
@@ -1150,7 +1207,7 @@ function App() {
       <Route
         element={(
           <RequireAuth authSession={authSession}>
-            <AppShell authSession={authSession} onLogout={handleLogout} />
+            <AppShell authSession={authSession} onLogout={handleLogout} onSessionRefresh={handleSessionRefresh} />
           </RequireAuth>
         )}
       >
@@ -2441,7 +2498,7 @@ function RegisterPage({ onLogin }) {
   )
 }
 
-function AppShell({ authSession, onLogout }) {
+function AppShell({ authSession, onLogout, onSessionRefresh }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedOrg, setSelectedOrg] = useState(() => loadStoredOrg(authSession))
@@ -2612,7 +2669,7 @@ function AppShell({ authSession, onLogout }) {
         </header>
 
         <section className="crm-content">
-          <Outlet context={{ selectedOrg: activeSelectedOrg, setSelectedOrg, userProfile: activeProfile, onLogout }} />
+          <Outlet context={{ selectedOrg: activeSelectedOrg, setSelectedOrg, userProfile: activeProfile, onLogout, onSessionRefresh }} />
         </section>
       </main>
     </div>
@@ -6166,24 +6223,87 @@ function GoalsPage() {
 
 function ProfilePage() {
   const navigate = useNavigate()
-  const { selectedOrg, userProfile: activeProfile, onLogout } = useOutletContext()
+  const { selectedOrg, userProfile: activeProfile, onLogout, onSessionRefresh } = useOutletContext()
+  const [profileDraft, setProfileDraft] = useState(() => createProfileDraft(activeProfile))
+  const [passwordDraft, setPasswordDraft] = useState(createPasswordDraft)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [profileError, setProfileError] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [profileStatus, setProfileStatus] = useState('')
+  const [passwordStatus, setPasswordStatus] = useState('')
+  const {
+    id: profileId,
+    name: profileName,
+    email: profileEmail,
+    phone: profilePhone,
+    position: profilePosition,
+    department: profileDepartment,
+    location: profileLocation,
+  } = activeProfile
 
-  const profileInfo = [
-    { label: '邮箱', value: activeProfile.email },
-    { label: '手机号', value: activeProfile.phone },
-    { label: '岗位', value: activeProfile.position },
-    { label: '部门', value: activeProfile.department },
-    { label: '办公地点', value: activeProfile.location },
-    { label: '加入时间', value: activeProfile.joinDate },
-  ]
+  useEffect(() => {
+    setProfileDraft({
+      fullName: profileName ?? '',
+      email: profileEmail ?? '',
+      phone: profilePhone ?? '',
+      position: profilePosition ?? '',
+      department: profileDepartment ?? '',
+      location: profileLocation ?? '',
+    })
+  }, [profileId, profileName, profileEmail, profilePhone, profilePosition, profileDepartment, profileLocation])
 
   const securityInfo = [
     { label: '登录方式', value: '账号密码', tone: 'neutral' },
-    { label: '账户状态', value: '正常', tone: 'success' },
+    { label: '账户状态', value: activeProfile.status === 'active' ? '正常' : '停用', tone: activeProfile.status === 'active' ? 'success' : 'danger' },
     { label: '组织权限', value: selectedOrg.role, tone: 'accent' },
     { label: '权限策略', value: activeProfile.permissions.includes('*') ? '全部权限' : `${activeProfile.permissions.length} 项权限`, tone: 'info' },
     { label: '数据范围', value: dataScopeLabelMap[activeProfile.dataScope] ?? activeProfile.dataScope, tone: activeProfile.dataScope === 'own' ? 'warning' : 'success' },
   ]
+
+  const handleProfileDraftChange = (field, value) => {
+    setProfileDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
+    setProfileStatus('')
+    setProfileError('')
+  }
+
+  const handlePasswordDraftChange = (field, value) => {
+    setPasswordDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
+    setPasswordStatus('')
+    setPasswordError('')
+  }
+
+  const handleProfileSubmit = async (event) => {
+    event.preventDefault()
+    setProfileSaving(true)
+    setProfileError('')
+    setProfileStatus('')
+    try {
+      const payload = await updateAuthProfile(buildProfilePayload(profileDraft))
+      onSessionRefresh?.(payload)
+      setProfileStatus('个人资料已保存')
+    } catch (requestError) {
+      setProfileError(requestError.message || '个人资料保存失败')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  const handlePasswordSubmit = async (event) => {
+    event.preventDefault()
+    setPasswordSaving(true)
+    setPasswordError('')
+    setPasswordStatus('')
+    try {
+      await changeAuthPassword(buildPasswordPayload(passwordDraft))
+      setPasswordDraft(createPasswordDraft())
+      setPasswordStatus('密码已更新，其他设备的旧会话已撤销')
+    } catch (requestError) {
+      setPasswordError(requestError.message || '密码修改失败')
+    } finally {
+      setPasswordSaving(false)
+    }
+  }
 
   return (
     <div className="crm-page-stack">
@@ -6220,48 +6340,108 @@ function ProfilePage() {
         </div>
       </section>
 
-      <section className="crm-three-col-grid crm-profile-cards">
-        <article className="crm-panel crm-profile-card">
-          <PanelHeader title="基础信息" />
-          <div className="crm-profile-info-list">
-            {profileInfo.map((item) => (
-              <div key={item.label} className="crm-profile-info-item">
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
-              </div>
-            ))}
-          </div>
+      <section className="crm-profile-workspace">
+        <article className="crm-panel crm-profile-card crm-profile-card--wide">
+          <PanelHeader title="基础信息" subtitle="这些资料来自当前登录账号，保存后会写入后端并刷新全局会话。" actionLabel={profileStatus || '真实账号资料'} />
+          <form className="crm-profile-form" onSubmit={handleProfileSubmit}>
+            <div className="crm-form-grid">
+              <label className="crm-field">
+                <span>姓名</span>
+                <input value={profileDraft.fullName} onChange={(event) => handleProfileDraftChange('fullName', event.target.value)} required minLength={2} />
+              </label>
+              <label className="crm-field">
+                <span>邮箱</span>
+                <input type="email" value={profileDraft.email} onChange={(event) => handleProfileDraftChange('email', event.target.value)} required />
+              </label>
+              <label className="crm-field">
+                <span>手机号</span>
+                <input value={profileDraft.phone} onChange={(event) => handleProfileDraftChange('phone', event.target.value)} />
+              </label>
+              <label className="crm-field">
+                <span>岗位</span>
+                <input value={profileDraft.position} onChange={(event) => handleProfileDraftChange('position', event.target.value)} />
+              </label>
+              <label className="crm-field">
+                <span>部门</span>
+                <input value={profileDraft.department} onChange={(event) => handleProfileDraftChange('department', event.target.value)} />
+              </label>
+              <label className="crm-field">
+                <span>办公地点</span>
+                <input value={profileDraft.location} onChange={(event) => handleProfileDraftChange('location', event.target.value)} />
+              </label>
+            </div>
+            {profileError ? <div className="crm-form-error">{profileError}</div> : null}
+            {profileStatus ? <div className="crm-form-success">{profileStatus}</div> : null}
+            <div className="crm-form-actions">
+              <button className="crm-ghost-button" type="button" onClick={() => setProfileDraft(createProfileDraft(activeProfile))}>
+                <RefreshCw size={16} />
+                恢复当前资料
+              </button>
+              <button className="crm-primary-button" type="submit" disabled={profileSaving}>
+                <Save size={16} />
+                {profileSaving ? '保存中...' : '保存资料'}
+              </button>
+            </div>
+          </form>
         </article>
 
-        <article className="crm-panel crm-profile-card">
-          <PanelHeader title="账号安全" />
-          <div className="crm-profile-info-list">
-            {securityInfo.map((item) => (
-              <div key={item.label} className="crm-profile-info-item">
-                <span>{item.label}</span>
-                <StatusBadge value={item.value} tone={item.tone} />
+        <div className="crm-profile-side">
+          <article className="crm-panel crm-profile-card">
+            <PanelHeader title="账号安全" subtitle="修改密码会保留当前会话，并撤销同账号其他旧会话。" actionLabel={passwordStatus || '会话保护'} />
+            <div className="crm-profile-info-list">
+              {securityInfo.map((item) => (
+                <div key={item.label} className="crm-profile-info-item">
+                  <span>{item.label}</span>
+                  <StatusBadge value={item.value} tone={item.tone} />
+                </div>
+              ))}
+            </div>
+            <form className="crm-profile-form crm-profile-password-form" onSubmit={handlePasswordSubmit}>
+              <label className="crm-field">
+                <span>当前密码</span>
+                <input type="password" value={passwordDraft.currentPassword} onChange={(event) => handlePasswordDraftChange('currentPassword', event.target.value)} autoComplete="current-password" required />
+              </label>
+              <label className="crm-field">
+                <span>新密码</span>
+                <input type="password" value={passwordDraft.newPassword} onChange={(event) => handlePasswordDraftChange('newPassword', event.target.value)} autoComplete="new-password" required minLength={6} />
+              </label>
+              <label className="crm-field">
+                <span>确认新密码</span>
+                <input type="password" value={passwordDraft.confirmPassword} onChange={(event) => handlePasswordDraftChange('confirmPassword', event.target.value)} autoComplete="new-password" required minLength={6} />
+              </label>
+              {passwordError ? <div className="crm-form-error">{passwordError}</div> : null}
+              {passwordStatus ? <div className="crm-form-success">{passwordStatus}</div> : null}
+              <div className="crm-form-actions">
+                <button className="crm-primary-button" type="submit" disabled={passwordSaving}>
+                  <KeyRound size={16} />
+                  {passwordSaving ? '更新中...' : '更新密码'}
+                </button>
               </div>
-            ))}
-          </div>
-        </article>
+            </form>
+          </article>
 
-        <article className="crm-panel crm-profile-card">
-          <PanelHeader title="当前组织" />
-          <div className="crm-profile-info-list">
-            <div className="crm-profile-info-item">
-              <span>组织名称</span>
-              <strong>{selectedOrg.name}</strong>
+          <article className="crm-panel crm-profile-card">
+            <PanelHeader title="当前组织" actionLabel="已连接" />
+            <div className="crm-profile-info-list">
+              <div className="crm-profile-info-item">
+                <span>组织名称</span>
+                <strong>{selectedOrg.name}</strong>
+              </div>
+              <div className="crm-profile-info-item">
+                <span>我的角色</span>
+                <strong>{selectedOrg.role}</strong>
+              </div>
+              <div className="crm-profile-info-item">
+                <span>加入时间</span>
+                <strong>{activeProfile.joinDate}</strong>
+              </div>
+              <div className="crm-profile-info-item">
+                <span>工作区状态</span>
+                <StatusBadge value="已连接" tone="success" />
+              </div>
             </div>
-            <div className="crm-profile-info-item">
-              <span>我的角色</span>
-              <strong>{selectedOrg.role}</strong>
-            </div>
-            <div className="crm-profile-info-item">
-              <span>工作区状态</span>
-              <StatusBadge value="已连接" tone="success" />
-            </div>
-          </div>
-        </article>
+          </article>
+        </div>
       </section>
     </div>
   )
@@ -6789,6 +6969,7 @@ function buildUserProfile(user) {
     position: user.position || user.role || userProfile.position,
     department: user.department || userProfile.department,
     location: user.location || userProfile.location,
+    status: user.status || userProfile.status,
     joinDate: formatProfileDate(user.created_at),
     permissions: user.permissions ?? [],
     dataScope: user.data_scope ?? userProfile.dataScope,

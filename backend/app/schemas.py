@@ -149,6 +149,47 @@ class AuthLogoutResponse(BaseModel):
     revoked: bool
 
 
+class AuthProfileUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=2)
+    email: str | None = Field(default=None, min_length=5)
+    phone: str | None = None
+    position: str | None = None
+    department: str | None = None
+    location: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        return validate_email_value(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        return validate_phone_value(value)
+
+    @field_validator("full_name", "position", "department", "location")
+    @classmethod
+    def clean_optional_text(cls, value: str | None) -> str | None:
+        return optional_clean_text(value)
+
+
+class AuthPasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=6)
+    confirm_password: str = Field(min_length=6)
+
+    @model_validator(mode="after")
+    def validate_password_confirmation(self) -> "AuthPasswordChangeRequest":
+        if self.new_password != self.confirm_password:
+            raise ValueError("两次输入的新密码不一致")
+        return self
+
+
+class AuthPasswordChangeResponse(BaseModel):
+    changed: bool
+    revoked_sessions: int
+
+
 class PermissionCatalogItem(BaseModel):
     key: str
     label: str

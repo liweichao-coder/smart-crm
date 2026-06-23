@@ -129,6 +129,20 @@ export function fetchCurrentUser() {
   return request('/api/auth/me')
 }
 
+export function updateAuthProfile(payload) {
+  return request('/api/auth/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function changeAuthPassword(payload) {
+  return request('/api/auth/password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchNotifications(params) {
   return request(`/api/notifications${buildQueryString(params)}`)
 }
