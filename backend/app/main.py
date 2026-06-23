@@ -1003,6 +1003,55 @@ def add_copilot_follow_up_history(
     )
 
 
+def add_copilot_ask_history(
+    session: Session,
+    question: str,
+    result: CopilotAskResponse,
+    current_user: AuthUser,
+    customer: Customer | None = None,
+) -> CopilotRecommendation:
+    rule_score = 82 if result.fallback_used else 90
+    score_reasons = [
+        "CRM Skill 经营问答基于当前用户可见的客户、互动、商机、订单、任务、工单和推荐历史生成。",
+        f"问题：{question}",
+    ]
+    score_reasons.extend(result.evidence[:3])
+    next_best_action = result.next_actions[0] if result.next_actions else "复核 Copilot 问答结论并创建下一步跟进任务。"
+    recommendation = CopilotRecommendation(
+        organization_id=current_user.organization_id,
+        source="ask",
+        lead_title=summarize_text(question, limit=180),
+        customer_name=summarize_text(customer.company if customer else "全局经营问答", limit=180),
+        owner=customer.owner if customer else current_user.full_name,
+        region="",
+        stage="crm_skill",
+        grade=copilot_service.grade_for(rule_score),
+        rule_score=rule_score,
+        win_rate=0.72 if result.fallback_used else 0.84,
+        expected_amount=0,
+        next_best_action=summarize_text(next_best_action, limit=360),
+        score_reasons_json=encode_score_reasons(score_reasons),
+        llm_summary=summarize_text(result.answer, limit=600),
+        message_draft=summarize_text(
+            "\n".join(
+                [
+                    f"问题：{question}",
+                    f"回答：{result.answer}",
+                    "证据：" + "；".join(result.evidence[:4]),
+                    "下一步：" + "；".join(result.next_actions[:4]),
+                ]
+            ),
+            limit=900,
+        ),
+        fallback_used=result.fallback_used,
+        model=result.model or settings.llm_model,
+    )
+    session.add(recommendation)
+    session.flush()
+    result.recommendation_id = recommendation.id
+    return recommendation
+
+
 def build_copilot_task(recommendation: CopilotRecommendation) -> TaskItem:
     title_subject = recommendation.lead_title or recommendation.customer_name or "未命名商机"
     title = summarize_text(f"跟进 {recommendation.customer_name or title_subject}：{title_subject}", limit=120)
@@ -4811,6 +4860,7 @@ async def copilot_ask(
     current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
 ) -> CopilotAskResponse:
     start_time = perf_counter()
+    target_customer = None
     customers = filter_by_organization_scope(session.exec(select(Customer).order_by(Customer.created_at.desc())).all(), current_user)
     activities = filter_by_organization_scope(session.exec(select(CustomerActivity).order_by(CustomerActivity.occurred_at.desc())).all(), current_user)
     leads = filter_by_organization_scope(session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all(), current_user)
@@ -4824,6 +4874,7 @@ async def copilot_ask(
         if not customer or not organization_matches(customer, current_user):
             raise HTTPException(status_code=404, detail="客户不存在")
         require_owner_scope(current_user, customer.owner)
+        target_customer = customer
         customers = [customer]
         activities = [activity for activity in activities if activity.customer_id == customer.id]
         leads = [lead for lead in leads if lead.customer_name == customer.company]
@@ -4849,6 +4900,7 @@ async def copilot_ask(
         cases=cases,
         recommendations=recommendations,
     )
+    recommendation = add_copilot_ask_history(session, payload.question, result, current_user, target_customer)
     save_ai_interaction(
         session,
         operation="copilot_ask",
@@ -4861,6 +4913,16 @@ async def copilot_ask(
         entity_id=payload.customer_id,
         organization_id=current_user.organization_id,
     )
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="copilot_recommendation",
+        entity_id=recommendation.id,
+        operator=current_user.full_name or current_user.email,
+        summary=f"保存 CRM Skill 问答推荐 #{recommendation.id}",
+        detail=f"问题：{summarize_text(payload.question, limit=180)}",
+    )
+    session.commit()
     return result
 
 

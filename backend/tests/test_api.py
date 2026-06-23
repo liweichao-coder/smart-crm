@@ -2580,7 +2580,16 @@ def test_copilot_ask_uses_crm_context_and_audit(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:
         response = client.post("/api/copilot/ask", json={"question": "本周最需要优先跟进哪些客户？"})
+        recommendation_response = client.get("/api/copilot/recommendations", params={"source": "ask"})
+        recommendation = recommendation_response.json()[0]
+        feedback_response = client.patch(
+            f"/api/copilot/recommendations/{recommendation['id']}/feedback",
+            json={"feedback_status": "helpful", "feedback_rating": 4, "feedback_note": "经营问答已纳入本周跟进计划"},
+        )
+        task_response = client.post(f"/api/copilot/recommendations/{recommendation['id']}/task")
         audit_logs = client.get("/api/ai-audit-logs", params={"operation": "copilot_ask"}).json()
+        business_logs = client.get("/api/business-audit-logs", params={"entity_type": "copilot_recommendation"}).json()
+        tasks = client.get("/api/tasks", params={"q": f"CopilotRecommendation#{recommendation['id']}"}).json()
 
     assert response.status_code == 200
     payload = response.json()
@@ -2590,7 +2599,23 @@ def test_copilot_ask_uses_crm_context_and_audit(monkeypatch) -> None:
     assert payload["evidence"]
     assert any("客户" in item and "商机" in item for item in payload["evidence"])
     assert payload["fallback_used"] is True
+    assert payload["recommendation_id"] == recommendation["id"]
+    assert recommendation_response.status_code == 200
+    assert recommendation["source"] == "ask"
+    assert recommendation["lead_title"] == "本周最需要优先跟进哪些客户？"
+    assert recommendation["customer_name"] == "全局经营问答"
+    assert recommendation["next_best_action"] in payload["next_actions"]
+    assert recommendation["llm_summary"] == payload["answer"]
+    assert recommendation["message_draft"]
+    assert recommendation["score_reasons"]
+    assert recommendation["fallback_used"] is True
+    assert feedback_response.status_code == 200
+    assert feedback_response.json()["feedback_status"] == "helpful"
+    assert task_response.status_code == 201
+    assert f"CopilotRecommendation#{recommendation['id']}" in task_response.json()["description"]
+    assert len(tasks) == 1
     assert any(log["operation"] == "copilot_ask" and log["fallback_used"] is True for log in audit_logs)
+    assert any(log["action"] == "create" and log["entity_id"] == recommendation["id"] for log in business_logs)
 
 
 def test_copilot_follow_up_by_lead(monkeypatch) -> None:
