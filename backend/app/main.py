@@ -1446,6 +1446,66 @@ def customer_aliases(customer: Customer) -> set[str]:
     return {value for value in {customer.company, customer.name, customer.contact_person} if value}
 
 
+def stage_label(stage: LeadStage | str) -> str:
+    value = stage.value if isinstance(stage, LeadStage) else str(stage)
+    return REPORT_STAGE_LABELS.get(value, value)
+
+
+def find_customer_for_lead(session: Session, lead: SalesLead, organization_id: int) -> Customer | None:
+    lead_customer = normalize_account(lead.customer_name)
+    if not lead_customer:
+        return None
+    customers = session.exec(select(Customer).where(Customer.organization_id == organization_id)).all()
+    return next(
+        (
+            customer
+            for customer in customers
+            if lead_customer in {normalize_account(alias) for alias in customer_aliases(customer)}
+        ),
+        None,
+    )
+
+
+def add_lead_stage_activity(
+    session: Session,
+    lead: SalesLead,
+    previous_stage: LeadStage | str,
+    current_user: AuthUser,
+) -> CustomerActivity | None:
+    customer = find_customer_for_lead(session, lead, current_user.organization_id)
+    if not customer:
+        return None
+
+    previous_label = stage_label(previous_stage)
+    next_label = stage_label(lead.stage)
+    activity = CustomerActivity(
+        organization_id=current_user.organization_id,
+        customer_id=customer.id or 0,
+        customer_name=customer.company,
+        owner=lead.owner,
+        activity_type="review",
+        subject=f"商机阶段推进：{lead.title}",
+        summary=f"商机《{lead.title}》阶段从 {previous_label} 更新为 {next_label}，预计金额 {lead.expected_amount:.0f} 元。",
+        outcome=f"销售管道进入 {next_label}",
+        next_action=lead.next_action or "确认下一步销售动作",
+        sentiment="positive" if lead.stage == LeadStage.won else "risk" if lead.stage == LeadStage.lost else "neutral",
+        occurred_at=datetime.utcnow(),
+    )
+    session.add(activity)
+    session.flush()
+    add_business_audit(
+        session,
+        action="create",
+        entity_type="customer_activity",
+        entity_id=activity.id,
+        operator=activity.owner,
+        summary=f"商机阶段流转生成客户互动 {activity.subject}",
+        detail=f"客户 {activity.customer_name}，商机 {lead.title}，{stage_label(previous_stage)} -> {stage_label(lead.stage)}",
+        organization_id=current_user.organization_id,
+    )
+    return activity
+
+
 def clamp_int(value: float, minimum: int = 0, maximum: int = 100) -> int:
     return round(max(minimum, min(maximum, value)))
 
@@ -3463,11 +3523,15 @@ def update_lead(
         raise HTTPException(status_code=404, detail="商机不存在")
     require_owner_scope(current_user, lead.owner)
     updates = patch_values(payload)
+    previous_stage = lead.stage
+    stage_changed = "stage" in updates and updates["stage"] != previous_stage
     if "owner" in updates:
         updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(lead, updates)
     session.add(lead)
+    if stage_changed:
+        add_lead_stage_activity(session, lead, previous_stage, current_user)
     add_business_audit(
         session,
         action="update",
