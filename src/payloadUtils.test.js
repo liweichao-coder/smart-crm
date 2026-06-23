@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildContactPayload, buildCustomerPayload } from './payloadUtils.js'
+import { buildContactPayload, buildCustomerPayload, buildTeamMemberPayload } from './payloadUtils.js'
 
 test('buildCustomerPayload preserves real customer master data fields', () => {
   const payload = buildCustomerPayload({
@@ -53,5 +53,59 @@ test('buildContactPayload keeps entered phone and email without demo defaults', 
     phone: '13900139000',
     owner: '徐柠',
     status: 'nurturing',
+  })
+})
+
+test('buildTeamMemberPayload preserves real account fields for member creation', () => {
+  const payload = buildTeamMemberPayload({
+    fullName: '  张远  ',
+    email: ' zhangyuan@example.com ',
+    phone: ' 13700137000 ',
+    role: '销售经理',
+    position: '区域负责人',
+    department: '华南客户成功部',
+    location: '深圳 · 粤海',
+    status: 'active',
+    password: 'SmartCRM@2026',
+    confirmPassword: 'SmartCRM@2026',
+  })
+
+  assert.deepEqual(payload, {
+    full_name: '张远',
+    email: 'zhangyuan@example.com',
+    phone: '13700137000',
+    role: '销售经理',
+    position: '区域负责人',
+    department: '华南客户成功部',
+    location: '深圳 · 粤海',
+    status: 'active',
+    password: 'SmartCRM@2026',
+    confirm_password: 'SmartCRM@2026',
+  })
+})
+
+test('buildTeamMemberPayload does not invent demo email or reset password on edit', () => {
+  const payload = buildTeamMemberPayload({
+    fullName: '',
+    email: '',
+    phone: '',
+    role: '',
+    position: '',
+    department: '',
+    location: '',
+    status: '',
+    password: '',
+    confirmPassword: '',
+  }, true)
+
+  assert.deepEqual(payload, {
+    full_name: '',
+    email: '',
+    phone: '',
+    role: '销售',
+    position: '',
+    department: '',
+    location: '',
+    status: 'active',
   })
 })

@@ -41,3 +41,22 @@ export function buildContactPayload(draft, ownerFallback) {
     status: cleanText(draft.status, 'active'),
   }
 }
+
+export function buildTeamMemberPayload(draft, isEditing = false) {
+  const payload = {
+    full_name: cleanText(draft.fullName),
+    email: cleanText(draft.email),
+    phone: cleanText(draft.phone),
+    role: cleanText(draft.role, '销售'),
+    position: cleanText(draft.position),
+    department: cleanText(draft.department),
+    location: cleanText(draft.location),
+    status: cleanText(draft.status, 'active'),
+  }
+  const hasPasswordChange = cleanText(draft.password) || cleanText(draft.confirmPassword)
+  if (!isEditing || hasPasswordChange) {
+    payload.password = draft.password ?? ''
+    payload.confirm_password = draft.confirmPassword ?? ''
+  }
+  return payload
+}

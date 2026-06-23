@@ -143,7 +143,7 @@ import {
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { toDraftOwner } from './ownerUtils.js'
-import { buildContactPayload, buildCustomerPayload } from './payloadUtils.js'
+import { buildContactPayload, buildCustomerPayload, buildTeamMemberPayload } from './payloadUtils.js'
 import {
   buildBulkEditPatch,
   buildClientRecord,
@@ -648,24 +648,6 @@ function buildProductPayload(draft) {
     unit_price: toDraftNumber(draft.unitPrice, 1),
     stock: Math.max(0, Math.round(toDraftNumber(draft.stock))),
   }
-}
-
-function buildTeamMemberPayload(draft, isEditing = false) {
-  const payload = {
-    full_name: toDraftText(draft.fullName, '新成员'),
-    email: toDraftText(draft.email, 'member@demo.smart-crm.local'),
-    phone: toDraftText(draft.phone),
-    role: toDraftText(draft.role, '销售'),
-    position: toDraftText(draft.position, '销售顾问'),
-    department: toDraftText(draft.department, '客户增长中心'),
-    location: toDraftText(draft.location, '深圳 · 南山'),
-    status: toDraftText(draft.status, 'active'),
-  }
-  if (!isEditing || draft.password || draft.confirmPassword) {
-    payload.password = draft.password
-    payload.confirm_password = draft.confirmPassword
-  }
-  return payload
 }
 
 function createTeamMemberDraft(member = null) {
