@@ -1976,8 +1976,10 @@ def test_vision_extract_text_file_fallback(monkeypatch) -> None:
     payload = response.json()
     assert payload["company"] == "云川医疗"
     assert payload["customer_name"] == "陈敏"
+    assert payload["customer_id"] is not None
     assert payload["fallback_used"] is True
     assert payload["source"] == "local_text_parser"
+    assert payload["items"][0]["product_id"] is not None
     assert payload["items"][0]["product_name"] == "智能巡检终端"
     assert payload["items"][0]["quantity"] == 2
 
@@ -2007,8 +2009,10 @@ def test_vision_extract_llm_json(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["company"] == "南山科技"
+    assert payload["customer_id"] is not None
     assert payload["fallback_used"] is False
     assert payload["source"] == "llm_vision"
+    assert payload["items"][0]["product_id"] is not None
     assert payload["items"][0]["product_name"] == "AI 商机评分模块"
     assert payload["items"][0]["quantity"] == 3
 

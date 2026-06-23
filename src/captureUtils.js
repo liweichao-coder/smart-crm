@@ -10,8 +10,20 @@ function addDays(dateText, days) {
 }
 
 export function matchCaptureCustomer(captureResult, customers) {
+  const customerId = Number(captureResult?.customer_id)
+  if (Number.isFinite(customerId) && customerId > 0) {
+    const matchedById = customers.find((customer) => Number(customer.id) === customerId)
+    if (matchedById) {
+      return matchedById
+    }
+  }
+
   const company = normalizeText(captureResult?.company)
   const customerName = normalizeText(captureResult?.customer_name)
+  const requestedNames = [company, customerName].filter(Boolean)
+  if (!requestedNames.length) {
+    return undefined
+  }
   return customers.find((customer) => {
     const candidates = [
       customer.company,
@@ -19,12 +31,25 @@ export function matchCaptureCustomer(captureResult, customers) {
       customer.name,
       customer.email,
     ].map(normalizeText)
-    return candidates.some((candidate) => candidate && (candidate === company || candidate === customerName || company.includes(candidate) || candidate.includes(company)))
+    return candidates.some((candidate) => (
+      candidate && requestedNames.some((name) => candidate === name || name.includes(candidate) || candidate.includes(name))
+    ))
   })
 }
 
 export function matchCaptureProduct(captureItem, products) {
+  const productId = Number(captureItem?.product_id)
+  if (Number.isFinite(productId) && productId > 0) {
+    const matchedById = products.find((product) => Number(product.id) === productId)
+    if (matchedById) {
+      return matchedById
+    }
+  }
+
   const productName = normalizeText(captureItem?.product_name)
+  if (!productName) {
+    return undefined
+  }
   return products.find((product) => {
     const candidates = [product.name, product.sku].map(normalizeText)
     return candidates.some((candidate) => candidate && (candidate === productName || productName.includes(candidate) || candidate.includes(productName)))

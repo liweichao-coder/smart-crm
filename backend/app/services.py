@@ -161,6 +161,7 @@ class VisionExtractionService:
                 quantity = self.extract_quantity(text, product)
                 items.append(
                     {
+                        "product_id": product.id,
                         "product_name": product.name,
                         "quantity": quantity,
                         "unit_price": product.unit_price,
@@ -173,6 +174,7 @@ class VisionExtractionService:
         if not items and products:
             items = [
                 {
+                    "product_id": products[0].id,
                     "product_name": products[0].name,
                     "quantity": 1,
                     "unit_price": products[0].unit_price,
@@ -225,7 +227,7 @@ class VisionExtractionService:
 
         items = self.normalize_items(payload.get("items") or [], products)
         if not items and products:
-            items = [VisionExtractItem(product_name=products[0].name, quantity=1, unit_price=products[0].unit_price)]
+            items = [VisionExtractItem(product_id=products[0].id, product_name=products[0].name, quantity=1, unit_price=products[0].unit_price)]
 
         confidence = self.clamp_confidence(payload.get("confidence"), fallback_used)
         total = sum(item.quantity * item.unit_price for item in items)
@@ -241,6 +243,7 @@ class VisionExtractionService:
             )
 
         return VisionExtractResponse(
+            customer_id=matched_customer.id if matched_customer else None,
             customer_name=customer_name,
             company=company,
             confidence=confidence,
@@ -258,11 +261,12 @@ class VisionExtractionService:
             if not isinstance(item, dict):
                 continue
             product_name = str(item.get("product_name") or item.get("name") or "").strip()
-            matched_product = self.match_product(product_name, products)
+            matched_product = self.match_product_from_item(item, products)
             quantity = self.to_int(item.get("quantity"), default=1)
             unit_price = self.to_float(item.get("unit_price"), default=matched_product.unit_price if matched_product else 1)
             normalized.append(
                 VisionExtractItem(
+                    product_id=matched_product.id if matched_product else self.to_optional_int(item.get("product_id")),
                     product_name=matched_product.name if matched_product else product_name or "待复核商品",
                     quantity=max(quantity, 1),
                     unit_price=max(unit_price, 0.01),
@@ -285,6 +289,15 @@ class VisionExtractionService:
                 return product
         return None
 
+    def match_product_from_item(self, item: dict[str, Any], products: list[Product]) -> Product | None:
+        product_id = self.to_optional_int(item.get("product_id"))
+        if product_id:
+            for product in products:
+                if product.id == product_id:
+                    return product
+        product_name = str(item.get("product_name") or item.get("name") or "").strip()
+        return self.match_product(product_name, products)
+
     def extract_quantity(self, text: str, product: Product) -> int:
         escaped_terms = [re.escape(product.name), re.escape(product.sku)]
         pattern = re.compile(rf"({'|'.join(escaped_terms)}).{{0,30}}?(?:x|×|\*|数量[:：]?)\s*(\d+)", re.IGNORECASE)
@@ -305,6 +318,13 @@ class VisionExtractionService:
             return int(float(value))
         except (TypeError, ValueError):
             return default
+
+    def to_optional_int(self, value: Any) -> int | None:
+        try:
+            parsed = int(float(value))
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
 
     def to_float(self, value: Any, default: float) -> float:
         try:

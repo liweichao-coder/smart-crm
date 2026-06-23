@@ -1305,12 +1305,14 @@ class ReportSnapshotRead(BaseModel):
 
 
 class VisionExtractItem(BaseModel):
+    product_id: int | None = None
     product_name: str
     quantity: int
     unit_price: float
 
 
 class VisionExtractResponse(BaseModel):
+    customer_id: int | None = None
     customer_name: str
     company: str
     confidence: float = Field(ge=0, le=1)
