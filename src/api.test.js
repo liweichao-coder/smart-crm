@@ -7,7 +7,10 @@ import {
   exportBusinessAuditLogsCsv,
   fetchAiAuditLogs,
   fetchAuthAuditLogs,
+  fetchAuthSessions,
   fetchBusinessAuditLogs,
+  revokeAuthSession,
+  revokeOtherAuthSessions,
 } from './api.js'
 
 test('fetchAuthAuditLogs sends paginated auth audit filters to the backend', async (t) => {
@@ -77,6 +80,69 @@ test('exportAuthAuditLogsCsv downloads the filtered auth audit CSV', async (t) =
   assert.equal(calls[0].init.headers?.Authorization, undefined)
   assert.equal(blob.type, 'text/csv;charset=utf-8')
   assert.match(await blob.text(), /login,failed/)
+})
+
+test('auth session helpers list and revoke current user sessions', async (t) => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init })
+    const body = url.includes('/api/auth/sessions/revoke-others')
+      ? { revoked_sessions: 3 }
+      : url.includes('/api/auth/sessions/2')
+      ? {
+          id: 2,
+          current: false,
+          status: 'revoked',
+          created_at: '2026-06-23T12:00:00',
+          expires_at: '2026-06-30T12:00:00',
+          revoked_at: '2026-06-23T13:00:00',
+        }
+      : [
+          {
+            id: 1,
+            current: true,
+            status: 'active',
+            created_at: '2026-06-23T11:00:00',
+            expires_at: '2026-06-30T11:00:00',
+            revoked_at: null,
+          },
+          {
+            id: 2,
+            current: false,
+            status: 'active',
+            created_at: '2026-06-23T12:00:00',
+            expires_at: '2026-06-30T12:00:00',
+            revoked_at: null,
+          },
+        ]
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  const sessions = await fetchAuthSessions()
+  const revoked = await revokeAuthSession(2)
+  const bulkRevoked = await revokeOtherAuthSessions()
+
+  assert.equal(calls.length, 3)
+  assert.equal(calls[0].url, 'http://127.0.0.1:8000/api/auth/sessions')
+  assert.equal(calls[0].init.method, undefined)
+  assert.equal(calls[1].url, 'http://127.0.0.1:8000/api/auth/sessions/2')
+  assert.equal(calls[1].init.method, 'DELETE')
+  assert.equal(calls[2].url, 'http://127.0.0.1:8000/api/auth/sessions/revoke-others')
+  assert.equal(calls[2].init.method, 'POST')
+  assert.equal(sessions.length, 2)
+  assert.equal(sessions[0].current, true)
+  assert.equal(revoked.status, 'revoked')
+  assert.ok(revoked.revoked_at)
+  assert.equal(bulkRevoked.revoked_sessions, 3)
 })
 
 test('audit list helpers send filtered AI and business audit params', async (t) => {

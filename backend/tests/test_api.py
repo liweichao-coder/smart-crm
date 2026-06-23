@@ -654,6 +654,51 @@ def test_auth_profile_update_and_password_change() -> None:
     assert any(item["status"] == "success" for item in password_audits["items"])
 
 
+def test_auth_session_list_and_revoke_other_session() -> None:
+    with TestClient(app, auth=False) as client:
+        first_login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+        second_login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+        third_login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+        first_headers = {"Authorization": f"Bearer {first_login.json()['token']}"}
+        second_headers = {"Authorization": f"Bearer {second_login.json()['token']}"}
+        third_headers = {"Authorization": f"Bearer {third_login.json()['token']}"}
+
+        sessions = client.get("/api/auth/sessions", headers=first_headers)
+        session_items = sessions.json()
+        current_session = next(item for item in session_items if item["current"])
+        other_session = next(item for item in session_items if not item["current"] and item["status"] == "active")
+
+        revoke_current = client.delete(f"/api/auth/sessions/{current_session['id']}", headers=first_headers)
+        revoked_other = client.delete(f"/api/auth/sessions/{other_session['id']}", headers=first_headers)
+        bulk_revoked = client.post("/api/auth/sessions/revoke-others", headers=first_headers)
+        revoked_second_me = client.get("/api/auth/me", headers=second_headers)
+        revoked_third_me = client.get("/api/auth/me", headers=third_headers)
+        refreshed_sessions = client.get("/api/auth/sessions", headers=first_headers)
+        revoke_audits = client.get("/api/auth/audit-logs?page=1&per_page=5&event=session_revoke", headers=first_headers).json()
+
+    assert first_login.status_code == 200
+    assert second_login.status_code == 200
+    assert third_login.status_code == 200
+    assert sessions.status_code == 200
+    assert len(session_items) >= 3
+    assert current_session["status"] == "active"
+    assert revoke_current.status_code == 400
+    assert "当前会话" in revoke_current.json()["detail"]
+    assert revoked_other.status_code == 200
+    assert revoked_other.json()["status"] == "revoked"
+    assert revoked_other.json()["revoked_at"]
+    assert bulk_revoked.status_code == 200
+    assert bulk_revoked.json()["revoked_sessions"] == 1
+    assert revoked_second_me.status_code == 401
+    assert revoked_third_me.status_code == 401
+    revoked_session = next(item for item in refreshed_sessions.json() if item["id"] == other_session["id"])
+    assert revoked_session["status"] == "revoked"
+    assert revoke_audits["total"] >= 2
+    assert any(item["status"] == "success" and "撤销会话" in item["detail"] for item in revoke_audits["items"])
+    assert any(item["status"] == "success" and "批量撤销其他会话 1 个" in item["detail"] for item in revoke_audits["items"])
+    assert any(item["status"] == "failed" and "当前会话" in item["detail"] for item in revoke_audits["items"])
+
+
 def test_auth_register_new_workspace() -> None:
     register_payload = {
         "organization_name": "课程答辩测试组",

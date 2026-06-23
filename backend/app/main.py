@@ -35,6 +35,8 @@ from .schemas import (
     AuthPasswordChangeResponse,
     AuthProfileUpdate,
     AuthRegisterRequest,
+    AuthSessionBulkRevokeResponse,
+    AuthSessionRead,
     AuthSessionResponse,
     AuthUserRead,
     ApprovalPerformanceReportResponse,
@@ -472,6 +474,24 @@ def build_auth_payload(token: str, auth_session: AuthSession, user: AuthUser, or
         expires_at=auth_session.expires_at,
         user=serialize_auth_user(user, organization),
         organizations=[serialize_auth_organization(user, organization)],
+    )
+
+
+def serialize_auth_session(auth_session: AuthSession, current_session: AuthSession) -> AuthSessionRead:
+    now = datetime.utcnow()
+    if auth_session.revoked_at is not None:
+        status = "revoked"
+    elif auth_session.expires_at <= now:
+        status = "expired"
+    else:
+        status = "active"
+    return AuthSessionRead(
+        id=auth_session.id,
+        current=auth_session.id == current_session.id,
+        status=status,
+        created_at=auth_session.created_at,
+        expires_at=auth_session.expires_at,
+        revoked_at=auth_session.revoked_at,
     )
 
 
@@ -2200,6 +2220,74 @@ def logout(
     record_auth_audit(session, event="logout", account=user.email, status="success", detail="退出登录", user=user)
     session.commit()
     return AuthLogoutResponse(revoked=True)
+
+
+@app.get("/api/auth/sessions", response_model=list[AuthSessionRead])
+def list_auth_sessions(
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> list[AuthSessionRead]:
+    user, auth_session = current
+    sessions = session.exec(
+        select(AuthSession)
+        .where(AuthSession.user_id == user.id)
+        .order_by(AuthSession.created_at.desc())
+    ).all()
+    return [serialize_auth_session(item, auth_session) for item in sessions]
+
+
+@app.post("/api/auth/sessions/revoke-others", response_model=AuthSessionBulkRevokeResponse)
+def revoke_other_auth_sessions(
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> AuthSessionBulkRevokeResponse:
+    user, auth_session = current
+    active_sessions = session.exec(
+        select(AuthSession).where(
+            AuthSession.user_id == user.id,
+            AuthSession.revoked_at == None,  # noqa: E711
+            AuthSession.expires_at > datetime.utcnow(),
+            AuthSession.id != auth_session.id,
+        )
+    ).all()
+    for other_session in active_sessions:
+        other_session.revoked_at = datetime.utcnow()
+        session.add(other_session)
+    record_auth_audit(
+        session,
+        event="session_revoke",
+        account=user.email,
+        status="success",
+        detail=f"批量撤销其他会话 {len(active_sessions)} 个",
+        user=user,
+    )
+    session.commit()
+    return AuthSessionBulkRevokeResponse(revoked_sessions=len(active_sessions))
+
+
+@app.delete("/api/auth/sessions/{session_id}", response_model=AuthSessionRead)
+def revoke_auth_session(
+    session_id: int,
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> AuthSessionRead:
+    user, auth_session = current
+    target_session = session.get(AuthSession, session_id)
+    if not target_session or target_session.user_id != user.id:
+        record_auth_audit(session, event="session_revoke", account=user.email, status="failed", detail=f"会话 {session_id} 不存在或不属于当前账号", user=user)
+        session.commit()
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if target_session.id == auth_session.id:
+        record_auth_audit(session, event="session_revoke", account=user.email, status="failed", detail="尝试撤销当前会话", user=user)
+        session.commit()
+        raise HTTPException(status_code=400, detail="当前会话请使用退出登录")
+    if target_session.revoked_at is None:
+        target_session.revoked_at = datetime.utcnow()
+        session.add(target_session)
+    record_auth_audit(session, event="session_revoke", account=user.email, status="success", detail=f"撤销会话 {target_session.id}", user=user)
+    session.commit()
+    session.refresh(target_session)
+    return serialize_auth_session(target_session, auth_session)
 
 
 @app.get("/api/preferences/{namespace}", response_model=UserPreferenceRead)

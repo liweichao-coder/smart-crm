@@ -143,6 +143,22 @@ export function changeAuthPassword(payload) {
   })
 }
 
+export function fetchAuthSessions() {
+  return request('/api/auth/sessions')
+}
+
+export function revokeAuthSession(sessionId) {
+  return request(`/api/auth/sessions/${sessionId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function revokeOtherAuthSessions() {
+  return request('/api/auth/sessions/revoke-others', {
+    method: 'POST',
+  })
+}
+
 export function fetchNotifications(params) {
   return request(`/api/notifications${buildQueryString(params)}`)
 }

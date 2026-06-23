@@ -1510,6 +1510,51 @@ p {
   font-size: 14px;
 }
 
+.crm-profile-session-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.crm-profile-session-item {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 14px 16px;
+}
+
+.crm-profile-session-head,
+.crm-profile-session-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crm-profile-session-head div,
+.crm-profile-session-meta {
+  min-width: 0;
+}
+
+.crm-profile-session-head strong,
+.crm-profile-session-head span,
+.crm-profile-session-meta span {
+  display: block;
+}
+
+.crm-profile-session-head span,
+.crm-profile-session-meta span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.crm-profile-session-meta {
+  flex-wrap: wrap;
+}
+
 .crm-task-card,
 .crm-goal-card {
   padding: 20px;
