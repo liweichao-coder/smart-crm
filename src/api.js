@@ -265,6 +265,17 @@ export function extractOrderFromFile(file) {
   })
 }
 
+export function fetchCaptureDrafts(params) {
+  return request(`/api/vision-extract/drafts${buildQueryString(params)}`)
+}
+
+export function updateCaptureDraft(draftId, payload) {
+  return request(`/api/vision-extract/drafts/${draftId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchDashboard() {
   return request('/api/dashboard')
 }

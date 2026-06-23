@@ -19,7 +19,7 @@ from .auth import generate_session_token, hash_password, hash_session_token, ver
 from .config import settings
 from .consistency import build_consistency_payload
 from .database import create_db_and_tables, engine, get_session
-from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, NotificationState, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, ReportSnapshot, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem, UserPreference
+from .models import AIInteractionLog, AuthAuditLog, AuthSession, AuthUser, BusinessAuditLog, CaptureDraft, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, NotificationState, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, ReportSnapshot, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem, UserPreference
 from .schemas import (
     AIInteractionLogRead,
     AIQualityModelBreakdown,
@@ -43,6 +43,8 @@ from .schemas import (
     ApprovalReportDistributionItem,
     ApprovalReviewerWorkload,
     BusinessAuditLogRead,
+    CaptureDraftRead,
+    CaptureDraftUpdate,
     ContactCreate,
     ContactRead,
     ContactUpdate,
@@ -118,6 +120,7 @@ from .schemas import (
     UserPreferenceRead,
     UserPreferenceUpdate,
     VisionExtractResponse,
+    VisionExtractItem,
 )
 from .seed import seed_data
 from .services import CopilotService, VisionExtractionService
@@ -729,6 +732,18 @@ def decode_json_object(raw: str) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def encode_json_list(value: list) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def decode_json_list(raw: str) -> list:
+    try:
+        payload = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    return payload if isinstance(payload, list) else []
+
+
 REPORT_SNAPSHOT_LABELS = {
     "sales_performance": "销售绩效",
     "approval_performance": "审批 SLA",
@@ -812,6 +827,37 @@ def serialize_report_snapshot(snapshot: ReportSnapshot) -> ReportSnapshotRead:
         metric_count=metric_count,
         created_by=snapshot.created_by,
         created_at=snapshot.created_at,
+    )
+
+
+def serialize_capture_draft(draft: CaptureDraft) -> CaptureDraftRead:
+    items: list[VisionExtractItem] = []
+    for raw_item in decode_json_list(draft.items_json):
+        if not isinstance(raw_item, dict):
+            continue
+        try:
+            items.append(VisionExtractItem.model_validate(raw_item))
+        except Exception:
+            continue
+    return CaptureDraftRead(
+        id=draft.id or 0,
+        customer_id=draft.customer_id,
+        customer_name=draft.customer_name,
+        company=draft.company,
+        confidence=draft.confidence,
+        summary=draft.summary,
+        items=items,
+        suggested_notes=draft.suggested_notes,
+        fallback_used=draft.fallback_used,
+        source=draft.source,
+        raw_text_excerpt=draft.raw_text_excerpt,
+        status=draft.status,
+        submitted_order_id=draft.submitted_order_id,
+        filename=draft.filename,
+        content_type=draft.content_type,
+        created_by=draft.created_by,
+        created_at=draft.created_at,
+        updated_at=draft.updated_at,
     )
 
 
@@ -4300,14 +4346,98 @@ def create_order(
     return serialize_order(order, session)
 
 
-@app.post("/api/vision-extract", response_model=VisionExtractResponse, dependencies=[Depends(require_permission("ai:use"))])
-async def vision_extract(file: Annotated[UploadFile, File(...)], session: SessionDep) -> VisionExtractResponse:
+@app.get("/api/vision-extract/drafts", response_model=list[CaptureDraftRead] | PaginatedResponse[CaptureDraftRead])
+def list_capture_drafts(
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+    page: int | None = Query(default=None, ge=1),
+    per_page: int | None = Query(default=None, ge=1, le=100),
+    status: str = "",
+) -> list[CaptureDraftRead] | dict:
+    statement = (
+        select(CaptureDraft)
+        .where(CaptureDraft.organization_id == current_user.organization_id)
+        .order_by(CaptureDraft.created_at.desc())
+    )
+    drafts = session.exec(statement).all()
+    if not has_all_data_scope(current_user):
+        drafts = [draft for draft in drafts if owner_matches_user(draft.created_by, current_user)]
+    if status.strip():
+        drafts = [draft for draft in drafts if draft.status == status.strip()]
+    serialized = [serialize_capture_draft(draft) for draft in drafts]
+    return paginate_or_list(serialized, page=page, per_page=per_page)
+
+
+@app.patch("/api/vision-extract/drafts/{draft_id}", response_model=CaptureDraftRead)
+def update_capture_draft(
+    draft_id: int,
+    payload: CaptureDraftUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+) -> CaptureDraftRead:
+    draft = session.get(CaptureDraft, draft_id)
+    if not draft or draft.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="智能录单草稿不存在")
+    require_owner_scope(current_user, draft.created_by)
+    submitted_order = None
+    if payload.submitted_order_id is not None:
+        submitted_order = session.get(SalesOrder, payload.submitted_order_id)
+        if not submitted_order:
+            raise HTTPException(status_code=404, detail="关联订单不存在")
+        require_owner_scope(current_user, submitted_order.owner)
+    if payload.status == "submitted" and submitted_order is None:
+        raise HTTPException(status_code=422, detail="提交状态必须关联订单")
+    draft.status = payload.status
+    draft.submitted_order_id = payload.submitted_order_id if payload.status == "submitted" else None
+    draft.updated_at = datetime.utcnow()
+    session.add(draft)
+    add_business_audit(
+        session,
+        action="update",
+        entity_type="capture_draft",
+        entity_id=draft.id,
+        operator=current_user.full_name,
+        summary=f"更新智能录单草稿 #{draft.id}",
+        detail=f"状态 {draft.status}，订单 {draft.submitted_order_id or '未关联'}",
+    )
+    session.commit()
+    session.refresh(draft)
+    return serialize_capture_draft(draft)
+
+
+@app.post("/api/vision-extract", response_model=VisionExtractResponse)
+async def vision_extract(
+    file: Annotated[UploadFile, File(...)],
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("ai:use"))],
+) -> VisionExtractResponse:
     start_time = perf_counter()
     filename = file.filename or "uploaded-file"
     content_type = file.content_type or "unknown"
-    customers = session.exec(select(Customer)).all()
+    customers = filter_by_owner_scope(session.exec(select(Customer)).all(), current_user)
     products = session.exec(select(Product)).all()
     result = await vision_service.extract(file, customers=customers, products=products)
+    draft = CaptureDraft(
+        organization_id=current_user.organization_id,
+        created_by=current_user.full_name,
+        filename=filename,
+        content_type=content_type,
+        customer_id=result.customer_id,
+        customer_name=result.customer_name,
+        company=result.company,
+        confidence=result.confidence,
+        source=result.source,
+        fallback_used=result.fallback_used,
+        summary=result.summary,
+        suggested_notes=result.suggested_notes,
+        raw_text_excerpt=result.raw_text_excerpt,
+        items_json=encode_json_list([item.model_dump() for item in result.items]),
+        status="draft",
+    )
+    session.add(draft)
+    session.commit()
+    session.refresh(draft)
+    result.capture_draft_id = draft.id
     save_ai_interaction(
         session,
         operation="vision_extract",
@@ -4316,6 +4446,8 @@ async def vision_extract(file: Annotated[UploadFile, File(...)], session: Sessio
         start_time=start_time,
         request_summary=f"{filename} / {content_type} / {len(customers)} customers / {len(products)} products",
         response_summary=f"{result.company} / {result.source} / {len(result.items)} items / {result.summary}",
+        entity_type="capture_draft",
+        entity_id=draft.id,
     )
     return result
 

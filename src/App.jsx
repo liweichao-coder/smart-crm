@@ -67,6 +67,7 @@ import {
   fetchAiQualityReport,
   fetchApprovalPerformanceReport,
   fetchBusinessAuditLogs,
+  fetchCaptureDrafts,
   fetchContacts,
   fetchConsistencyChecks,
   fetchCopilotRecommendations,
@@ -131,6 +132,7 @@ import {
   saveUserPreference,
   submitOrderApproval,
   updateAuthProfile,
+  updateCaptureDraft,
   updateCase,
   updateContact,
   updateCustomer,
@@ -4938,10 +4940,27 @@ function CapturePage() {
   const [file, setFile] = useState(null)
   const [result, setResult] = useState(null)
   const [catalog, setCatalog] = useState({ customers: [], products: [] })
+  const [captureDrafts, setCaptureDrafts] = useState([])
   const [submittedOrder, setSubmittedOrder] = useState(null)
   const [extracting, setExtracting] = useState(false)
+  const [draftsLoading, setDraftsLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  const loadCaptureDrafts = useCallback(() => {
+    setDraftsLoading(true)
+    return fetchCaptureDrafts({ page: 1, per_page: 6 })
+      .then((payload) => {
+        const items = Array.isArray(payload) ? payload : payload.items ?? []
+        setCaptureDrafts(items)
+      })
+      .catch((nextError) => {
+        setError(nextError.message || '智能录单草稿加载失败')
+      })
+      .finally(() => {
+        setDraftsLoading(false)
+      })
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -4960,6 +4979,10 @@ function CapturePage() {
       mounted = false
     }
   }, [])
+
+  useEffect(() => {
+    loadCaptureDrafts()
+  }, [loadCaptureDrafts])
 
   const totalAmount = useMemo(() => {
     if (!result?.items?.length) {
@@ -4981,6 +5004,7 @@ function CapturePage() {
       .then((payload) => {
         setResult(payload)
         setSubmittedOrder(null)
+        loadCaptureDrafts()
       })
       .catch((nextError) => {
         setError(nextError.message || '智能录单失败')
@@ -5006,6 +5030,13 @@ function CapturePage() {
       })
       const order = await createOrder(payload)
       setSubmittedOrder(order)
+      if (result.capture_draft_id) {
+        const updatedDraft = await updateCaptureDraft(result.capture_draft_id, {
+          status: 'submitted',
+          submitted_order_id: order.id,
+        })
+        setCaptureDrafts((current) => [updatedDraft, ...current.filter((draft) => draft.id !== updatedDraft.id)])
+      }
     } catch (nextError) {
       setError(nextError.message || '订单提交失败')
     } finally {
@@ -5081,6 +5112,34 @@ function CapturePage() {
           ) : (
             <EmptyState icon={UploadCloud} title="暂无草稿" subtitle="上传材料后会显示结构化订单草稿。" />
           )}
+        </div>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="最近草稿" subtitle={draftsLoading ? '同步中' : `${captureDrafts.length} 条`} actionLabel="后端持久化" />
+        <div className="crm-progress-list">
+          {captureDrafts.map((draft) => (
+            <div className="crm-list-item" key={draft.id}>
+              <div>
+                <strong>{draft.company || '待复核客户'} · #{draft.id}</strong>
+                <span>{draft.customer_name || '待复核联系人'} · {draft.items?.length ?? 0} 个条目 · {draft.submitted_order_id ? `订单 #${draft.submitted_order_id}` : draft.source}</span>
+              </div>
+              <div className="crm-toolbar-actions">
+                <StatusBadge value={draft.status === 'submitted' ? '已提交' : draft.status === 'discarded' ? '已作废' : '草稿'} tone={draft.status === 'submitted' ? 'success' : draft.status === 'discarded' ? 'danger' : 'warning'} />
+                <button
+                  className="crm-ghost-button"
+                  type="button"
+                  onClick={() => {
+                    setResult({ ...draft, capture_draft_id: draft.id })
+                    setSubmittedOrder(null)
+                  }}
+                >
+                  载入草稿
+                </button>
+              </div>
+            </div>
+          ))}
+          {!draftsLoading && !captureDrafts.length ? <EmptyState icon={ClipboardList} title="暂无智能录单草稿" subtitle="上传材料后，后端会保存一条可复核草稿。" /> : null}
         </div>
       </section>
 

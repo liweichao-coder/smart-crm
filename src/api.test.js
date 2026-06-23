@@ -9,8 +9,10 @@ import {
   fetchAuthAuditLogs,
   fetchAuthSessions,
   fetchBusinessAuditLogs,
+  fetchCaptureDrafts,
   revokeAuthSession,
   revokeOtherAuthSessions,
+  updateCaptureDraft,
 } from './api.js'
 
 test('fetchAuthAuditLogs sends paginated auth audit filters to the backend', async (t) => {
@@ -216,4 +218,34 @@ test('audit export helpers download filtered AI and business audit CSVs', async 
   assert.equal(calls[1].url, 'http://127.0.0.1:8000/api/business-audit-logs/export.csv?action=create&entity_type=customer')
   assert.equal(aiBlob.type, 'text/csv;charset=utf-8')
   assert.equal(businessBlob.type, 'text/csv;charset=utf-8')
+})
+
+test('capture draft helpers list and update persisted drafts', async (t) => {
+  const originalFetch = globalThis.fetch
+  const calls = []
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init })
+    return new Response(JSON.stringify({
+      id: 7,
+      status: 'submitted',
+      submitted_order_id: 13,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  await fetchCaptureDrafts({ page: 1, per_page: 6, status: 'draft' })
+  await updateCaptureDraft(7, { status: 'submitted', submitted_order_id: 13 })
+
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].url, 'http://127.0.0.1:8000/api/vision-extract/drafts?page=1&per_page=6&status=draft')
+  assert.equal(calls[1].url, 'http://127.0.0.1:8000/api/vision-extract/drafts/7')
+  assert.equal(calls[1].init.method, 'PATCH')
+  assert.equal(calls[1].init.body, JSON.stringify({ status: 'submitted', submitted_order_id: 13 }))
 })

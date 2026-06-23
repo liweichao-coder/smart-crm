@@ -1312,6 +1312,7 @@ class VisionExtractItem(BaseModel):
 
 
 class VisionExtractResponse(BaseModel):
+    capture_draft_id: int | None = None
     customer_id: int | None = None
     customer_name: str
     company: str
@@ -1322,6 +1323,32 @@ class VisionExtractResponse(BaseModel):
     fallback_used: bool = False
     source: str = "llm_vision"
     raw_text_excerpt: str = ""
+
+
+class CaptureDraftRead(BaseModel):
+    id: int
+    customer_id: int | None = None
+    customer_name: str
+    company: str
+    confidence: float
+    summary: str
+    items: list[VisionExtractItem]
+    suggested_notes: str
+    fallback_used: bool
+    source: str
+    raw_text_excerpt: str
+    status: str
+    submitted_order_id: int | None = None
+    filename: str
+    content_type: str
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CaptureDraftUpdate(BaseModel):
+    status: Literal["draft", "submitted", "discarded"]
+    submitted_order_id: int | None = None
 
 
 class CopilotOpportunityInsight(BaseModel):

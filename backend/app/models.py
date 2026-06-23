@@ -273,6 +273,31 @@ class AIInteractionLog(AIInteractionLogBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
+class CaptureDraftBase(SQLModel):
+    organization_id: int = Field(foreign_key="organization.id", index=True)
+    created_by: str = Field(default="", index=True)
+    filename: str = ""
+    content_type: str = ""
+    customer_id: Optional[int] = Field(default=None, index=True)
+    customer_name: str = ""
+    company: str = Field(default="", index=True)
+    confidence: float = 0
+    source: str = Field(default="", index=True)
+    fallback_used: bool = Field(default=True, index=True)
+    summary: str = ""
+    suggested_notes: str = ""
+    raw_text_excerpt: str = ""
+    items_json: str = "[]"
+    status: str = Field(default="draft", index=True)
+    submitted_order_id: Optional[int] = Field(default=None, index=True)
+
+
+class CaptureDraft(CaptureDraftBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
 class CopilotRecommendationBase(SQLModel):
     source: str = Field(index=True)
     lead_id: Optional[int] = Field(default=None, index=True)
