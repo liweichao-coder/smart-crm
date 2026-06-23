@@ -149,6 +149,22 @@ ORDER_APPROVAL_RISK_LABELS = {
     "medium": "中",
     "low": "低",
 }
+HEALTH_DEMO_DATA_TARGETS = [
+    ("organizations", Organization, 1),
+    ("users", AuthUser, 5),
+    ("customers", Customer, 12),
+    ("products", Product, 10),
+    ("contacts", Contact, 12),
+    ("customer_activities", CustomerActivity, 16),
+    ("leads_opportunities", SalesLead, 15),
+    ("support_cases", SupportCase, 8),
+    ("tasks", TaskItem, 8),
+    ("sales_goals", SalesGoal, 4),
+    ("orders", SalesOrder, 12),
+    ("order_items", OrderItem, 22),
+    ("inventory_movements", InventoryMovement, 22),
+    ("order_approvals", OrderApprovalRequest, 2),
+]
 ALL_PERMISSIONS = "*"
 KNOWN_PERMISSIONS = {
     "approval:manage",
@@ -2032,6 +2048,49 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def build_health_payload(session: Session) -> dict[str, object]:
+    demo_data = {}
+    demo_ready = True
+    for label, model, target in HEALTH_DEMO_DATA_TARGETS:
+        count = len(session.exec(select(model)).all())
+        ready = count >= target
+        demo_ready = demo_ready and ready
+        demo_data[label] = {
+            "count": count,
+            "target": target,
+            "status": "ok" if ready else "low",
+        }
+
+    consistency = build_consistency_payload(session)
+    consistency_ready = consistency["issue_count"] == 0
+    overall_status = "ok" if demo_ready and consistency_ready else "degraded"
+
+    return {
+        "status": overall_status,
+        "database": {
+            "connected": True,
+            "driver": engine.url.get_backend_name(),
+        },
+        "llm": {
+            "base_url": settings.llm_base_url,
+            "model": settings.llm_model,
+            "api_key_configured": bool(settings.llm_api_key),
+        },
+        "demo_data": demo_data,
+        "consistency": {
+            "status": consistency["overall_status"],
+            "issue_count": consistency["issue_count"],
+            "critical_count": consistency["critical_count"],
+            "warning_count": consistency["warning_count"],
+        },
+    }
+
+
+@app.get("/api/health")
+def api_health(session: SessionDep) -> dict[str, object]:
+    return build_health_payload(session)
 
 
 @app.post("/api/auth/login", response_model=AuthSessionResponse)

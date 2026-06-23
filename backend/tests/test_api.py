@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import datetime, timedelta
+import json
 
 import pytest
 from fastapi.testclient import TestClient as FastAPITestClient
@@ -49,11 +50,21 @@ def isolated_database(monkeypatch):
 
 
 def test_health_check() -> None:
-    with TestClient(app) as client:
+    with TestClient(app, auth=False) as client:
         response = client.get("/health")
+        api_response = client.get("/api/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+    assert api_response.status_code == 200
+    payload = api_response.json()
+    assert payload["status"] == "ok"
+    assert payload["database"] == {"connected": True, "driver": "sqlite"}
+    assert payload["llm"]["api_key_configured"] == bool(settings.llm_api_key)
+    assert "sk-" not in json.dumps(payload)
+    assert payload["demo_data"]["customers"]["count"] >= payload["demo_data"]["customers"]["target"]
+    assert payload["demo_data"]["orders"]["status"] == "ok"
+    assert payload["consistency"]["issue_count"] == 0
 
 
 def test_customer_owner_lightweight_migration_backfills_from_contacts(monkeypatch) -> None:
