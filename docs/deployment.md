@@ -227,6 +227,8 @@ $createdOrder.id
 
 If `SMART_CRM_LLM_API_KEY` is configured and valid, Copilot responses should report `fallback_used: false`. Without a key, the system still returns explainable rule-based recommendations with `fallback_used: true`.
 
+The Copilot summary smoke should include health-aware score reasons such as `客户健康分`, `流失概率`, `风险信号`, or `健康画像建议` in `/api/copilot/summary` and the persisted `/api/copilot/recommendations` rows.
+
 The Customer 360 smoke should return `account_plan` plus `health_profile`. The health profile is recomputed from real contacts, activities, leads, orders, cases, related tasks, and Copilot recommendations, so changing any of those records should change the health score or factor details. The order-draft smoke should create a draft order through `/api/orders`; reset the demo database afterwards if you do not want this temporary order in classroom screenshots.
 
 Vision extraction smoke:

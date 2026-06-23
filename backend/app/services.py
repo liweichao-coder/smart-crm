@@ -13,6 +13,7 @@ from .config import settings
 from .models import Contact, CopilotRecommendation, Customer, CustomerActivity, LeadStage, Product, SalesLead, SalesOrder, SupportCase, TaskItem
 from .schemas import (
     CustomerAccountPlanResponse,
+    CustomerHealthProfile,
     CopilotAskResponse,
     CopilotFollowUpRequest,
     CopilotFollowUpResponse,
@@ -381,17 +382,21 @@ class CopilotService:
     def __init__(self) -> None:
         self.llm = OpenAICompatibleClient()
 
-    def build_insight(self, lead: SalesLead) -> CopilotOpportunityInsight:
+    def build_insight(self, lead: SalesLead, health_profile: CustomerHealthProfile | None = None) -> CopilotOpportunityInsight:
         today = date.today()
         days_left = (lead.due_date - today).days
         stage_score = self.stage_weights.get(lead.stage, 20)
         amount_score = min(round(lead.expected_amount / 5000), 24)
         urgency_score = 14 if days_left <= 2 else 9 if days_left <= 7 else 4
         ai_score = 5 if lead.ai_assisted else 0
-        rule_score = min(stage_score + amount_score + urgency_score + ai_score, 99)
+        health_adjustment, health_reasons, health_next_action = self.score_customer_health(health_profile)
+        raw_score = stage_score + amount_score + urgency_score + ai_score + health_adjustment
+        rule_score = max(0, min(raw_score, 99))
         grade = self.grade_for(rule_score)
         win_rate = max(0.12, min((rule_score - 8) / 100, 0.9))
-
+        next_best_action = self.action_by_stage.get(lead.stage, "补充客户信息并制定跟进计划。")
+        if health_next_action:
+            next_best_action = f"{health_next_action}；{next_best_action}"
         reasons = [
             f"阶段 {lead.stage.value} 贡献 {stage_score} 分",
             f"预计金额 {lead.expected_amount:.0f} 元贡献 {amount_score} 分",
@@ -399,6 +404,7 @@ class CopilotService:
         ]
         if lead.ai_assisted:
             reasons.append("已有 AI 辅助记录，补充 5 分")
+        reasons.extend(health_reasons)
 
         return CopilotOpportunityInsight(
             id=lead.id or 0,
@@ -412,9 +418,63 @@ class CopilotService:
             rule_score=rule_score,
             grade=grade,
             win_rate=round(win_rate, 2),
-            next_best_action=self.action_by_stage.get(lead.stage, "补充客户信息并制定跟进计划。"),
+            next_best_action=next_best_action,
             score_reasons=reasons,
         )
+
+    def score_customer_health(self, health_profile: CustomerHealthProfile | None) -> tuple[int, list[str], str]:
+        if not health_profile:
+            return 0, ["未匹配客户健康画像，暂按商机基础规则评分"], ""
+
+        health_score = health_profile.score
+        if health_score >= 85:
+            health_adjustment = 6
+        elif health_score >= 70:
+            health_adjustment = 4
+        elif health_score >= 55:
+            health_adjustment = -2
+        else:
+            health_adjustment = -8
+
+        churn_penalty = 0
+        if health_profile.churn_probability >= 0.65:
+            churn_penalty = -6
+        elif health_profile.churn_probability >= 0.45:
+            churn_penalty = -3
+
+        factor_penalty = 0
+        factor_hints: list[str] = []
+        for factor in health_profile.factors:
+            if factor.key == "service" and factor.score < 45:
+                factor_penalty -= 4
+                factor_hints.append("服务风险偏高")
+            if factor.key == "relationship" and factor.score < 45:
+                factor_penalty -= 3
+                factor_hints.append("关系覆盖不足")
+            if factor.key == "ai_execution" and factor.score >= 80:
+                factor_penalty += 2
+                factor_hints.append("AI 建议执行较好")
+
+        total_adjustment = max(-14, min(10, health_adjustment + churn_penalty + factor_penalty))
+        adjustment_label = "补充" if total_adjustment >= 0 else "扣减"
+        reasons = [
+            f"客户健康分 {health_score}（{health_profile.grade_label}），{adjustment_label} {abs(total_adjustment)} 分",
+            f"流失概率 {health_profile.churn_probability:.0%}，趋势 {health_profile.trend}",
+        ]
+        if factor_hints:
+            reasons.append("健康画像因子：" + "、".join(factor_hints[:3]))
+        if health_profile.risk_flags:
+            reasons.append("风险信号：" + health_profile.risk_flags[0])
+
+        next_action = ""
+        if health_profile.recommended_actions:
+            first_action = health_profile.recommended_actions[0]
+            next_action = f"先执行健康画像建议：{first_action.title}"
+            reasons.append(f"健康画像建议：{first_action.title}")
+        elif health_profile.grade in {"excellent", "healthy"}:
+            next_action = "结合健康客户画像推进增购或续约确认"
+
+        return total_adjustment, reasons, next_action
 
     def grade_for(self, score: int) -> str:
         if score >= 86:
@@ -496,8 +556,17 @@ class CopilotService:
             model=settings.llm_model,
         )
 
-    async def summarize(self, leads: list[SalesLead]) -> CopilotSummaryResponse:
-        insights = sorted((self.build_insight(lead) for lead in leads), key=lambda item: item.rule_score, reverse=True)
+    async def summarize(
+        self,
+        leads: list[SalesLead],
+        health_profiles_by_customer: dict[str, CustomerHealthProfile] | None = None,
+    ) -> CopilotSummaryResponse:
+        profiles = health_profiles_by_customer or {}
+        insights = sorted(
+            (self.build_insight(lead, profiles.get(lead.customer_name)) for lead in leads),
+            key=lambda item: item.rule_score,
+            reverse=True,
+        )
         top = insights[0] if insights else None
         forecast_amount = sum(item.expected_amount for item in insights if item.grade in {"A", "B"})
         at_risk_count = sum(1 for item in insights if item.grade == "D" or item.rule_score < 50)

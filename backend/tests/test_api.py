@@ -1881,6 +1881,16 @@ def test_copilot_summary_fallback(monkeypatch) -> None:
     assert payload["top_opportunity"]["rule_score"] >= 0
     assert payload["forecast_amount"] >= 0
     assert payload["fallback_used"] is True
+    assert any(
+        "客户健康分" in reason
+        for insight in payload["insights"]
+        for reason in insight["score_reasons"]
+    )
+    assert any(
+        "健康画像建议" in reason or "风险信号" in reason
+        for insight in payload["insights"]
+        for reason in insight["score_reasons"]
+    )
 
     assert history_response.status_code == 200
     history = history_response.json()
@@ -1890,6 +1900,11 @@ def test_copilot_summary_fallback(monkeypatch) -> None:
     assert history["items"][0]["score_reasons"]
     assert history["items"][0]["llm_summary"]
     assert history["items"][0]["fallback_used"] is True
+    assert any(
+        "客户健康分" in reason
+        for item in history["items"]
+        for reason in item["score_reasons"]
+    )
 
 
 def test_copilot_ask_uses_crm_context_and_audit(monkeypatch) -> None:

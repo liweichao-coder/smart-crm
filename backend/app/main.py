@@ -3747,7 +3747,31 @@ async def copilot_summary(
     start_time = perf_counter()
     leads = session.exec(select(SalesLead).order_by(SalesLead.due_date.asc())).all()
     leads = filter_by_owner_scope(leads, current_user)
-    result = await copilot_service.summarize(leads)
+    customers = filter_by_owner_scope(session.exec(select(Customer)).all(), current_user)
+    contacts = filter_by_owner_scope(session.exec(select(Contact)).all(), current_user)
+    activities = filter_by_owner_scope(session.exec(select(CustomerActivity)).all(), current_user)
+    orders = filter_by_owner_scope(session.exec(select(SalesOrder)).all(), current_user)
+    cases = filter_by_owner_scope(session.exec(select(SupportCase)).all(), current_user)
+    recommendations = filter_by_owner_scope(session.exec(select(CopilotRecommendation)).all(), current_user)
+    tasks = filter_by_owner_scope(session.exec(select(TaskItem)).all(), current_user)
+
+    health_profiles_by_customer = {}
+    for customer in customers:
+        aliases = customer_aliases(customer)
+        profile = build_customer_health_profile(
+            customer,
+            contacts=[contact for contact in contacts if contact.company in aliases],
+            activities=[activity for activity in activities if activity.customer_id == customer.id or activity.customer_name in aliases],
+            leads=[lead for lead in leads if lead.customer_name in aliases],
+            orders=[order for order in orders if order.customer_id == customer.id],
+            cases=[support_case for support_case in cases if support_case.account in aliases],
+            recommendations=[recommendation for recommendation in recommendations if recommendation.customer_name in aliases],
+            tasks=[task for task in tasks if any(alias in f"{task.title} {task.description}" for alias in aliases)],
+        )
+        for alias in aliases:
+            health_profiles_by_customer[alias] = profile
+
+    result = await copilot_service.summarize(leads, health_profiles_by_customer=health_profiles_by_customer)
     add_copilot_summary_history(session, result)
     save_ai_interaction(
         session,
@@ -3755,7 +3779,7 @@ async def copilot_summary(
         model=settings.llm_model,
         fallback_used=result.fallback_used,
         start_time=start_time,
-        request_summary=f"{len(leads)} leads",
+        request_summary=f"{len(leads)} leads / {len(health_profiles_by_customer)} health aliases",
         response_summary=result.llm_summary,
         entity_type="lead",
         entity_id=result.top_opportunity.id if result.top_opportunity else None,
