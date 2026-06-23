@@ -5056,7 +5056,7 @@ function CapturePage() {
               <div className="crm-list-item">
                 <div>
                   <strong>{result.company}</strong>
-                  <span>{result.customer_name}</span>
+                  <span>{result.customer_name} · {result.customer_id ? `已匹配客户 #${result.customer_id}` : '待人工匹配客户'}</span>
                 </div>
                 <StatusBadge value={formatPercent(result.confidence)} tone={result.confidence >= 0.8 ? 'success' : 'warning'} />
               </div>
@@ -5092,6 +5092,7 @@ function CapturePage() {
               <thead>
                 <tr>
                   <th>商品</th>
+                  <th>匹配</th>
                   <th>数量</th>
                   <th>单价</th>
                   <th>小计</th>
@@ -5101,6 +5102,7 @@ function CapturePage() {
                 {result.items.map((item) => (
                   <tr key={`${item.product_name}-${item.quantity}-${item.unit_price}`}>
                     <td>{item.product_name}</td>
+                    <td>{item.product_id ? `#${item.product_id}` : '待匹配'}</td>
                     <td>{item.quantity}</td>
                     <td>{formatCurrency(item.unit_price)}</td>
                     <td>{formatCurrency(item.quantity * item.unit_price)}</td>
