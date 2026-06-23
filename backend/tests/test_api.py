@@ -450,7 +450,9 @@ def test_field_level_validation_rejects_invalid_payloads() -> None:
         goal = client.get("/api/goals").json()[0]
         order = client.get("/api/orders").json()[0]
         responses = [
-            client.post("/api/customers", json={"company": "校验客户", "contact_person": "张三", "email": "not-email"}),
+            client.post("/api/customers", json={"company": "校验客户", "industry": "智能制造", "contact_person": "张三", "email": "not-email"}),
+            client.post("/api/customers", json={"company": "校验客户", "industry": "   ", "contact_person": "张三"}),
+            client.post("/api/customers", json={"company": "缺行业客户", "contact_person": "张三"}),
             client.post("/api/contacts", json={"name": "校验联系人", "company": "校验客户", "email": "bad-email"}),
             client.post("/api/products", json={"name": "非法分类商品", "sku": "INVALID-CATEGORY-001", "category": "课程", "unit_price": 100, "stock": 1}),
             client.post("/api/leads", json={"title": "   ", "customer_name": "校验客户", "owner": "李伟超"}),
@@ -513,6 +515,7 @@ def test_field_level_validation_rejects_invalid_payloads() -> None:
     assert any("请输入有效邮箱" in detail for detail in details)
     assert any("商品分类无效" in detail for detail in details)
     assert any("字段不能为空" in detail for detail in details)
+    assert any("industry" in detail and ("Field required" in detail or "字段不能为空" in detail) for detail in details)
     assert any("交付日期不能为空" in detail for detail in details)
     assert any("交付日期不能早于下单日期" in detail for detail in details)
 
@@ -798,10 +801,14 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
         tasks = client.get("/api/tasks", headers=headers)
         orders = client.get("/api/orders", headers=headers)
         goals = client.get("/api/goals", headers=headers)
-        created_customer = client.post("/api/customers", json={"company": "销售权限客户", "contact_person": "销售员"}, headers=headers)
+        created_customer = client.post(
+            "/api/customers",
+            json={"company": "销售权限客户", "industry": "企业服务", "contact_person": "销售员"},
+            headers=headers,
+        )
         denied_customer_create = client.post(
             "/api/customers",
-            json={"company": "越权客户", "contact_person": "销售员", "owner": "王蕾"},
+            json={"company": "越权客户", "industry": "企业服务", "contact_person": "销售员", "owner": "王蕾"},
             headers=headers,
         )
         denied_lead_create = client.post(
@@ -1053,7 +1060,7 @@ def test_paginated_collection_queries() -> None:
         products = client.get("/api/products?page=1&per_page=2&category=软件")
         leads = client.get("/api/leads?page=1&per_page=5&stage=proposal&ai_assisted=true")
         orders = client.get("/api/orders?page=1&per_page=2&status=draft&created_by_ai=true")
-        client.post("/api/customers", json={"company": "分页审计客户", "contact_person": "审计查询员"})
+        client.post("/api/customers", json={"company": "分页审计客户", "industry": "智能制造", "contact_person": "审计查询员"})
         audit_logs = client.get("/api/business-audit-logs?page=1&per_page=1&entity_type=customer&action=create")
 
     assert customers.status_code == 200
@@ -1220,7 +1227,7 @@ def test_create_update_and_delete_products() -> None:
 
 def test_update_and_delete_business_resources() -> None:
     with TestClient(app) as client:
-        customer = client.post("/api/customers", json={"company": "可编辑客户", "contact_person": "旧联系人"}).json()
+        customer = client.post("/api/customers", json={"company": "可编辑客户", "industry": "智能制造", "contact_person": "旧联系人"}).json()
         updated_customer = client.patch(
             f"/api/customers/{customer['id']}",
             json={"industry": "智能制造", "contact_person": "新联系人"},
