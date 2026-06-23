@@ -4008,11 +4008,15 @@ def update_order(
     require_owner_scope(current_user, order.owner)
     before_total = order.total_amount
     previous_status = order.status
+    if "due_date" in payload.model_fields_set and payload.due_date is None:
+        raise HTTPException(status_code=422, detail="交付日期不能为空")
     updates = payload.model_dump(exclude_unset=True, exclude_none=True, exclude={"items"})
     requested_status = updates.pop("status", None)
     if "owner" in updates:
         updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
         require_payload_owner_scope(current_user, updates["owner"])
+    if "due_date" in updates and updates["due_date"] < order.order_date:
+        raise HTTPException(status_code=422, detail="交付日期不能早于下单日期")
     apply_updates(order, updates)
     if payload.items is not None:
         replace_order_items(order, payload.items, session)

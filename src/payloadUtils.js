@@ -154,6 +154,21 @@ export function buildGoalPayload(draft, ownerFallback) {
   }
 }
 
+export function buildOrderUpdatePayload(draft, ownerFallback) {
+  return {
+    owner: toDraftOwner(draft.owner, ownerFallback),
+    region: cleanText(draft.region),
+    status: cleanText(draft.status),
+    due_date: cleanText(draft.dueDate),
+    notes: cleanText(draft.notes),
+    items: (draft.items ?? []).map((item) => ({
+      product_id: Math.round(cleanNumber(item.productId, 0)),
+      quantity: Math.max(1, Math.round(cleanNumber(item.quantity, 1))),
+      unit_price: Math.max(0.01, cleanNumber(item.unitPrice, 1)),
+    })),
+  }
+}
+
 export function buildTeamMemberPayload(draft, isEditing = false) {
   const payload = {
     full_name: cleanText(draft.fullName),

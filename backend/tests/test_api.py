@@ -448,6 +448,7 @@ def test_field_level_validation_rejects_invalid_payloads() -> None:
         support_case = client.get("/api/cases").json()[0]
         task = client.get("/api/tasks").json()[0]
         goal = client.get("/api/goals").json()[0]
+        order = client.get("/api/orders").json()[0]
         responses = [
             client.post("/api/customers", json={"company": "校验客户", "contact_person": "张三", "email": "not-email"}),
             client.post("/api/contacts", json={"name": "校验联系人", "company": "校验客户", "email": "bad-email"}),
@@ -463,6 +464,22 @@ def test_field_level_validation_rejects_invalid_payloads() -> None:
             client.post("/api/goals", json={"name": "   ", "period": "2026 Q3", "owner": "李伟超", "current": 10, "target": 100}),
             client.patch(f"/api/goals/{goal['id']}", json={"period": "   "}),
             client.post("/api/goals", json={"name": "非法目标", "current": 10, "target": 0}),
+            client.post(
+                "/api/orders",
+                json={
+                    "customer_id": customer["id"],
+                    "owner": "   ",
+                    "region": "华南",
+                    "currency": "CNY",
+                    "status": "draft",
+                    "order_date": "2026-06-23",
+                    "due_date": "2026-06-30",
+                    "items": [{"product_id": product["id"], "quantity": 1, "unit_price": product["unit_price"]}],
+                },
+            ),
+            client.patch(f"/api/orders/{order['id']}", json={"region": "   "}),
+            client.patch(f"/api/orders/{order['id']}", json={"due_date": None}),
+            client.patch(f"/api/orders/{order['id']}", json={"due_date": "2020-01-01"}),
             client.post(
                 "/api/orders",
                 json={
@@ -495,6 +512,8 @@ def test_field_level_validation_rejects_invalid_payloads() -> None:
     details = [str(response.json()["detail"]) for response in responses]
     assert any("请输入有效邮箱" in detail for detail in details)
     assert any("商品分类无效" in detail for detail in details)
+    assert any("字段不能为空" in detail for detail in details)
+    assert any("交付日期不能为空" in detail for detail in details)
     assert any("交付日期不能早于下单日期" in detail for detail in details)
 
 
