@@ -731,6 +731,7 @@ class SalesGoalRead(BaseModel):
     id: int
     name: str
     period: str
+    owner: str
     current: float
     target: float
     progress: int
@@ -741,6 +742,7 @@ class SalesGoalRead(BaseModel):
 class SalesGoalCreate(BaseModel):
     name: str = Field(min_length=1)
     period: str = "2026 Q2"
+    owner: str = "未分配"
     current: float = Field(default=0, ge=0)
     target: float = Field(default=1, gt=0)
     progress: int | None = Field(default=None, ge=0, le=100)
@@ -750,6 +752,7 @@ class SalesGoalCreate(BaseModel):
 class SalesGoalUpdate(BaseModel):
     name: str | None = None
     period: str | None = None
+    owner: str | None = None
     current: float | None = Field(default=None, ge=0)
     target: float | None = Field(default=None, gt=0)
     progress: int | None = Field(default=None, ge=0, le=100)

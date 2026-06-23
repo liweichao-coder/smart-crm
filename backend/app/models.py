@@ -228,6 +228,7 @@ class TaskItem(TaskItemBase, table=True):
 class SalesGoalBase(SQLModel):
     name: str
     period: str
+    owner: str = Field(default="李伟超", index=True)
     current: float
     target: float
     progress: int

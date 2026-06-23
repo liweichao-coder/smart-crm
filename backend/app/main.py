@@ -3072,27 +3072,37 @@ def delete_task(
     return delete_response("task", task_id)
 
 
-@app.get("/api/goals", response_model=list[SalesGoalRead] | PaginatedResponse[SalesGoalRead], dependencies=[Depends(require_permission("crm:read"))])
+@app.get("/api/goals", response_model=list[SalesGoalRead] | PaginatedResponse[SalesGoalRead])
 def list_goals(
     session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:read"))],
     page: int | None = Query(default=None, ge=1),
     per_page: int | None = Query(default=None, ge=1, le=100),
     q: str = "",
     period: str = "",
+    owner: str = "",
 ) -> list[SalesGoal] | dict:
     goals = session.exec(select(SalesGoal).order_by(SalesGoal.created_at.desc())).all()
-    goals = filter_records(goals, q=q, fields=("name", "period", "note"), period=period)
+    goals = filter_by_owner_scope(goals, current_user)
+    goals = filter_records(goals, q=q, fields=("name", "period", "owner", "note"), period=period, owner=owner)
     return paginate_or_list(goals, page=page, per_page=per_page)
 
 
-@app.post("/api/goals", response_model=SalesGoalRead, status_code=201, dependencies=[Depends(require_permission("crm:write"))])
-def create_goal(payload: SalesGoalCreate, session: SessionDep) -> SalesGoal:
+@app.post("/api/goals", response_model=SalesGoalRead, status_code=201)
+def create_goal(
+    payload: SalesGoalCreate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> SalesGoal:
     progress = payload.progress
     if progress is None:
         progress = round(payload.current / payload.target * 100) if payload.target else 0
+    owner = normalize_payload_owner(payload.owner, current_user)
+    require_payload_owner_scope(current_user, owner)
     goal = SalesGoal(
         name=payload.name,
         period=payload.period,
+        owner=owner,
         current=payload.current,
         target=payload.target,
         progress=min(max(progress, 0), 100),
@@ -3105,21 +3115,30 @@ def create_goal(payload: SalesGoalCreate, session: SessionDep) -> SalesGoal:
         action="create",
         entity_type="goal",
         entity_id=goal.id,
-        operator="目标管理员",
+        operator=goal.owner,
         summary=f"新建销售目标 {goal.name}",
-        detail=f"周期 {goal.period}，进度 {goal.progress}%",
+        detail=f"周期 {goal.period}，负责人 {goal.owner}，进度 {goal.progress}%",
     )
     session.commit()
     session.refresh(goal)
     return goal
 
 
-@app.patch("/api/goals/{goal_id}", response_model=SalesGoalRead, dependencies=[Depends(require_permission("crm:write"))])
-def update_goal(goal_id: int, payload: SalesGoalUpdate, session: SessionDep) -> SalesGoal:
+@app.patch("/api/goals/{goal_id}", response_model=SalesGoalRead)
+def update_goal(
+    goal_id: int,
+    payload: SalesGoalUpdate,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> SalesGoal:
     goal = session.get(SalesGoal, goal_id)
     if not goal:
         raise HTTPException(status_code=404, detail="目标不存在")
+    require_owner_scope(current_user, goal.owner)
     updates = patch_values(payload)
+    if "owner" in updates:
+        updates["owner"] = normalize_payload_owner(updates["owner"], current_user)
+        require_payload_owner_scope(current_user, updates["owner"])
     apply_updates(goal, updates)
     if "progress" not in updates and goal.target:
         goal.progress = min(max(round(goal.current / goal.target * 100), 0), 100)
@@ -3129,7 +3148,7 @@ def update_goal(goal_id: int, payload: SalesGoalUpdate, session: SessionDep) -> 
         action="update",
         entity_type="goal",
         entity_id=goal.id,
-        operator="目标管理员",
+        operator=goal.owner,
         summary=f"更新销售目标 {goal.name}",
         detail=", ".join(sorted(updates.keys())) or "更新目标资料",
     )
@@ -3138,19 +3157,24 @@ def update_goal(goal_id: int, payload: SalesGoalUpdate, session: SessionDep) -> 
     return goal
 
 
-@app.delete("/api/goals/{goal_id}", dependencies=[Depends(require_permission("crm:write"))])
-def delete_goal(goal_id: int, session: SessionDep) -> dict[str, bool | int | str]:
+@app.delete("/api/goals/{goal_id}")
+def delete_goal(
+    goal_id: int,
+    session: SessionDep,
+    current_user: Annotated[AuthUser, Depends(require_permission("crm:write"))],
+) -> dict[str, bool | int | str]:
     goal = session.get(SalesGoal, goal_id)
     if not goal:
         raise HTTPException(status_code=404, detail="目标不存在")
+    require_owner_scope(current_user, goal.owner)
     add_business_audit(
         session,
         action="delete",
         entity_type="goal",
         entity_id=goal_id,
-        operator="目标管理员",
+        operator=goal.owner,
         summary=f"删除销售目标 {goal.name}",
-        detail=f"周期 {goal.period}",
+        detail=f"周期 {goal.period}，负责人 {goal.owner}",
     )
     session.delete(goal)
     session.commit()

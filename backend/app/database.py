@@ -95,6 +95,14 @@ def run_lightweight_migrations() -> None:
                 if column_name not in recommendation_columns:
                     connection.execute(text(f"ALTER TABLE copilotrecommendation ADD COLUMN {column_name} {column_def}"))
 
+        goal_exists = connection.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='salesgoal'")
+        ).first()
+        if goal_exists:
+            goal_columns = {row[1] for row in connection.execute(text("PRAGMA table_info(salesgoal)")).fetchall()}
+            if "owner" not in goal_columns:
+                connection.execute(text("ALTER TABLE salesgoal ADD COLUMN owner VARCHAR NOT NULL DEFAULT '李伟超'"))
+
 
 def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)

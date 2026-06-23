@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app import database
 from app.config import settings
 import app.main as main_module
-from app.models import AuthUser, CopilotRecommendation, Customer, CustomerActivity, SalesLead, SalesOrder, TaskItem
+from app.models import AuthUser, CopilotRecommendation, Customer, CustomerActivity, SalesGoal, SalesLead, SalesOrder, TaskItem
 from app.seed import seed_data
 
 
@@ -97,6 +97,65 @@ def test_customer_owner_lightweight_migration_backfills_from_contacts(monkeypatc
     with migration_engine.connect() as connection:
         columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(customer)").fetchall()}
         owner = connection.exec_driver_sql("SELECT owner FROM customer WHERE id = 1").scalar_one()
+
+    assert "owner" in columns
+    assert owner == "李伟超"
+
+
+def test_sales_goal_owner_lightweight_migration(monkeypatch) -> None:
+    migration_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    with migration_engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE customer (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                company VARCHAR NOT NULL,
+                industry VARCHAR NOT NULL,
+                city VARCHAR NOT NULL,
+                contact_person VARCHAR NOT NULL,
+                phone VARCHAR NOT NULL,
+                email VARCHAR NOT NULL,
+                source VARCHAR NOT NULL,
+                level VARCHAR NOT NULL,
+                annual_revenue FLOAT NOT NULL,
+                status VARCHAR NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            CREATE TABLE salesgoal (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                period VARCHAR NOT NULL,
+                current FLOAT NOT NULL,
+                target FLOAT NOT NULL,
+                progress INTEGER NOT NULL,
+                note VARCHAR NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO salesgoal
+            (id, name, period, current, target, progress, note, created_at)
+            VALUES (1, '旧版销售目标', '2026 Q2', 10, 100, 10, '旧版目标缺少负责人', '2026-06-23 00:00:00')
+            """
+        )
+
+    monkeypatch.setattr(database, "engine", migration_engine)
+    database.run_lightweight_migrations()
+
+    with migration_engine.connect() as connection:
+        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(salesgoal)").fetchall()}
+        owner = connection.exec_driver_sql("SELECT owner FROM salesgoal WHERE id = 1").scalar_one()
 
     assert "owner" in columns
     assert owner == "李伟超"
@@ -610,6 +669,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
         leads = client.get("/api/leads", headers=headers)
         tasks = client.get("/api/tasks", headers=headers)
         orders = client.get("/api/orders", headers=headers)
+        goals = client.get("/api/goals", headers=headers)
         created_customer = client.post("/api/customers", json={"company": "销售权限客户", "contact_person": "销售员"}, headers=headers)
         denied_customer_create = client.post(
             "/api/customers",
@@ -627,14 +687,17 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
             other_lead = session.exec(select(SalesLead).where(SalesLead.owner != "李伟超")).first()
             other_order = session.exec(select(SalesOrder).where(SalesOrder.owner != "李伟超")).first()
             other_task = session.exec(select(TaskItem).where(TaskItem.owner != "李伟超")).first()
+            other_goal = session.exec(select(SalesGoal).where(SalesGoal.owner != "李伟超")).first()
             assert other_customer is not None
             assert other_lead is not None
             assert other_order is not None
             assert other_task is not None
+            assert other_goal is not None
             other_customer_id = other_customer.id
             other_lead_id = other_lead.id
             other_order_id = other_order.id
             other_task_id = other_task.id
+            other_goal_id = other_goal.id
 
             own_recommendation = CopilotRecommendation(
                 source="scope_test",
@@ -671,6 +734,8 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
         denied_lead_update = client.patch(f"/api/leads/{other_lead_id}", json={"stage": "won"}, headers=headers)
         denied_order_update = client.patch(f"/api/orders/{other_order_id}", json={"status": "fulfilled"}, headers=headers)
         denied_task_update = client.patch(f"/api/tasks/{other_task_id}", json={"status": "today"}, headers=headers)
+        denied_goal_update = client.patch(f"/api/goals/{other_goal_id}", json={"current": 90}, headers=headers)
+        denied_goal_delete = client.delete(f"/api/goals/{other_goal_id}", headers=headers)
         products = client.get("/api/products", headers=headers).json()
         created_contact_default_owner = client.post(
             "/api/contacts",
@@ -700,6 +765,16 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
         created_task_default_owner = client.post(
             "/api/tasks",
             json={"title": "默认负责人任务", "owner": "新负责人", "due_date": "明天 18:00"},
+            headers=headers,
+        )
+        created_goal_default_owner = client.post(
+            "/api/goals",
+            json={"name": "默认负责人目标", "owner": "未分配", "current": 10, "target": 100},
+            headers=headers,
+        )
+        denied_goal_create = client.post(
+            "/api/goals",
+            json={"name": "越权销售目标", "owner": "王蕾", "current": 10, "target": 100},
             headers=headers,
         )
         created_order_default_owner = client.post(
@@ -781,6 +856,7 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert leads.status_code == 200
     assert tasks.status_code == 200
     assert orders.status_code == 200
+    assert goals.status_code == 200
     assert recommendations.status_code == 200
     assert own_copilot_ask.status_code == 200
     assert denied_copilot_ask.status_code == 403
@@ -788,10 +864,12 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert leads.json()
     assert tasks.json()
     assert orders.json()
+    assert goals.json()
     assert all(item["owner"] == "李伟超" for item in customers.json())
     assert all(item["owner"] == "李伟超" for item in leads.json())
     assert all(item["owner"] == "李伟超" for item in tasks.json())
     assert all(item["owner"] == "李伟超" for item in orders.json())
+    assert all(item["owner"] == "李伟超" for item in goals.json())
     assert all(item["owner"] == "李伟超" for item in recommendations.json())
     assert any(item["id"] == own_recommendation_id for item in recommendations.json())
     assert all(item["id"] != other_recommendation_id for item in recommendations.json())
@@ -809,6 +887,8 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert created_case_default_owner.json()["owner"] == "李伟超"
     assert created_task_default_owner.status_code == 201
     assert created_task_default_owner.json()["owner"] == "李伟超"
+    assert created_goal_default_owner.status_code == 201
+    assert created_goal_default_owner.json()["owner"] == "李伟超"
     assert created_order_default_owner.status_code == 201
     assert created_order_default_owner.json()["owner"] == "李伟超"
     assert denied_customer_create.status_code == 403
@@ -818,6 +898,9 @@ def test_rbac_sales_role_permissions(monkeypatch) -> None:
     assert denied_lead_update.status_code == 403
     assert denied_order_update.status_code == 403
     assert denied_task_update.status_code == 403
+    assert denied_goal_create.status_code == 403
+    assert denied_goal_update.status_code == 403
+    assert denied_goal_delete.status_code == 403
     assert denied_recommendation_feedback.status_code == 403
     assert denied_recommendation_task.status_code == 403
     assert denied_product.status_code == 403
