@@ -9,6 +9,7 @@ import {
   Building2,
   Calendar,
   CheckSquare,
+  ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
   ClipboardList,
@@ -61,6 +62,7 @@ import {
   askCopilot,
   changeAuthPassword,
   fetchCases,
+  fetchAuthAuditLogs,
   fetchAiAuditLogs,
   fetchAiQualityReport,
   fetchApprovalPerformanceReport,
@@ -163,6 +165,7 @@ const navItems = [
   { path: '/reports', label: '销售报表', icon: BarChart3, title: 'Reports | 深大 AI CRM', permission: 'reports:read' },
   { path: '/team', label: '团队成员', icon: Users, title: 'Team | 深大 AI CRM', permission: 'team:manage' },
   { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM', permission: 'ai:use' },
+  { path: '/auth-audit', label: '认证审计', icon: KeyRound, title: 'Auth Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/business-audit', label: '操作审计', icon: ClipboardList, title: 'Business Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/permissions', label: '权限矩阵', icon: KeyRound, title: 'Permissions | 深大 AI CRM', permission: 'permissions:read' },
@@ -373,6 +376,21 @@ const copilotFeedbackLabelMap = {
   helpful: '有帮助',
   not_helpful: '不匹配',
   dismissed: '已忽略',
+}
+
+const authAuditEventLabelMap = {
+  login: '登录',
+  register: '注册',
+  profile_update: '资料更新',
+  password_change: '密码修改',
+  logout: '退出登录',
+  team_create: '团队成员创建',
+  team_update: '团队成员更新',
+}
+
+const authAuditStatusLabelMap = {
+  success: '成功',
+  failed: '失败',
 }
 
 const businessActionLabelMap = {
@@ -1217,6 +1235,7 @@ function App() {
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/team" element={<TeamMembersPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
+        <Route path="/auth-audit" element={<AuthAuditPage />} />
         <Route path="/ai-audit" element={<AiAuditPage />} />
         <Route path="/business-audit" element={<BusinessAuditPage />} />
         <Route path="/permissions" element={<PermissionMatrixPage />} />
@@ -3888,6 +3907,233 @@ function CopilotPage() {
         {!historyLoading && !historyError && !historyRecords.length ? (
           <EmptyState icon={Bot} title="暂无推荐历史" subtitle="打开副驾摘要或生成跟进话术后会自动落库。" />
         ) : null}
+      </section>
+    </div>
+  )
+}
+
+function AuthAuditPage() {
+  const initialDraftFilters = { q: '', event: '', status: '' }
+  const [draftFilters, setDraftFilters] = useState(initialDraftFilters)
+  const [filters, setFilters] = useState({ ...initialDraftFilters, page: 1, per_page: 20 })
+  const [pageState, setPageState] = useState({
+    items: [],
+    total: 0,
+    page: 1,
+    per_page: 20,
+    pages: 1,
+    has_next: false,
+    has_previous: false,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    fetchAuthAuditLogs(filters)
+      .then((payload) => {
+        if (!mounted) {
+          return
+        }
+        const items = Array.isArray(payload) ? payload : payload?.items ?? []
+        setPageState({
+          items,
+          total: Array.isArray(payload) ? items.length : payload?.total ?? items.length,
+          page: Array.isArray(payload) ? 1 : payload?.page ?? filters.page,
+          per_page: Array.isArray(payload) ? items.length : payload?.per_page ?? filters.per_page,
+          pages: Array.isArray(payload) ? 1 : payload?.pages ?? 1,
+          has_next: Array.isArray(payload) ? false : Boolean(payload?.has_next),
+          has_previous: Array.isArray(payload) ? false : Boolean(payload?.has_previous),
+        })
+        setError('')
+      })
+      .catch((nextError) => {
+        if (mounted) {
+          setError(nextError.message || '认证审计日志加载失败')
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [filters])
+
+  const logs = pageState.items
+  const latestLog = logs[0]
+  const pageSummary = useMemo(() => {
+    const successCount = logs.filter((log) => log.status === 'success').length
+    const failedCount = logs.filter((log) => log.status === 'failed').length
+    const accountGovernanceCount = logs.filter((log) => ['profile_update', 'password_change', 'team_create', 'team_update'].includes(log.event)).length
+    return { successCount, failedCount, accountGovernanceCount }
+  }, [logs])
+
+  const handleFilterChange = (name, value) => {
+    setDraftFilters((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleFilterSubmit = (event) => {
+    event.preventDefault()
+    setLoading(true)
+    setFilters((current) => ({ ...current, ...draftFilters, page: 1 }))
+  }
+
+  const handleFilterReset = () => {
+    setDraftFilters(initialDraftFilters)
+    setLoading(true)
+    setFilters({ ...initialDraftFilters, page: 1, per_page: 20 })
+  }
+
+  const handlePageChange = (nextPage) => {
+    setLoading(true)
+    setFilters((current) => ({ ...current, page: Math.max(1, nextPage) }))
+  }
+
+  return (
+    <div className="crm-page-stack">
+      <section className="crm-hero-panel crm-copilot-hero">
+        <div>
+          <span className="crm-overline">Auth Audit</span>
+          <h2>认证审计</h2>
+          <p>从后端认证审计表读取登录、注册、个人资料、密码和团队成员变更记录，验证账号治理、RBAC 和安全留痕。</p>
+        </div>
+        <div className="crm-copilot-summary">
+          <KeyRound size={18} />
+          <strong>{latestLog ? `最近一次为 ${authAuditEventLabelMap[latestLog.event] ?? latestLog.event}，账号 ${latestLog.account}，结果 ${authAuditStatusLabelMap[latestLog.status] ?? latestLog.status}。` : '登录、注册、改密码或维护团队账号后会自动写入认证审计。'}</strong>
+        </div>
+      </section>
+
+      <form className="crm-panel crm-report-filter-bar" onSubmit={handleFilterSubmit}>
+        <label className="crm-field">
+          <span>关键词</span>
+          <input placeholder="账号、事件、详情" value={draftFilters.q} onChange={(event) => handleFilterChange('q', event.target.value)} />
+        </label>
+        <label className="crm-field">
+          <span>事件</span>
+          <select value={draftFilters.event} onChange={(event) => handleFilterChange('event', event.target.value)}>
+            <option value="">全部事件</option>
+            {Object.entries(authAuditEventLabelMap).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="crm-field">
+          <span>状态</span>
+          <select value={draftFilters.status} onChange={(event) => handleFilterChange('status', event.target.value)}>
+            <option value="">全部状态</option>
+            {Object.entries(authAuditStatusLabelMap).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <div className="crm-report-filter-actions">
+          <button className="crm-primary-button" type="submit" disabled={loading}>
+            <Filter size={16} />
+            应用筛选
+          </button>
+          <button className="crm-ghost-button" type="button" onClick={handleFilterReset} disabled={loading}>
+            <RefreshCw size={16} />
+            重置
+          </button>
+        </div>
+      </form>
+
+      <ResourceSyncState loading={loading} error={error} />
+
+      <section className="crm-metric-grid crm-report-metric-grid">
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-accent">
+            <KeyRound size={18} />
+          </div>
+          <div>
+            <span>审计总数</span>
+            <strong>{pageState.total}</strong>
+            <small>后端分页查询的认证日志</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-won">
+            <Shield size={18} />
+          </div>
+          <div>
+            <span>本页成功</span>
+            <strong>{pageSummary.successCount}</strong>
+            <small>登录、资料或团队操作成功记录</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-danger">
+            <Activity size={18} />
+          </div>
+          <div>
+            <span>本页失败</span>
+            <strong>{pageSummary.failedCount}</strong>
+            <small>可用于演示账号风控与错误留痕</small>
+          </div>
+        </article>
+        <article className="crm-panel crm-metric-card">
+          <div className="crm-metric-icon tone-qualified">
+            <Users size={18} />
+          </div>
+          <div>
+            <span>账号治理</span>
+            <strong>{pageSummary.accountGovernanceCount}</strong>
+            <small>资料、密码和团队成员维护记录</small>
+          </div>
+        </article>
+      </section>
+
+      <section className="crm-panel">
+        <PanelHeader title="认证安全留痕" subtitle="由 FastAPI 认证、个人资料和团队管理接口自动写入" actionLabel={`第 ${pageState.page} / ${Math.max(1, pageState.pages)} 页`} />
+        <div className="crm-table-wrap">
+          <table className="crm-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>事件</th>
+                <th>状态</th>
+                <th>账号</th>
+                <th>用户</th>
+                <th>组织</th>
+                <th>详情</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id}>
+                  <td>{formatDateTime(log.created_at)}</td>
+                  <td>{authAuditEventLabelMap[log.event] ?? log.event}</td>
+                  <td>
+                    <StatusBadge
+                      value={authAuditStatusLabelMap[log.status] ?? log.status}
+                      tone={log.status === 'success' ? 'success' : log.status === 'failed' ? 'danger' : 'neutral'}
+                    />
+                  </td>
+                  <td>{log.account}</td>
+                  <td>{log.user_id ? `#${log.user_id}` : '未绑定'}</td>
+                  <td>{log.organization_id ? `#${log.organization_id}` : '未绑定'}</td>
+                  <td>{log.detail || '无补充说明'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!loading && !error && !logs.length ? <EmptyState icon={KeyRound} title="暂无认证审计记录" subtitle="尝试登录、修改资料、修改密码或创建团队成员后会出现在这里。" /> : null}
+        <div className="crm-report-filter-actions crm-audit-pagination">
+          <button className="crm-ghost-button" type="button" onClick={() => handlePageChange(pageState.page - 1)} disabled={loading || !pageState.has_previous}>
+            <ChevronLeft size={16} />
+            上一页
+          </button>
+          <span className="crm-muted-label">共 {pageState.total} 条，每页 {pageState.per_page} 条</span>
+          <button className="crm-ghost-button" type="button" onClick={() => handlePageChange(pageState.page + 1)} disabled={loading || !pageState.has_next}>
+            下一页
+            <ChevronRight size={16} />
+          </button>
+        </div>
       </section>
     </div>
   )

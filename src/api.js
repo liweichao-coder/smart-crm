@@ -177,6 +177,10 @@ export function saveUserPreference(namespace, value) {
   })
 }
 
+export function fetchAuthAuditLogs(params) {
+  return request(`/api/auth/audit-logs${buildQueryString(params)}`)
+}
+
 export function fetchAiAuditLogs(params) {
   return request(`/api/ai-audit-logs${buildQueryString(params)}`)
 }
