@@ -1498,6 +1498,63 @@ def test_update_and_delete_business_resources() -> None:
         assert (entity_type, "delete") in audit_actions
 
 
+def test_lead_stage_update_creates_customer_activity_timeline(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    with TestClient(app) as client:
+        customer = client.post(
+            "/api/customers",
+            json={"company": "管道联动客户", "industry": "智能制造", "contact_person": "管道负责人", "owner": "李伟超"},
+        ).json()
+        lead = client.post(
+            "/api/leads",
+            json={
+                "title": "管道联动商机",
+                "customer_name": "管道联动客户",
+                "owner": "李伟超",
+                "stage": "new",
+                "expected_amount": 96000,
+                "next_action": "安排方案评审会",
+                "due_date": "2026-06-30",
+            },
+        ).json()
+        stage_response = client.patch(f"/api/leads/{lead['id']}", json={"stage": "proposal"})
+        amount_response = client.patch(f"/api/leads/{lead['id']}", json={"expected_amount": 99000})
+        activities_response = client.get(
+            "/api/customer-activities",
+            params={"customer_id": customer["id"], "q": "商机阶段推进"},
+        )
+        workspace_response = client.get(f"/api/customers/{customer['id']}/workspace")
+        audit_response = client.get(
+            "/api/business-audit-logs",
+            params={"entity_type": "customer_activity", "q": "商机阶段流转"},
+        )
+
+    assert stage_response.status_code == 200
+    assert stage_response.json()["stage"] == "proposal"
+    assert amount_response.status_code == 200
+    assert amount_response.json()["expected_amount"] == 99000
+
+    assert activities_response.status_code == 200
+    activities = activities_response.json()
+    assert len(activities) == 1
+    activity = activities[0]
+    assert activity["customer_id"] == customer["id"]
+    assert activity["activity_type"] == "review"
+    assert activity["subject"] == "商机阶段推进：管道联动商机"
+    assert "新线索" in activity["summary"]
+    assert "方案提案" in activity["summary"]
+    assert activity["next_action"] == "安排方案评审会"
+
+    assert workspace_response.status_code == 200
+    workspace_payload = workspace_response.json()
+    assert any(item["id"] == activity["id"] for item in workspace_payload["activities"])
+    assert any(item["category"] == "互动" and item["title"] == "商机阶段推进：管道联动商机" for item in workspace_payload["timeline"])
+    assert any(factor["key"] == "relationship" for factor in workspace_payload["health_profile"]["factors"])
+
+    assert audit_response.status_code == 200
+    assert any(log["entity_id"] == activity["id"] and log["action"] == "create" for log in audit_response.json())
+
+
 def test_customer_workspace_aggregates_account_plan(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:
