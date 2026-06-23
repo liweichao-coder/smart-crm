@@ -1101,7 +1101,7 @@ def build_customer_activity_task(activity: CustomerActivity) -> TaskItem:
         f"客户：{activity.customer_name}",
         f"互动：{activity.subject}",
         f"互动摘要：{activity.summary}",
-        f"结果：{activity.outcome or '待补充'}",
+        f"结果：{activity.outcome or '未填写'}",
         f"建议动作：{activity.next_action or '待销售确认下一步动作'}",
     ]
 
@@ -1240,13 +1240,13 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int |
             sla_message = f"SLA 已逾期 {abs(sla_hours_remaining or 0)} 小时"
         elif risk_level == "critical":
             severity = "critical"
-            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 待补充"
+            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 未设置"
         elif risk_level == "high" or sla_status == "due_soon":
             severity = "warning"
-            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 待补充"
+            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 未设置"
         else:
             severity = "warning" if approval.requested_total >= 100000 else "info"
-            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 待补充"
+            sla_message = f"SLA 剩余 {sla_hours_remaining} 小时" if sla_hours_remaining is not None else "SLA 未设置"
         notifications.append(
             make_notification(
                 notification_id=f"order-approval-{approval.id}",
