@@ -737,6 +737,10 @@ p {
   margin-top: 18px;
 }
 
+.crm-audit-action-row {
+  justify-content: flex-end;
+}
+
 .crm-report-metric-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

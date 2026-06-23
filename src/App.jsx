@@ -97,6 +97,8 @@ import {
   deleteReportSnapshot,
   deleteTask,
   exportAuthAuditLogsCsv,
+  exportAiAuditLogsCsv,
+  exportBusinessAuditLogsCsv,
   exportOrdersCsv,
   fetchCustomers,
   fetchCustomerWorkspace,
@@ -4171,6 +4173,7 @@ function AiAuditPage() {
   const [qualityReport, setQualityReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [exportSaving, setExportSaving] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -4202,6 +4205,25 @@ function AiAuditPage() {
   const operationBreakdown = qualityReport?.operation_breakdown ?? []
   const modelBreakdown = qualityReport?.model_breakdown ?? []
   const recommendationSignal = qualityReport?.recommendation_signal
+  const handleExportAuditLogs = async () => {
+    setExportSaving(true)
+    setError('')
+    try {
+      const blob = await exportAiAuditLogsCsv()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `smart-crm-ai-audit-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (nextError) {
+      setError(nextError.message || 'AI 审计导出失败')
+    } finally {
+      setExportSaving(false)
+    }
+  }
 
   return (
     <div className="crm-page-stack">
@@ -4218,6 +4240,13 @@ function AiAuditPage() {
       </section>
 
       <ResourceSyncState loading={loading} error={error} />
+
+      <div className="crm-report-filter-actions crm-audit-action-row">
+        <button className="crm-ghost-button" type="button" onClick={handleExportAuditLogs} disabled={loading || exportSaving}>
+          <Download size={16} />
+          {exportSaving ? '导出中' : '导出 CSV'}
+        </button>
+      </div>
 
       <section className="crm-metric-grid">
         {qualityMetrics.map((metric) => (
@@ -4365,6 +4394,7 @@ function BusinessAuditPage() {
   const [consistency, setConsistency] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [exportSaving, setExportSaving] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -4403,6 +4433,26 @@ function BusinessAuditPage() {
     }
   }, [consistency, logs])
 
+  const handleExportAuditLogs = async () => {
+    setExportSaving(true)
+    setError('')
+    try {
+      const blob = await exportBusinessAuditLogsCsv()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `smart-crm-business-audit-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (nextError) {
+      setError(nextError.message || '业务审计导出失败')
+    } finally {
+      setExportSaving(false)
+    }
+  }
+
   return (
     <div className="crm-page-stack">
       <section className="crm-hero-panel crm-copilot-hero">
@@ -4418,6 +4468,13 @@ function BusinessAuditPage() {
       </section>
 
       <ResourceSyncState loading={loading} error={error} />
+
+      <div className="crm-report-filter-actions crm-audit-action-row">
+        <button className="crm-ghost-button" type="button" onClick={handleExportAuditLogs} disabled={loading || exportSaving}>
+          <Download size={16} />
+          {exportSaving ? '导出中' : '导出 CSV'}
+        </button>
+      </div>
 
       <section className="crm-metric-grid">
         <article className="crm-panel crm-metric-card">
