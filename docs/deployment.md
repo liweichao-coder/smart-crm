@@ -46,6 +46,8 @@ Root `.env` is used by Vite. Keep it aligned with the backend port:
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
+The current frontend is the root React + Vite app under `src/`. Do not start from a legacy `frontend/` directory; that old template app and its generated screenshots/build output were removed before final delivery to keep deployment unambiguous.
+
 ## 3. Migrate, Reset, and Snapshot Demo Data
 
 When pulling a teammate's code update, run the migration command first if you want to keep the current local data:
