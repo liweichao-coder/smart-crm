@@ -445,15 +445,23 @@ def test_field_level_validation_rejects_invalid_payloads() -> None:
         customer = client.get("/api/customers").json()[0]
         product = client.get("/api/products").json()[0]
         lead = client.get("/api/leads").json()[0]
+        support_case = client.get("/api/cases").json()[0]
         task = client.get("/api/tasks").json()[0]
+        goal = client.get("/api/goals").json()[0]
         responses = [
             client.post("/api/customers", json={"company": "校验客户", "contact_person": "张三", "email": "not-email"}),
             client.post("/api/contacts", json={"name": "校验联系人", "company": "校验客户", "email": "bad-email"}),
             client.post("/api/products", json={"name": "非法分类商品", "sku": "INVALID-CATEGORY-001", "category": "课程", "unit_price": 100, "stock": 1}),
             client.post("/api/leads", json={"title": "   ", "customer_name": "校验客户", "owner": "李伟超"}),
             client.patch(f"/api/leads/{lead['id']}", json={"customer_name": "   "}),
+            client.post("/api/cases", json={"title": "   ", "account": "校验客户", "owner": "李伟超"}),
+            client.patch(f"/api/cases/{support_case['id']}", json={"account": "   "}),
             client.post("/api/cases", json={"title": "非法优先级工单", "account": "校验客户", "owner": "李伟超", "priority": "urgent"}),
+            client.post("/api/tasks", json={"title": "   ", "owner": "李伟超", "due_date": "2026-06-30"}),
+            client.patch(f"/api/tasks/{task['id']}", json={"due_date": "   "}),
             client.patch(f"/api/tasks/{task['id']}", json={"status": "blocked"}),
+            client.post("/api/goals", json={"name": "   ", "period": "2026 Q3", "owner": "李伟超", "current": 10, "target": 100}),
+            client.patch(f"/api/goals/{goal['id']}", json={"period": "   "}),
             client.post("/api/goals", json={"name": "非法目标", "current": 10, "target": 0}),
             client.post(
                 "/api/orders",

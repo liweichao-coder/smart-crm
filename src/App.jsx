@@ -143,10 +143,18 @@ import {
 import { buildOrderPayloadFromCapture } from './captureUtils.js'
 import { ORDER_FILTERS, filterOrders, getStockTone, pickLowStockProducts, summarizeOrders } from './orderUtils.js'
 import { toDraftOwner } from './ownerUtils.js'
-import { buildContactPayload, buildCustomerPayload, buildLeadPayload, buildProductPayload, buildTeamMemberPayload } from './payloadUtils.js'
+import {
+  buildCasePayload,
+  buildContactPayload,
+  buildCustomerPayload,
+  buildGoalPayload,
+  buildLeadPayload,
+  buildProductPayload,
+  buildTaskPayload,
+  buildTeamMemberPayload,
+} from './payloadUtils.js'
 import {
   buildBulkEditPatch,
-  buildClientRecord,
   buildCsvContent,
   createBulkEditDraft,
   createCsvFilename,
@@ -427,27 +435,6 @@ const businessEntityLabelMap = {
   crm: 'CRM 上下文',
 }
 
-const caseStatusValueMap = {
-  Open: 'open',
-  Pending: 'working',
-  Resolved: 'closed',
-}
-
-const taskStatusValueMap = {
-  今天: 'today',
-  本周: 'week',
-  逾期: 'overdue',
-  today: 'today',
-  week: 'week',
-  overdue: 'overdue',
-}
-
-const taskStatusLabelMap = {
-  today: '今天',
-  week: '本周',
-  overdue: '逾期',
-}
-
 function mapStageLabel(stage) {
   return stageLabelMap[stage] ?? stage
 }
@@ -568,42 +555,6 @@ function normalizePaginatedPayload(payload, fallbackPage = 1, fallbackPerPage = 
     pages: Array.isArray(payload) ? 1 : payload?.pages ?? 1,
     has_next: Array.isArray(payload) ? false : Boolean(payload?.has_next),
     has_previous: Array.isArray(payload) ? false : Boolean(payload?.has_previous),
-  }
-}
-
-function buildCasePayload(draft, ownerFallback = userProfile.name) {
-  const statusLabel = toDraftText(draft.statusLabel, 'Open')
-  return {
-    title: toDraftText(draft.title, '新工单'),
-    account: toDraftText(draft.account, '未关联客户'),
-    owner: toDraftOwner(draft.owner, ownerFallback),
-    priority: toDraftText(draft.priority, 'warm'),
-    status: caseStatusValueMap[statusLabel] ?? toDraftText(draft.status, 'open'),
-    status_label: statusLabel,
-  }
-}
-
-function buildTaskPayload(draft, ownerFallback = userProfile.name) {
-  const status = taskStatusValueMap[toDraftText(draft.statusLabel || draft.status, '本周')] ?? 'week'
-  return {
-    title: toDraftText(draft.title, '新任务'),
-    description: toDraftText(draft.description, '补充任务说明。'),
-    owner: toDraftOwner(draft.owner, ownerFallback),
-    due_date: toDraftText(draft.dueDate, '今天 18:00'),
-    priority: toDraftText(draft.priority, 'warm'),
-    status,
-    status_label: taskStatusLabelMap[status],
-  }
-}
-
-function buildGoalPayload(draft, ownerFallback = userProfile.name) {
-  return {
-    name: toDraftText(draft.name, '新销售目标'),
-    period: toDraftText(draft.period, '2026 Q3'),
-    owner: toDraftOwner(draft.owner, ownerFallback),
-    current: toDraftNumber(draft.current),
-    target: toDraftNumber(draft.target, 1),
-    note: toDraftText(draft.note, '持续跟踪目标进度。'),
   }
 }
 
@@ -2205,11 +2156,11 @@ function CasesPage() {
       createLabel="新建工单"
       boardKey="statusLabel"
       columns={[
-        { key: 'title', label: '工单标题' },
-        { key: 'account', label: '客户' },
+        { key: 'title', label: '工单标题', defaultValue: '' },
+        { key: 'account', label: '客户', defaultValue: '' },
         { key: 'owner', label: '负责人' },
-        { key: 'priority', label: '优先级', type: 'badge' },
-        { key: 'status', label: '状态', type: 'badge' },
+        { key: 'priority', label: '优先级', type: 'badge', inputType: 'select', options: ['hot', 'warm', 'cold'], defaultValue: 'warm' },
+        { key: 'status', label: '状态', type: 'badge', inputType: 'select', options: ['open', 'working', 'closed'], optionLabels: { open: 'Open', working: 'Pending', closed: 'Resolved' }, defaultValue: 'open' },
       ]}
     />
   )
@@ -5896,7 +5847,7 @@ function TableResourcePage({
       } else {
         const record = onCreateRecord
           ? await onCreateRecord(draft)
-          : buildClientRecord({ draft, columns, existingCount: rows.length })
+          : await Promise.reject(new Error(`${title} 未接入后端创建接口`))
         setRows((currentRows) => [record, ...currentRows])
       }
       setCreateOpen(false)
@@ -6270,7 +6221,7 @@ function BoardResourcePage({
       } else {
         const record = onCreateRecord
           ? await onCreateRecord(draft)
-          : buildClientRecord({ draft, columns, existingCount: rows.length, workflowField })
+          : await Promise.reject(new Error(`${title} 未接入后端创建接口`))
         setRows((currentRows) => [record, ...currentRows])
       }
       setCreateOpen(false)
@@ -6450,11 +6401,11 @@ function TasksPage() {
   const taskCreateColumns = useMemo(
     () => [
       { key: 'title', label: '任务标题' },
-      { key: 'description', label: '任务说明' },
+      { key: 'description', label: '任务说明', defaultValue: '', required: false },
       { key: 'owner', label: '负责人' },
-      { key: 'dueDate', label: '到期时间' },
-      { key: 'priority', label: '优先级' },
-      { key: 'statusLabel', label: '状态' },
+      { key: 'dueDate', label: '到期时间', defaultValue: '' },
+      { key: 'priority', label: '优先级', inputType: 'select', options: ['hot', 'warm', 'cold'], defaultValue: 'warm' },
+      { key: 'statusLabel', label: '状态', inputType: 'select', options: ['今天', '本周', '逾期'], defaultValue: '本周' },
     ],
     [],
   )
@@ -6608,12 +6559,12 @@ function GoalsPage() {
   const ownerDraftDefault = useMemo(() => ({ key: 'owner', value: activeProfile.name }), [activeProfile.name])
   const goalCreateColumns = useMemo(
     () => [
-      { key: 'name', label: '目标名称' },
-      { key: 'period', label: '周期' },
+      { key: 'name', label: '目标名称', defaultValue: '' },
+      { key: 'period', label: '周期', defaultValue: '' },
       { key: 'owner', label: '负责人' },
       { key: 'current', label: '当前值', format: 'currency' },
-      { key: 'target', label: '目标值', format: 'currency' },
-      { key: 'note', label: '说明' },
+      { key: 'target', label: '目标值', format: 'currency', defaultValue: '' },
+      { key: 'note', label: '说明', defaultValue: '', required: false },
     ],
     [],
   )

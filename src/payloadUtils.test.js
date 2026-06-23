@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildContactPayload, buildCustomerPayload, buildLeadPayload, buildProductPayload, buildTeamMemberPayload } from './payloadUtils.js'
+import {
+  buildCasePayload,
+  buildContactPayload,
+  buildCustomerPayload,
+  buildGoalPayload,
+  buildLeadPayload,
+  buildProductPayload,
+  buildTaskPayload,
+  buildTeamMemberPayload,
+} from './payloadUtils.js'
 
 test('buildCustomerPayload preserves real customer master data fields', () => {
   const payload = buildCustomerPayload({
@@ -136,6 +145,81 @@ test('buildLeadPayload leaves missing lead title and customer empty for backend 
     stage: 'new',
     next_action: '',
     ai_assisted: false,
+  })
+})
+
+test('buildCasePayload preserves real case fields without placeholder account', () => {
+  const payload = buildCasePayload({
+    title: '  续费审批阻塞  ',
+    account: ' 深圳园区科技 ',
+    owner: '待分配',
+    priority: 'hot',
+    statusLabel: 'Pending',
+  }, '李伟超')
+
+  assert.deepEqual(payload, {
+    title: '续费审批阻塞',
+    account: '深圳园区科技',
+    owner: '李伟超',
+    priority: 'hot',
+    status: 'working',
+    status_label: 'Pending',
+  })
+})
+
+test('buildTaskPayload preserves real task text and leaves missing required fields empty', () => {
+  assert.deepEqual(buildTaskPayload({
+    title: '  准备 ROI 测算  ',
+    description: '  下周例会前补齐测算表  ',
+    owner: '新负责人',
+    dueDate: '2026-06-30 18:00',
+    priority: 'warm',
+    statusLabel: '今天',
+  }, '徐柠'), {
+    title: '准备 ROI 测算',
+    description: '下周例会前补齐测算表',
+    owner: '徐柠',
+    due_date: '2026-06-30 18:00',
+    priority: 'warm',
+    status: 'today',
+    status_label: '今天',
+  })
+
+  assert.deepEqual(buildTaskPayload({
+    title: '',
+    description: '',
+    owner: '',
+    dueDate: '',
+    priority: '',
+    statusLabel: '',
+  }, '徐柠'), {
+    title: '',
+    description: '',
+    owner: '徐柠',
+    due_date: '',
+    priority: 'warm',
+    status: 'week',
+    status_label: '本周',
+  })
+})
+
+test('buildGoalPayload keeps real goal fields and lets backend reject empty target data', () => {
+  const payload = buildGoalPayload({
+    name: '  华南续费目标  ',
+    period: '  2026 Q3  ',
+    owner: '未分配',
+    current: '120000',
+    target: '',
+    note: '  聚焦存量续费  ',
+  }, '李伟超')
+
+  assert.deepEqual(payload, {
+    name: '华南续费目标',
+    period: '2026 Q3',
+    owner: '李伟超',
+    current: 120000,
+    target: 0,
+    note: '聚焦存量续费',
   })
 })
 
