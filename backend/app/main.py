@@ -1239,6 +1239,34 @@ def collect_notifications(session: Session, current_user: AuthUser, limit: int |
             )
         )
 
+    activities = session.exec(select(CustomerActivity).order_by(CustomerActivity.occurred_at.desc())).all()
+    activities = filter_by_organization_scope(activities, current_user)
+    activities = filter_by_owner_scope(activities, current_user)
+    activity_notification_count = 0
+    for activity in activities:
+        if not activity.next_action.strip():
+            continue
+        if activity.id and find_task_for_customer_activity(session, activity.id, current_user.organization_id):
+            continue
+        severity = "warning" if activity.sentiment in {"risk", "negative"} else "info"
+        notifications.append(
+            make_notification(
+                notification_id=f"customer-activity-{activity.id}",
+                category="客户互动",
+                severity=severity,
+                title=f"客户跟进：{activity.subject}",
+                message=f"{activity.customer_name} / {activity.next_action}",
+                href=f"/accounts/{activity.customer_id}",
+                action_label="转为任务",
+                entity_type="customer_activity",
+                entity_id=activity.id,
+                created_at=activity.occurred_at,
+            )
+        )
+        activity_notification_count += 1
+        if activity_notification_count >= 8:
+            break
+
     recommendations = session.exec(select(CopilotRecommendation).order_by(CopilotRecommendation.created_at.desc())).all()
     recommendations = filter_by_organization_scope(recommendations, current_user)
     recommendations = filter_by_owner_scope(recommendations, current_user)[:8]

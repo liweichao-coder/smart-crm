@@ -255,7 +255,23 @@ def test_dashboard_payload() -> None:
 def test_notifications_are_data_driven(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:
-        response = client.get("/api/notifications")
+        customer = client.post(
+            "/api/customers",
+            json={"company": "通知互动客户", "industry": "智能制造", "contact_person": "通知负责人", "owner": "李伟超"},
+        ).json()
+        activity = client.post(
+            f"/api/customers/{customer['id']}/activities",
+            json={
+                "activity_type": "review",
+                "subject": "续约风险复盘",
+                "summary": "客户反馈需要重新确认预算和采购节奏。",
+                "next_action": "准备续约风险处理方案",
+                "sentiment": "risk",
+            },
+        ).json()
+        response = client.get("/api/notifications?limit=50")
+        activity_task_response = client.post(f"/api/customer-activities/{activity['id']}/task")
+        after_activity_task = client.get("/api/notifications?limit=50")
         client.get("/api/copilot/summary")
         copilot_response = client.get("/api/notifications?limit=50")
         target_id = response.json()[0]["id"]
@@ -274,9 +290,20 @@ def test_notifications_are_data_driven(monkeypatch) -> None:
     notifications = response.json()
     assert notifications
     categories = {item["category"] for item in notifications}
-    assert {"任务", "库存", "商机"} <= categories
+    assert {"任务", "库存", "商机", "客户互动"} <= categories
     assert all(item["href"].startswith("/") for item in notifications)
     assert any(item["severity"] == "critical" for item in notifications)
+    activity_notification_id = f"customer-activity-{activity['id']}"
+    assert any(
+        item["id"] == activity_notification_id
+        and item["entity_type"] == "customer_activity"
+        and item["severity"] == "warning"
+        and item["href"] == f"/accounts/{customer['id']}"
+        and "准备续约风险处理方案" in item["message"]
+        for item in notifications
+    )
+    assert activity_task_response.status_code == 201
+    assert all(item["id"] != activity_notification_id for item in after_activity_task.json())
 
     assert copilot_response.status_code == 200
     copilot_notifications = copilot_response.json()
