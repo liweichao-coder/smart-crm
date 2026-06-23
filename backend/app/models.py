@@ -113,6 +113,7 @@ class NotificationState(NotificationStateBase, table=True):
 
 
 class CustomerBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     name: str = Field(index=True)
     company: str
     owner: str = Field(default="李伟超", index=True)
@@ -133,6 +134,7 @@ class Customer(CustomerBase, table=True):
 
 
 class ProductBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     name: str = Field(index=True)
     sku: str = Field(index=True)
     category: str
@@ -146,6 +148,7 @@ class Product(ProductBase, table=True):
 
 
 class InventoryMovementBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     product_id: int = Field(foreign_key="product.id", index=True)
     change_quantity: int
     before_stock: int
@@ -161,6 +164,7 @@ class InventoryMovement(InventoryMovementBase, table=True):
 
 
 class ContactBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     name: str = Field(index=True)
     company: str = Field(index=True)
     role: str
@@ -176,6 +180,7 @@ class Contact(ContactBase, table=True):
 
 
 class CustomerActivityBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     customer_id: int = Field(foreign_key="customer.id", index=True)
     customer_name: str = Field(index=True)
     owner: str = Field(index=True)
@@ -194,6 +199,7 @@ class CustomerActivity(CustomerActivityBase, table=True):
 
 
 class SalesLeadBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     title: str
     customer_name: str
     owner: str
@@ -211,6 +217,7 @@ class SalesLead(SalesLeadBase, table=True):
 
 
 class SupportCaseBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     title: str
     account: str = Field(index=True)
     owner: str
@@ -226,6 +233,7 @@ class SupportCase(SupportCaseBase, table=True):
 
 
 class TaskItemBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     title: str
     description: str
     owner: str
@@ -241,6 +249,7 @@ class TaskItem(TaskItemBase, table=True):
 
 
 class SalesGoalBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     name: str
     period: str
     owner: str = Field(default="李伟超", index=True)
@@ -256,6 +265,7 @@ class SalesGoal(SalesGoalBase, table=True):
 
 
 class AIInteractionLogBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     operation: str = Field(index=True)
     provider: str = "openai-compatible"
     model: str = ""
@@ -299,6 +309,7 @@ class CaptureDraft(CaptureDraftBase, table=True):
 
 
 class CopilotRecommendationBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     source: str = Field(index=True)
     lead_id: Optional[int] = Field(default=None, index=True)
     lead_title: str = ""
@@ -329,6 +340,7 @@ class CopilotRecommendation(CopilotRecommendationBase, table=True):
 
 
 class BusinessAuditLogBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     action: str = Field(index=True)
     entity_type: str = Field(index=True)
     entity_id: Optional[int] = Field(default=None, index=True)
@@ -359,6 +371,7 @@ class ReportSnapshot(ReportSnapshotBase, table=True):
 
 
 class SalesOrderBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     customer_id: int = Field(foreign_key="customer.id")
     owner: str
     region: str
@@ -378,6 +391,7 @@ class SalesOrder(SalesOrderBase, table=True):
 
 
 class OrderApprovalRequestBase(SQLModel):
+    organization_id: int = Field(default=1, foreign_key="organization.id", index=True)
     order_id: int = Field(foreign_key="salesorder.id", index=True)
     owner: str = Field(index=True)
     requester: str = Field(index=True)

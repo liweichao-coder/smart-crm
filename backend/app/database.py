@@ -14,6 +14,33 @@ def run_lightweight_migrations() -> None:
     if not settings.database_url.startswith("sqlite"):
         return
     with engine.begin() as connection:
+        organization_tables = [
+            "customer",
+            "product",
+            "inventorymovement",
+            "contact",
+            "customeractivity",
+            "saleslead",
+            "supportcase",
+            "taskitem",
+            "salesgoal",
+            "aiinteractionlog",
+            "copilotrecommendation",
+            "businessauditlog",
+            "salesorder",
+            "orderapprovalrequest",
+        ]
+        for table_name in organization_tables:
+            table_exists = connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name=:table_name"),
+                {"table_name": table_name},
+            ).first()
+            if not table_exists:
+                continue
+            columns = {row[1] for row in connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()}
+            if "organization_id" not in columns:
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN organization_id INTEGER NOT NULL DEFAULT 1"))
+
         table_exists = connection.execute(
             text("SELECT name FROM sqlite_master WHERE type='table' AND name='customer'")
         ).first()
