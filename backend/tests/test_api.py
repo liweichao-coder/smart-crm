@@ -1974,6 +1974,7 @@ def test_vision_extract_text_file_fallback(monkeypatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["capture_draft_id"] is not None
     assert payload["company"] == "云川医疗"
     assert payload["customer_name"] == "陈敏"
     assert payload["customer_id"] is not None
@@ -1982,6 +1983,15 @@ def test_vision_extract_text_file_fallback(monkeypatch) -> None:
     assert payload["items"][0]["product_id"] is not None
     assert payload["items"][0]["product_name"] == "智能巡检终端"
     assert payload["items"][0]["quantity"] == 2
+
+    with TestClient(app) as client:
+        drafts_response = client.get("/api/vision-extract/drafts")
+
+    drafts = drafts_response.json()
+    assert drafts_response.status_code == 200
+    assert drafts[0]["id"] == payload["capture_draft_id"]
+    assert drafts[0]["status"] == "draft"
+    assert drafts[0]["items"][0]["product_id"] == payload["items"][0]["product_id"]
 
 
 def test_vision_extract_llm_json(monkeypatch) -> None:
@@ -2008,6 +2018,7 @@ def test_vision_extract_llm_json(monkeypatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["capture_draft_id"] is not None
     assert payload["company"] == "南山科技"
     assert payload["customer_id"] is not None
     assert payload["fallback_used"] is False
@@ -2015,6 +2026,56 @@ def test_vision_extract_llm_json(monkeypatch) -> None:
     assert payload["items"][0]["product_id"] is not None
     assert payload["items"][0]["product_name"] == "AI 商机评分模块"
     assert payload["items"][0]["quantity"] == 3
+
+
+def test_capture_draft_history_marks_submitted_order(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    order_text = "客户：云川医疗 联系人：陈敏\n智能巡检终端 x1"
+
+    with TestClient(app) as client:
+        extract_response = client.post(
+            "/api/vision-extract",
+            files={"file": ("order.txt", order_text.encode("utf-8"), "text/plain")},
+        )
+        extract_payload = extract_response.json()
+        order_response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": extract_payload["customer_id"],
+                "owner": "李伟超",
+                "region": "华南",
+                "currency": "CNY",
+                "status": "draft",
+                "order_date": "2026-06-22",
+                "due_date": "2026-06-29",
+                "notes": extract_payload["suggested_notes"],
+                "created_by_ai": True,
+                "ai_confidence_score": extract_payload["confidence"],
+                "items": [
+                    {
+                        "product_id": extract_payload["items"][0]["product_id"],
+                        "quantity": extract_payload["items"][0]["quantity"],
+                        "unit_price": extract_payload["items"][0]["unit_price"],
+                    }
+                ],
+            },
+        )
+        order_payload = order_response.json()
+        update_response = client.patch(
+            f"/api/vision-extract/drafts/{extract_payload['capture_draft_id']}",
+            json={"status": "submitted", "submitted_order_id": order_payload["id"]},
+        )
+        paged_response = client.get("/api/vision-extract/drafts?page=1&per_page=5&status=submitted")
+
+    assert extract_response.status_code == 200
+    assert order_response.status_code == 201
+    assert update_response.status_code == 200
+    updated_draft = update_response.json()
+    assert updated_draft["status"] == "submitted"
+    assert updated_draft["submitted_order_id"] == order_payload["id"]
+    paged_payload = paged_response.json()
+    assert paged_payload["total"] == 1
+    assert paged_payload["items"][0]["id"] == extract_payload["capture_draft_id"]
 
 
 def test_ai_audit_logs_record_runtime_actions(monkeypatch) -> None:
