@@ -45,6 +45,7 @@
 - 客户、商品、联系人、客户互动、线索/商机、工单、任务、目标、订单、AI 审计和业务审计列表支持 `page`、`per_page`、`q` 以及常用业务字段筛选；未传分页参数时保持旧版数组响应，方便前端渐进迁移。
 - 资源列表的搜索词、筛选标签、列表/看板视图、表格列显示和排序状态会通过 `/api/preferences/{namespace}` 保存到后端 `UserPreference`，同一账号重新登录后可恢复个人视图偏好，不再只依赖当前 URL 或本地缓存。
 - 表格资源页支持勾选多行、导出选中 CSV、批量编辑和批量删除；批量编辑会逐条调用对应资源的真实后端 PATCH 接口，批量删除会逐条调用真实 DELETE 接口，成功项从列表移除，失败项保留并提示原因。
+- 仓库新增可复跑浏览器 UI 冒烟脚本 `npm run smoke:ui`，会通过真实登录表单进入后端组织，检查仪表盘、客户资源页、订单、报表、应用内删除确认弹窗、深大徽标、8px 圆角、无原生浏览器弹窗和无横向溢出，便于答辩前确认前端不是静态截图。
 - AI 录单已支持上传图片或文本，配置视觉模型时走 OpenAI-compatible 多模态抽取；无视觉模型时使用本地文本解析兜底。
 - 智能录单草稿可在前端复核后提交到 `/api/orders`，生成真实订单并触发库存扣减。
 - AI 副驾、智能录单和订单草稿接口会写入 `AIInteractionLog` 审计表，可在 AI 审计页查看模型、状态、耗时和摘要；AI 审计页同时接入 `/api/reports/ai-quality`，按真实日志展示 LLM 成功率、兜底率、场景覆盖、模型耗时、推荐转任务率和人工好评率。
@@ -143,6 +144,17 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 
 如需把 Copilot 摘要和跟进话术也纳入冒烟，可追加 `--include-ai-write`。该选项会写入 AI 审计和推荐历史，适合答辩前验证 LLM 链路。
 
+### 浏览器 UI 冒烟测试
+
+后端和前端都启动后，可以运行 Playwright 浏览器冒烟脚本，验证真实登录、组织选择、仪表盘、客户列表、应用内删除确认、订单中心、销售报表和基础视觉约束：
+
+```powershell
+cd D:\LwcCode\personal-project\smart-crm
+npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000
+```
+
+默认使用本机 Chrome 通道。若机器没有可用 Chrome，可先执行 `npx playwright install chromium`，再用 `--channel ""` 走 Playwright 自带 Chromium。追加 `--include-ai-page` 会访问 AI 副驾页，可能触发 LLM 摘要和推荐历史写入。
+
 ### 数据库迁移与快照
 
 保留现有数据升级表结构时，使用显式迁移命令：
@@ -163,7 +175,7 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 
 ## 后续增强
 
-- 继续补浏览器级端到端冒烟、更细粒度权限审计和更多经营 BI 维度。
+- 继续补更细粒度权限审计、更多经营 BI 维度和更完整的 Playwright 业务写入流。
 - 将通用卡片、表格、看板拆为独立组件。
 - 继续补更多细分经营 BI 维度、长期效果追踪和批量编辑审计摘要。
 - 详见 `docs/deployment.md` 和 `docs/dev-log/`。

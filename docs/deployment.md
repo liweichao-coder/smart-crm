@@ -84,6 +84,15 @@ cd D:\LwcCode\personal-project\smart-crm
 
 This script logs in with the demo admin account, checks `/api/health`, current session, core CRM resources, notifications, reports, permission matrix, consistency checks, audit list shapes, and the customer workspace. It logs out before exiting so the smoke token is revoked. Add `--include-ai-write` only when you want to verify Copilot summary/follow-up and accept new AI audit/recommendation records.
 
+Run the automated browser UI smoke after both backend and frontend are listening:
+
+```powershell
+cd D:\LwcCode\personal-project\smart-crm
+npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000
+```
+
+This Playwright script first checks `/api/health`, then uses the real login form, selects the backend-provided organization, verifies the dashboard, account list, report page, order page, 8px in-app delete confirmation dialog, no native browser dialogs, and no horizontal overflow. It cancels the delete confirmation instead of mutating demo data and logs out through the UI before finishing. Add `--include-ai-page` only when you want to include the AI Copilot page and accept possible LLM/recommendation writes. The default browser channel is local Chrome; if a teammate has no Chrome installed, run `npx playwright install chromium` once and then pass `--channel ""`.
+
 Before handing the demo database to another teammate, create a SQLite snapshot:
 
 ```powershell
