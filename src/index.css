@@ -1216,7 +1216,8 @@ p {
   accent-color: var(--color-primary-default);
 }
 
-.crm-bulk-edit-field > input {
+.crm-bulk-edit-field > input,
+.crm-bulk-edit-field > select {
   min-height: 40px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1226,7 +1227,8 @@ p {
   font: inherit;
 }
 
-.crm-bulk-edit-field > input:disabled {
+.crm-bulk-edit-field > input:disabled,
+.crm-bulk-edit-field > select:disabled {
   background: rgba(244, 247, 249, 0.88);
   color: var(--muted);
 }

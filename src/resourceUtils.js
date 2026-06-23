@@ -26,6 +26,9 @@ const numericDefaults = {
 export function createDraftFromColumns(columns, workflowField) {
   return columns.reduce((draft, column) => {
     const key = column.key
+    if (Object.hasOwn(column, 'defaultValue')) {
+      return { ...draft, [key]: column.defaultValue }
+    }
     if (Object.hasOwn(numericDefaults, key) || column.format === 'currency') {
       return { ...draft, [key]: numericDefaults[key] ?? 0 }
     }
@@ -211,7 +214,7 @@ export function createBulkEditDraft(columns) {
       ...draft,
       [column.key]: {
         enabled: false,
-        value: '',
+        value: Object.hasOwn(column, 'defaultValue') ? column.defaultValue : '',
       },
     }),
     {},

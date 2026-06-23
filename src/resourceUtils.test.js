@@ -37,6 +37,22 @@ test('createDraftFromColumns builds sensible defaults for resource forms', () =>
   })
 })
 
+test('createDraftFromColumns honors explicit column defaults', () => {
+  const draft = createDraftFromColumns([
+    { key: 'name', label: '客户名称', defaultValue: '' },
+    { key: 'industry', label: '行业', defaultValue: '' },
+    { key: 'email', label: '邮箱', defaultValue: '' },
+    { key: 'status', label: '状态', defaultValue: 'active' },
+  ])
+
+  assert.deepEqual(draft, {
+    name: '',
+    industry: '',
+    email: '',
+    status: 'active',
+  })
+})
+
 test('buildClientRecord normalizes text and currency values', () => {
   const record = buildClientRecord({
     existingCount: 3,
@@ -199,4 +215,20 @@ test('bulk edit helpers keep only enabled fields and normalize values', () => {
     owner: '李伟超',
     revenue: 580000,
   })
+})
+
+test('bulk edit draft keeps select defaults for enabled fields', () => {
+  const columns = [
+    { key: 'status', label: '状态', defaultValue: 'active', options: ['active', 'closed'] },
+  ]
+  const draft = createBulkEditDraft(columns)
+
+  assert.deepEqual(draft, {
+    status: { enabled: false, value: 'active' },
+  })
+
+  const patch = buildBulkEditPatch({
+    status: { enabled: true, value: draft.status.value },
+  }, columns)
+  assert.deepEqual(patch, { status: 'active' })
 })
