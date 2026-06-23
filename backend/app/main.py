@@ -31,6 +31,9 @@ from .schemas import (
     AuthLogoutResponse,
     AuthMeResponse,
     AuthOrganizationRead,
+    AuthPasswordChangeRequest,
+    AuthPasswordChangeResponse,
+    AuthProfileUpdate,
     AuthRegisterRequest,
     AuthSessionResponse,
     AuthUserRead,
@@ -1915,6 +1918,91 @@ def get_current_user(
         user=serialize_auth_user(user, organization),
         organizations=[serialize_auth_organization(user, organization)],
     )
+
+
+@app.patch("/api/auth/profile", response_model=AuthMeResponse)
+def update_auth_profile(
+    payload: AuthProfileUpdate,
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> AuthMeResponse:
+    user, auth_session = current
+    organization = session.get(Organization, user.organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="组织不存在")
+
+    updates = patch_values(payload)
+    if "email" in updates:
+        email = normalize_account(updates["email"])
+        existing = session.exec(select(AuthUser).where(AuthUser.email == email)).first()
+        if existing and existing.id != user.id:
+            record_auth_audit(session, event="profile_update", account=user.email, status="failed", detail="邮箱已被其他账号使用", user=user)
+            session.commit()
+            raise HTTPException(status_code=400, detail="邮箱已被其他账号使用")
+        updates["email"] = email
+    if "phone" in updates:
+        updates["phone"] = updates["phone"] or ""
+    if "full_name" in updates and len(updates["full_name"]) < 2:
+        raise HTTPException(status_code=400, detail="姓名至少需要 2 个字符")
+
+    apply_updates(user, updates)
+    session.add(user)
+    record_auth_audit(
+        session,
+        event="profile_update",
+        account=user.email,
+        status="success",
+        detail=f"更新个人资料：{', '.join(sorted(updates.keys())) or '无字段变化'}",
+        user=user,
+    )
+    session.commit()
+    session.refresh(user)
+    return AuthMeResponse(
+        expires_at=auth_session.expires_at,
+        user=serialize_auth_user(user, organization),
+        organizations=[serialize_auth_organization(user, organization)],
+    )
+
+
+@app.post("/api/auth/password", response_model=AuthPasswordChangeResponse)
+def change_auth_password(
+    payload: AuthPasswordChangeRequest,
+    current: Annotated[tuple[AuthUser, AuthSession], Depends(require_current_auth)],
+    session: SessionDep,
+) -> AuthPasswordChangeResponse:
+    user, auth_session = current
+    if not verify_password(payload.current_password, user.password_hash):
+        record_auth_audit(session, event="password_change", account=user.email, status="failed", detail="当前密码错误", user=user)
+        session.commit()
+        raise HTTPException(status_code=400, detail="当前密码错误")
+    if verify_password(payload.new_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="新密码不能与当前密码一致")
+
+    user.password_hash = hash_password(payload.new_password)
+    revoked_sessions = 0
+    active_sessions = session.exec(
+        select(AuthSession).where(
+            AuthSession.user_id == user.id,
+            AuthSession.revoked_at == None,  # noqa: E711
+            AuthSession.id != auth_session.id,
+        )
+    ).all()
+    for other_session in active_sessions:
+        other_session.revoked_at = datetime.utcnow()
+        session.add(other_session)
+        revoked_sessions += 1
+
+    session.add(user)
+    record_auth_audit(
+        session,
+        event="password_change",
+        account=user.email,
+        status="success",
+        detail=f"修改密码并撤销其他会话 {revoked_sessions} 个",
+        user=user,
+    )
+    session.commit()
+    return AuthPasswordChangeResponse(changed=True, revoked_sessions=revoked_sessions)
 
 
 @app.post("/api/auth/logout", response_model=AuthLogoutResponse)

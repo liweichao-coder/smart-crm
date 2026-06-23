@@ -1407,8 +1407,35 @@ p {
   align-items: start;
 }
 
+.crm-profile-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.75fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.crm-profile-side {
+  display: grid;
+  gap: 20px;
+}
+
 .crm-profile-card {
   min-height: 100%;
+}
+
+.crm-profile-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.crm-profile-form .crm-form-grid {
+  margin: 0;
+}
+
+.crm-profile-password-form {
+  border-top: 1px solid var(--border-default);
+  padding-top: 16px;
 }
 
 .crm-profile-info-list {
@@ -1420,7 +1447,7 @@ p {
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--border-default);
-  border-radius: 18px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
   padding: 14px 16px;
 }
@@ -2391,9 +2418,17 @@ body {
   font-size: 13px;
 }
 
+.crm-form-success {
+  margin-top: 12px;
+  color: var(--status-success);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .crm-form-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
   margin-top: 14px;
 }
 
@@ -2633,6 +2668,7 @@ body {
   .crm-stage-row,
   .crm-metric-grid,
   .crm-three-col-grid,
+  .crm-profile-workspace,
   .crm-goal-grid,
   .crm-task-grid,
   .crm-board-grid,

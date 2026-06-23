@@ -486,6 +486,70 @@ def test_auth_login_me_logout_and_audit() -> None:
     assert revoked_me.status_code == 401
 
 
+def test_auth_profile_update_and_password_change() -> None:
+    with TestClient(app, auth=False) as client:
+        login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+        headers = {"Authorization": f"Bearer {login.json()['token']}"}
+        duplicate_email = client.patch("/api/auth/profile", json={"email": "sales@smart-crm.local"}, headers=headers)
+        profile_update = client.patch(
+            "/api/auth/profile",
+            json={
+                "full_name": "课程项目负责人",
+                "email": "profile-owner@smart-crm.local",
+                "phone": "18800003333",
+                "position": "AI CRM 产品负责人",
+                "department": "课程答辩交付组",
+                "location": "深圳 · 粤海",
+            },
+            headers=headers,
+        )
+        refreshed_me = client.get("/api/auth/me", headers=headers)
+        old_email_login = client.post("/api/auth/login", json={"account": "demo@smart-crm.local", "password": "SmartCRM@2026"})
+        new_email_login = client.post("/api/auth/login", json={"account": "profile-owner@smart-crm.local", "password": "SmartCRM@2026"})
+        second_token = new_email_login.json()["token"]
+        bad_password_change = client.post(
+            "/api/auth/password",
+            json={"current_password": "wrong", "new_password": "Owner@2026", "confirm_password": "Owner@2026"},
+            headers=headers,
+        )
+        password_change = client.post(
+            "/api/auth/password",
+            json={"current_password": "SmartCRM@2026", "new_password": "Owner@2026", "confirm_password": "Owner@2026"},
+            headers=headers,
+        )
+        current_session_me = client.get("/api/auth/me", headers=headers)
+        revoked_second_session = client.get("/api/auth/me", headers={"Authorization": f"Bearer {second_token}"})
+        old_password_login = client.post("/api/auth/login", json={"account": "profile-owner@smart-crm.local", "password": "SmartCRM@2026"})
+        new_password_login = client.post("/api/auth/login", json={"account": "profile-owner@smart-crm.local", "password": "Owner@2026"})
+        profile_audits = client.get("/api/auth/audit-logs?page=1&per_page=5&event=profile_update", headers=headers).json()
+        password_audits = client.get("/api/auth/audit-logs?page=1&per_page=5&event=password_change", headers=headers).json()
+
+    assert login.status_code == 200
+    assert duplicate_email.status_code == 400
+    assert "邮箱已被其他账号使用" in duplicate_email.json()["detail"]
+    assert profile_update.status_code == 200
+    updated_user = profile_update.json()["user"]
+    assert updated_user["full_name"] == "课程项目负责人"
+    assert updated_user["email"] == "profile-owner@smart-crm.local"
+    assert updated_user["position"] == "AI CRM 产品负责人"
+    assert refreshed_me.json()["user"]["department"] == "课程答辩交付组"
+    assert old_email_login.status_code == 401
+    assert new_email_login.status_code == 200
+    assert bad_password_change.status_code == 400
+    assert "当前密码错误" in bad_password_change.json()["detail"]
+    assert password_change.status_code == 200
+    assert password_change.json()["changed"] is True
+    assert password_change.json()["revoked_sessions"] == 1
+    assert current_session_me.status_code == 200
+    assert revoked_second_session.status_code == 401
+    assert old_password_login.status_code == 401
+    assert new_password_login.status_code == 200
+    assert profile_audits["total"] >= 1
+    assert password_audits["total"] >= 2
+    assert any(item["status"] == "failed" for item in password_audits["items"])
+    assert any(item["status"] == "success" for item in password_audits["items"])
+
+
 def test_auth_register_new_workspace() -> None:
     register_payload = {
         "organization_name": "课程答辩测试组",
