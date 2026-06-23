@@ -171,10 +171,10 @@ def seed_data(session: Session) -> None:
     session.add_all(tasks)
 
     goals = [
-        SalesGoal(name="Q2 新签 ARR", period="2026 Q2", current=388000, target=520000, progress=75, note="距离季度目标还差 132K，重点依赖 3 个谈判中商机。"),
-        SalesGoal(name="大客户续约率", period="2026 Q2", current=84, target=92, progress=91, note="高于历史同期，需重点盯住 2 个高风险续约客户。"),
-        SalesGoal(name="线索转商机率", period="2026 Q2", current=31, target=40, progress=77, note="优化首轮跟进模板后，本月已连续两周提升。"),
-        SalesGoal(name="AI 辅助订单占比", period="2026 Q2", current=58, target=70, progress=83, note="DeepSeek Copilot 接入后，优先推动高价值商机使用 AI 草稿。"),
+        SalesGoal(name="Q2 新签 ARR", period="2026 Q2", owner="李伟超", current=388000, target=520000, progress=75, note="距离季度目标还差 132K，重点依赖 3 个谈判中商机。"),
+        SalesGoal(name="大客户续约率", period="2026 Q2", owner="王蕾", current=84, target=92, progress=91, note="高于历史同期，需重点盯住 2 个高风险续约客户。"),
+        SalesGoal(name="线索转商机率", period="2026 Q2", owner="赵可", current=31, target=40, progress=77, note="优化首轮跟进模板后，本月已连续两周提升。"),
+        SalesGoal(name="AI 辅助订单占比", period="2026 Q2", owner="李伟超", current=58, target=70, progress=83, note="DeepSeek Copilot 接入后，优先推动高价值商机使用 AI 草稿。"),
     ]
     session.add_all(goals)
     session.flush()

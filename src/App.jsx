@@ -596,10 +596,11 @@ function buildTaskPayload(draft, ownerFallback = userProfile.name) {
   }
 }
 
-function buildGoalPayload(draft) {
+function buildGoalPayload(draft, ownerFallback = userProfile.name) {
   return {
     name: toDraftText(draft.name, '新销售目标'),
     period: toDraftText(draft.period, '2026 Q3'),
+    owner: toDraftOwner(draft.owner, ownerFallback),
     current: toDraftNumber(draft.current),
     target: toDraftNumber(draft.target, 1),
     note: toDraftText(draft.note, '持续跟踪目标进度。'),
@@ -834,6 +835,7 @@ function mapGoalRecord(goal) {
     id: goal.id,
     name: goal.name,
     period: goal.period,
+    owner: goal.owner,
     current: goal.current,
     target: goal.target,
     progress: goal.progress,
@@ -6024,11 +6026,14 @@ function TasksPage() {
 }
 
 function GoalsPage() {
+  const { userProfile: activeProfile } = useOutletContext()
   const { records: fetchedGoals, loading, error } = useRemoteRecords(fetchGoals, mapGoalRecord)
+  const ownerDraftDefault = useMemo(() => ({ key: 'owner', value: activeProfile.name }), [activeProfile.name])
   const goalCreateColumns = useMemo(
     () => [
       { key: 'name', label: '目标名称' },
       { key: 'period', label: '周期' },
+      { key: 'owner', label: '负责人' },
       { key: 'current', label: '当前值', format: 'currency' },
       { key: 'target', label: '目标值', format: 'currency' },
       { key: 'note', label: '说明' },
@@ -6041,7 +6046,7 @@ function GoalsPage() {
   const [deleteSaving, setDeleteSaving] = useState(false)
   const [editingGoal, setEditingGoal] = useState(null)
   const [createError, setCreateError] = useState('')
-  const [draft, setDraft] = useState(() => createDraftFromColumns(goalCreateColumns))
+  const [draft, setDraft] = useState(() => createDraftFromColumns(goalCreateColumns, ownerDraftDefault))
 
   useEffect(() => {
     setGoals(fetchedGoals)
@@ -6049,7 +6054,7 @@ function GoalsPage() {
 
   const handleOpenCreate = () => {
     setEditingGoal(null)
-    setDraft(createDraftFromColumns(goalCreateColumns))
+    setDraft(createDraftFromColumns(goalCreateColumns, ownerDraftDefault))
     setCreateError('')
     setCreateOpen(true)
   }
@@ -6067,11 +6072,11 @@ function GoalsPage() {
     setCreateError('')
     try {
       if (editingGoal) {
-        const goal = await updateGoal(editingGoal.id, buildGoalPayload(draft))
+        const goal = await updateGoal(editingGoal.id, buildGoalPayload(draft, activeProfile.name))
         const mappedGoal = mapGoalRecord(goal)
         setGoals((currentGoals) => currentGoals.map((item) => (item.id === editingGoal.id ? mappedGoal : item)))
       } else {
-        const goal = await createGoal(buildGoalPayload(draft))
+        const goal = await createGoal(buildGoalPayload(draft, activeProfile.name))
         setGoals((currentGoals) => [mapGoalRecord(goal), ...currentGoals])
       }
       setCreateOpen(false)
@@ -6110,7 +6115,7 @@ function GoalsPage() {
             <div className="crm-goal-card-head">
               <div>
                 <strong>{goal.name}</strong>
-                <span>{goal.period}</span>
+                <span>{goal.period} · {goal.owner}</span>
               </div>
               <div className="crm-goal-card-actions">
                 <StatusBadge value={`${goal.progress}%`} tone={goal.progress >= 80 ? 'success' : 'warning'} />
