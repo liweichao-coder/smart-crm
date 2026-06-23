@@ -666,6 +666,7 @@ REPORT_SNAPSHOT_LABELS = {
     "sales_performance": "销售绩效",
     "approval_performance": "审批 SLA",
 }
+COPILOT_SUMMARY_DEDUPE_WINDOW = timedelta(minutes=10)
 
 
 def parse_snapshot_date_filter(filters: dict, key: str) -> date | None:
@@ -787,8 +788,25 @@ def serialize_copilot_recommendation(recommendation: CopilotRecommendation) -> C
     )
 
 
+def has_recent_copilot_summary_recommendation(session: Session, insight) -> bool:
+    if not insight.id:
+        return False
+    cutoff = datetime.utcnow() - COPILOT_SUMMARY_DEDUPE_WINDOW
+    existing = session.exec(
+        select(CopilotRecommendation).where(
+            CopilotRecommendation.source == "summary",
+            CopilotRecommendation.lead_id == insight.id,
+            CopilotRecommendation.owner == insight.owner,
+            CopilotRecommendation.created_at >= cutoff,
+        )
+    ).first()
+    return existing is not None
+
+
 def add_copilot_summary_history(session: Session, result: CopilotSummaryResponse) -> None:
     for insight in result.insights[:5]:
+        if has_recent_copilot_summary_recommendation(session, insight):
+            continue
         session.add(
             CopilotRecommendation(
                 source="summary",

@@ -1907,6 +1907,25 @@ def test_copilot_summary_fallback(monkeypatch) -> None:
     )
 
 
+def test_copilot_summary_history_deduplicates_recent_reads(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    with TestClient(app) as client:
+        first_response = client.get("/api/copilot/summary")
+        second_response = client.get("/api/copilot/summary")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    expected_lead_ids = {item["id"] for item in first_response.json()["insights"][:5]}
+    with Session(main_module.engine) as session:
+        summary_recommendations = session.exec(
+            select(CopilotRecommendation).where(CopilotRecommendation.source == "summary")
+        ).all()
+
+    persisted_lead_ids = [recommendation.lead_id for recommendation in summary_recommendations]
+    assert set(persisted_lead_ids) == expected_lead_ids
+    assert len(persisted_lead_ids) == len(expected_lead_ids)
+
+
 def test_copilot_ask_uses_crm_context_and_audit(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     with TestClient(app) as client:

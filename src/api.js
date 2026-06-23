@@ -1,5 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 export const AUTH_STORAGE_KEY = 'smart-crm:auth-session'
+let pendingCopilotSummaryRequest = null
 
 function readStoredAuthToken() {
   if (typeof window === 'undefined') {
@@ -66,8 +67,17 @@ function buildQueryString(params = {}) {
   return queryString ? `?${queryString}` : ''
 }
 
-export function fetchCopilotSummary() {
-  return request('/api/copilot/summary')
+export function fetchCopilotSummary(options = {}) {
+  if (!options.force && pendingCopilotSummaryRequest) {
+    return pendingCopilotSummaryRequest
+  }
+  const requestPromise = request('/api/copilot/summary').finally(() => {
+    if (pendingCopilotSummaryRequest === requestPromise) {
+      pendingCopilotSummaryRequest = null
+    }
+  })
+  pendingCopilotSummaryRequest = requestPromise
+  return requestPromise
 }
 
 export function fetchCopilotRecommendations(params) {
