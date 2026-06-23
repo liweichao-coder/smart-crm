@@ -44,6 +44,29 @@ test('buildCustomerPayload preserves real customer master data fields', () => {
   })
 })
 
+test('buildCustomerPayload leaves missing customer industry empty for backend validation', () => {
+  const payload = buildCustomerPayload({
+    name: '深圳真实客户有限公司',
+    industry: '',
+    contactPerson: '张客户',
+    phone: '',
+    email: '',
+    city: '',
+    source: '',
+    level: 'B',
+    owner: '',
+    revenue: '',
+    status: 'active',
+  }, '李伟超')
+
+  assert.equal(payload.industry, '')
+  assert.equal(payload.phone, '')
+  assert.equal(payload.email, '')
+  assert.equal(payload.city, '深圳')
+  assert.equal(payload.source, '前端录入')
+  assert.equal(payload.owner, '李伟超')
+})
+
 test('buildContactPayload keeps entered phone and email without demo defaults', () => {
   const payload = buildContactPayload({
     name: ' 王蕾 ',

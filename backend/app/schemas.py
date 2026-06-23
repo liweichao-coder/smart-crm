@@ -328,25 +328,38 @@ class CustomerCreate(BaseModel):
     name: str = ""
     company: str
     owner: str = ""
-    industry: str = "待补充"
-    city: str = "深圳"
+    industry: str
+    city: str = ""
     contact_person: str = ""
-    phone: str = "13800000000"
-    email: str = "customer@example.com"
-    source: str = "课程演示"
+    phone: str = ""
+    email: str = ""
+    source: str = ""
     level: str = "B"
     annual_revenue: float = Field(default=0, ge=0)
     status: str = "active"
 
+    @field_validator("name", "company", "owner", "industry", "city", "contact_person", "source")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return clean_text(value)
+
+    @field_validator("company", "industry")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        text = clean_text(value)
+        if not text:
+            raise ValueError("字段不能为空")
+        return text
+
     @field_validator("email")
     @classmethod
     def validate_email(cls, value: str) -> str:
-        return validate_email_value(value) or ""
+        return validate_email_value(value, allow_empty=True) or ""
 
     @field_validator("phone")
     @classmethod
     def validate_phone(cls, value: str) -> str:
-        return validate_phone_value(value) or ""
+        return validate_phone_value(value, allow_empty=True) or ""
 
     @field_validator("level")
     @classmethod
@@ -373,15 +386,28 @@ class CustomerUpdate(BaseModel):
     annual_revenue: float | None = Field(default=None, ge=0)
     status: str | None = None
 
+    @field_validator("name", "company", "owner", "industry", "city", "contact_person", "source")
+    @classmethod
+    def validate_text(cls, value: str | None) -> str | None:
+        return optional_clean_text(value)
+
+    @field_validator("company", "industry")
+    @classmethod
+    def validate_required_text(cls, value: str | None) -> str | None:
+        text = optional_clean_text(value)
+        if text == "" and value is not None:
+            raise ValueError("字段不能为空")
+        return text
+
     @field_validator("email")
     @classmethod
     def validate_email(cls, value: str | None) -> str | None:
-        return validate_email_value(value)
+        return validate_email_value(value, allow_empty=True)
 
     @field_validator("phone")
     @classmethod
     def validate_phone(cls, value: str | None) -> str | None:
-        return validate_phone_value(value)
+        return validate_phone_value(value, allow_empty=True)
 
     @field_validator("level")
     @classmethod
