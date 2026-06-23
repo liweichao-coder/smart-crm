@@ -4959,6 +4959,7 @@ function CapturePage() {
   const [draftsLoading, setDraftsLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [draftUpdatingId, setDraftUpdatingId] = useState(null)
+  const [reviewSaving, setReviewSaving] = useState(false)
   const [error, setError] = useState('')
 
   const loadCaptureDrafts = useCallback(() => {
@@ -5009,6 +5010,13 @@ function CapturePage() {
     return result.items.reduce((total, item) => total + Number(item.quantity) * Number(item.unit_price), 0)
   }, [result])
 
+  const normalizeCaptureResult = (draft) => ({
+    ...draft,
+    capture_draft_id: draft?.capture_draft_id ?? draft?.id ?? null,
+    items: draft?.items ?? [],
+    status: draft?.status ?? 'draft',
+  })
+
   const handleSubmit = (event) => {
     event.preventDefault()
     if (!file) {
@@ -5020,7 +5028,7 @@ function CapturePage() {
     setError('')
     extractOrderFromFile(file)
       .then((payload) => {
-        setResult({ ...payload, status: 'draft' })
+        setResult(normalizeCaptureResult({ ...payload, status: 'draft' }))
         setSubmittedOrder(null)
         if (draftStatusFilter === 'draft') {
           loadCaptureDrafts()
@@ -5077,6 +5085,104 @@ function CapturePage() {
     }
   }
 
+  const handleCaptureFieldChange = (field, value) => {
+    setResult((current) => current ? { ...current, [field]: value } : current)
+  }
+
+  const handleCaptureCustomerSelect = (value) => {
+    const customerId = Number(value)
+    const customer = Number.isFinite(customerId) ? catalog.customers.find((item) => Number(item.id) === customerId) : null
+    setResult((current) => {
+      if (!current) {
+        return current
+      }
+      if (!customer) {
+        return { ...current, customer_id: null }
+      }
+      return {
+        ...current,
+        customer_id: customer.id,
+        company: customer.company,
+        customer_name: customer.contact_person,
+      }
+    })
+  }
+
+  const handleCaptureItemChange = (index, field, value) => {
+    setResult((current) => {
+      if (!current) {
+        return current
+      }
+      const items = [...(current.items ?? [])]
+      const existing = items[index] ?? { product_id: null, product_name: '', quantity: 1, unit_price: 1 }
+      if (field === 'product_id') {
+        const productId = Number(value)
+        const product = Number.isFinite(productId) ? catalog.products.find((item) => Number(item.id) === productId) : null
+        items[index] = product
+          ? { ...existing, product_id: product.id, product_name: product.name, unit_price: product.unit_price }
+          : { ...existing, product_id: null }
+      } else {
+        items[index] = { ...existing, [field]: value }
+      }
+      return { ...current, items }
+    })
+  }
+
+  const handleAddCaptureItem = () => {
+    const product = catalog.products[0]
+    setResult((current) => {
+      if (!current) {
+        return current
+      }
+      const nextItem = product
+        ? { product_id: product.id, product_name: product.name, quantity: 1, unit_price: product.unit_price }
+        : { product_id: null, product_name: '', quantity: 1, unit_price: 1 }
+      return { ...current, items: [...(current.items ?? []), nextItem] }
+    })
+  }
+
+  const handleRemoveCaptureItem = (index) => {
+    setResult((current) => {
+      if (!current) {
+        return current
+      }
+      const items = (current.items ?? []).filter((_, itemIndex) => itemIndex !== index)
+      return { ...current, items }
+    })
+  }
+
+  const handleSaveCaptureReview = async () => {
+    if (!result?.capture_draft_id) {
+      setError('当前草稿尚未保存到后端，无法保存修正')
+      return
+    }
+    setReviewSaving(true)
+    setError('')
+    try {
+      const updatedDraft = await updateCaptureDraft(result.capture_draft_id, {
+        customer_id: result.customer_id ? Number(result.customer_id) : null,
+        company: result.company,
+        customer_name: result.customer_name,
+        confidence: Number(result.confidence ?? 0),
+        summary: result.summary,
+        suggested_notes: result.suggested_notes,
+        items: (result.items ?? []).map((item) => ({
+          product_id: item.product_id ? Number(item.product_id) : null,
+          product_name: item.product_name,
+          quantity: Math.max(Number(item.quantity) || 1, 1),
+          unit_price: Math.max(Number(item.unit_price) || 0, 0.01),
+        })),
+      })
+      const normalizedDraft = normalizeCaptureResult(updatedDraft)
+      setResult(normalizedDraft)
+      setCaptureDrafts((current) => [updatedDraft, ...current.filter((draft) => draft.id !== updatedDraft.id)])
+    } catch (nextError) {
+      setError(nextError.message || '草稿修正保存失败')
+    } finally {
+      setReviewSaving(false)
+    }
+  }
+
   const handleDiscardDraft = async (draft) => {
     if (!draft?.id || draft.status !== 'draft') {
       return
@@ -5102,6 +5208,7 @@ function CapturePage() {
   const selectedResultStatus = result?.status ?? 'draft'
   const selectedResultLocked = selectedResultStatus !== 'draft'
   const selectedResultOrderId = submittedOrder?.id ?? result?.submitted_order_id
+  const canEditCaptureDraft = Boolean(result?.capture_draft_id) && !selectedResultLocked
   const captureDraftStatusOptions = [
     { value: 'draft', label: '草稿' },
     { value: 'submitted', label: '已提交' },
@@ -5156,6 +5263,29 @@ function CapturePage() {
                 </div>
                 <StatusBadge value={formatPercent(result.confidence)} tone={result.confidence >= 0.8 ? 'success' : 'warning'} />
               </div>
+              <div className="crm-form-grid">
+                <label className="crm-field">
+                  <span>匹配客户</span>
+                  <select value={result.customer_id ?? ''} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureCustomerSelect(event.target.value)}>
+                    <option value="">待人工匹配</option>
+                    {catalog.customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>{customer.company} / {customer.contact_person}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="crm-field">
+                  <span>客户公司</span>
+                  <input value={result.company ?? ''} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureFieldChange('company', event.target.value)} />
+                </label>
+                <label className="crm-field">
+                  <span>联系人</span>
+                  <input value={result.customer_name ?? ''} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureFieldChange('customer_name', event.target.value)} />
+                </label>
+                <label className="crm-field">
+                  <span>置信度</span>
+                  <input type="number" min="0" max="1" step="0.01" value={result.confidence ?? 0} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureFieldChange('confidence', event.target.value)} />
+                </label>
+              </div>
               <div className="crm-list-item">
                 <div>
                   <strong>{result.source}</strong>
@@ -5172,7 +5302,10 @@ function CapturePage() {
                   <StatusBadge value={submittedOrder.status} tone="success" />
                 </div>
               ) : null}
-              <p>{result.summary}</p>
+              <label className="crm-field">
+                <span>抽取摘要</span>
+                <textarea rows={3} value={result.summary ?? ''} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureFieldChange('summary', event.target.value)} />
+              </label>
             </div>
           ) : (
             <EmptyState icon={UploadCloud} title="暂无草稿" subtitle="上传材料后会显示结构化订单草稿。" />
@@ -5207,7 +5340,7 @@ function CapturePage() {
                   className="crm-ghost-button"
                   type="button"
                   onClick={() => {
-                    setResult({ ...draft, capture_draft_id: draft.id })
+                    setResult(normalizeCaptureResult(draft))
                     setSubmittedOrder(draft.submitted_order_id ? { id: draft.submitted_order_id, customer_name: draft.company, items: draft.items ?? [], status: 'submitted' } : null)
                   }}
                 >
@@ -5243,22 +5376,47 @@ function CapturePage() {
                   <th>数量</th>
                   <th>单价</th>
                   <th>小计</th>
+                  <th className="crm-table-actions-cell">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {result.items.map((item) => (
+                {result.items.map((item, index) => (
                   <tr key={`${item.product_name}-${item.quantity}-${item.unit_price}`}>
-                    <td>{item.product_name}</td>
+                    <td>
+                      <div className="crm-table-stack">
+                        <select value={item.product_id ?? ''} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureItemChange(index, 'product_id', event.target.value)}>
+                          <option value="">待匹配商品</option>
+                          {catalog.products.map((product) => (
+                            <option key={product.id} value={product.id}>{product.name} / {product.sku}</option>
+                          ))}
+                        </select>
+                        <input value={item.product_name ?? ''} disabled={!canEditCaptureDraft || Boolean(item.product_id)} onChange={(event) => handleCaptureItemChange(index, 'product_name', event.target.value)} />
+                      </div>
+                    </td>
                     <td>{item.product_id ? `#${item.product_id}` : '待匹配'}</td>
-                    <td>{item.quantity}</td>
-                    <td>{formatCurrency(item.unit_price)}</td>
+                    <td>
+                      <input type="number" min="1" step="1" value={item.quantity} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureItemChange(index, 'quantity', event.target.value)} />
+                    </td>
+                    <td>
+                      <input type="number" min="0.01" step="0.01" value={item.unit_price} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureItemChange(index, 'unit_price', event.target.value)} />
+                    </td>
                     <td>{formatCurrency(item.quantity * item.unit_price)}</td>
+                    <td className="crm-table-actions-cell">
+                      {canEditCaptureDraft ? (
+                        <button className="crm-icon-button" type="button" title="移除条目" onClick={() => handleRemoveCaptureItem(index)} disabled={result.items.length <= 1}>
+                          <Trash2 size={15} />
+                        </button>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p>{result.suggested_notes}</p>
+          <label className="crm-field">
+            <span>复核备注</span>
+            <textarea rows={3} value={result.suggested_notes ?? ''} disabled={!canEditCaptureDraft} onChange={(event) => handleCaptureFieldChange('suggested_notes', event.target.value)} />
+          </label>
           {selectedResultLocked ? (
             <div className="crm-form-warning">
               {selectedResultStatus === 'submitted'
@@ -5267,6 +5425,18 @@ function CapturePage() {
             </div>
           ) : null}
           <div className="crm-toolbar-actions">
+            {canEditCaptureDraft ? (
+              <>
+                <button className="crm-ghost-button" type="button" onClick={handleAddCaptureItem}>
+                  <Plus size={16} />
+                  添加条目
+                </button>
+                <button className="crm-ghost-button" type="button" onClick={handleSaveCaptureReview} disabled={reviewSaving}>
+                  <Save size={16} />
+                  {reviewSaving ? '保存中' : '保存草稿修正'}
+                </button>
+              </>
+            ) : null}
             <button className="crm-primary-button" type="button" onClick={handleCreateOrder} disabled={submitting || selectedResultLocked || Boolean(submittedOrder)}>
               <CheckSquare size={16} />
               {selectedResultLocked ? (selectedResultStatus === 'submitted' ? '已提交订单' : '已作废') : submittedOrder ? '已提交订单' : submitting ? '提交中' : '复核并提交订单'}

@@ -4617,6 +4617,13 @@ def update_capture_draft(
     if not draft or draft.organization_id != current_user.organization_id:
         raise HTTPException(status_code=404, detail="智能录单草稿不存在")
     require_owner_scope(current_user, draft.created_by)
+
+    updated_fields = payload.model_fields_set
+    content_fields = {"customer_id", "customer_name", "company", "confidence", "summary", "suggested_notes", "items"}
+    has_content_update = bool(updated_fields & content_fields)
+    if has_content_update and draft.status != "draft":
+        raise HTTPException(status_code=422, detail="已提交或已作废草稿不能继续修改内容")
+
     submitted_order = None
     if payload.submitted_order_id is not None:
         submitted_order = session.get(SalesOrder, payload.submitted_order_id)
@@ -4625,10 +4632,65 @@ def update_capture_draft(
         require_owner_scope(current_user, submitted_order.owner)
     if payload.status == "submitted" and submitted_order is None:
         raise HTTPException(status_code=422, detail="提交状态必须关联订单")
-    draft.status = payload.status
-    draft.submitted_order_id = payload.submitted_order_id if payload.status == "submitted" else None
+    if "submitted_order_id" in updated_fields and payload.status != "submitted" and payload.submitted_order_id is not None:
+        raise HTTPException(status_code=422, detail="关联订单只能在提交草稿时写入")
+
+    if "customer_id" in updated_fields:
+        if payload.customer_id is None:
+            draft.customer_id = None
+        else:
+            customer = session.get(Customer, payload.customer_id)
+            if not customer or not organization_matches(customer, current_user):
+                raise HTTPException(status_code=404, detail="草稿客户不存在")
+            require_owner_scope(current_user, customer.owner)
+            draft.customer_id = customer.id
+            draft.company = customer.company
+            draft.customer_name = customer.contact_person
+
+    if "company" in updated_fields:
+        draft.company = str(payload.company or "").strip()
+    if "customer_name" in updated_fields:
+        draft.customer_name = str(payload.customer_name or "").strip()
+    if "confidence" in updated_fields and payload.confidence is not None:
+        draft.confidence = payload.confidence
+    if "summary" in updated_fields:
+        draft.summary = str(payload.summary or "").strip()
+    if "suggested_notes" in updated_fields:
+        draft.suggested_notes = str(payload.suggested_notes or "").strip()
+    if "items" in updated_fields:
+        if not payload.items:
+            raise HTTPException(status_code=422, detail="草稿至少需要 1 条商品明细")
+        product_ids = {item.product_id for item in payload.items if item.product_id is not None}
+        products = {
+            product.id: product
+            for product in session.exec(select(Product)).all()
+            if product.id in product_ids and organization_matches(product, current_user)
+        }
+        if len(products) != len(product_ids):
+            raise HTTPException(status_code=404, detail="草稿商品不存在")
+        normalized_items: list[dict] = []
+        for item in payload.items:
+            if item.quantity < 1:
+                raise HTTPException(status_code=422, detail="商品数量必须大于 0")
+            if item.unit_price <= 0:
+                raise HTTPException(status_code=422, detail="商品单价必须大于 0")
+            product = products.get(item.product_id) if item.product_id is not None else None
+            normalized_items.append(
+                {
+                    "product_id": product.id if product else item.product_id,
+                    "product_name": product.name if product else item.product_name.strip() or "待复核商品",
+                    "quantity": item.quantity,
+                    "unit_price": item.unit_price,
+                }
+            )
+        draft.items_json = encode_json_list(normalized_items)
+
+    if payload.status is not None:
+        draft.status = payload.status
+        draft.submitted_order_id = payload.submitted_order_id if payload.status == "submitted" else None
     draft.updated_at = datetime.utcnow()
     session.add(draft)
+    changed_labels = sorted(updated_fields) if updated_fields else ["status"]
     add_business_audit(
         session,
         action="update",
@@ -4636,7 +4698,7 @@ def update_capture_draft(
         entity_id=draft.id,
         operator=current_user.full_name,
         summary=f"更新智能录单草稿 #{draft.id}",
-        detail=f"状态 {draft.status}，订单 {draft.submitted_order_id or '未关联'}",
+        detail=f"状态 {draft.status}，订单 {draft.submitted_order_id or '未关联'}，字段 {', '.join(changed_labels)}",
     )
     session.commit()
     session.refresh(draft)
