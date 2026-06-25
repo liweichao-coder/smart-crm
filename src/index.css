@@ -972,6 +972,13 @@ p {
   width: 100%;
 }
 
+.crm-table-wrap {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+
 .crm-progress-track {
   overflow: hidden;
   height: 10px;
@@ -1241,6 +1248,7 @@ p {
 }
 
 .crm-table {
+  min-width: max-content;
   width: 100%;
   border-collapse: collapse;
 }
@@ -2392,11 +2400,13 @@ body {
   width: min(420px, 100%);
   align-items: flex-start;
   padding: 16px;
+  min-inline-size: 0;
 }
 
 .crm-copilot-summary-copy {
   display: grid;
   gap: 12px;
+  min-inline-size: 0;
 }
 
 .crm-ai-text {
@@ -2404,6 +2414,8 @@ body {
   gap: 8px;
   color: var(--text-secondary);
   line-height: 1.7;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 
 .crm-ai-text.is-compact {
@@ -2438,6 +2450,18 @@ body {
 
 .crm-copilot-summary-copy .crm-ghost-button {
   width: max-content;
+}
+
+.crm-copilot-summary--scrollable {
+  max-block-size: 260px;
+}
+
+.crm-copilot-summary--scrollable .crm-ai-text {
+  max-block-size: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline-end: 6px;
+  scrollbar-gutter: stable;
 }
 
 .crm-copilot-grid {

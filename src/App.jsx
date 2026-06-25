@@ -3679,7 +3679,7 @@ function CopilotPage() {
           <h2>智能销售副驾</h2>
           <p>基于商机阶段、金额、预计成交日期和客户上下文进行可解释评分，辅助销售人员判断优先级、风险和下一步动作。</p>
         </div>
-        <div className="crm-copilot-summary">
+        <div className="crm-copilot-summary crm-copilot-summary--scrollable">
           <Sparkles size={18} />
           <div className="crm-copilot-summary-copy">
             <AiText
