@@ -8093,16 +8093,18 @@ function BulkEditModal({ open, title, columns, draft, selectedCount, onDraftChan
 
 function ResourceToolbar({ query, onQueryChange, columnCount, children, inputRef, preferenceStatus = '' }) {
   return (
-    <section className="crm-toolbar-card">
-      <label className="crm-search-box">
-        <Search size={16} />
-        <input ref={inputRef} placeholder="搜索姓名、公司、负责人或备注" value={query} onChange={(event) => onQueryChange(event.target.value)} />
-      </label>
-      <div className="crm-toolbar-right">
-        {children}
-        {preferenceStatus ? <div className="crm-column-badge">{preferenceStatus}</div> : null}
-        <div className="crm-column-badge">{columnCount} 列</div>
+    <section className={`crm-toolbar-card${children ? ' has-columns' : ''}`}>
+      <div className="crm-toolbar-search-row">
+        <label className="crm-search-box">
+          <Search size={16} />
+          <input ref={inputRef} placeholder="搜索姓名、公司、负责人或备注" value={query} onChange={(event) => onQueryChange(event.target.value)} />
+        </label>
+        <div className="crm-toolbar-meta">
+          {preferenceStatus ? <div className="crm-column-badge">{preferenceStatus}</div> : null}
+          <div className="crm-column-badge">{columnCount} 列</div>
+        </div>
       </div>
+      {children ? <div className="crm-toolbar-column-row">{children}</div> : null}
     </section>
   )
 }
