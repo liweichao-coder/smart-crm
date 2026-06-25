@@ -22,8 +22,9 @@ The lead and opportunity board should behave like a real CRM pipeline. Moving a 
 - Rebuilt affected formal report DOCX files: 02, 04, 05, 06, 07, 08.
 - Exported the rebuilt DOCX files to PDF with Microsoft Word COM and generated contact-sheet visual evidence under `报告文档/v2-最终高分版/正式文档/验收证据/docx-render-word-2026-06-23-pipeline/`.
 
-LibreOffice 26.2 is currently blocked on this machine by a damaged `C:\Program Files\LibreOffice\program\bootstrap.ini` startup configuration, so this round used Microsoft Word export for visual QA instead of LibreOffice.
+LibreOffice 26.2 is currently blocked on this machine by a damaged `<LIBREOFFICE_HOME>\program\bootstrap.ini` startup configuration, so this round used Microsoft Word export for visual QA instead of LibreOffice.
 
 ## Report Impact
 
 - Updated v2 API, implementation, user manual, iteration summary, and testing documents with real pipeline stage movement and the `contacted` stage closure.
+

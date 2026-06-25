@@ -73,7 +73,7 @@
 ### 1. 启动后端
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 Copy-Item .env.example .env
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m app.manage reset-db
@@ -90,7 +90,7 @@ http://127.0.0.1:8000/health
 ### 2. 启动前端
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 Copy-Item .env.example .env
 npm install
 npm run dev -- --host 127.0.0.1 --port 5173
@@ -119,14 +119,14 @@ http://127.0.0.1:5173
 ### 前端构建测试
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 npm run build
 ```
 
 ### 后端测试
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m app.manage doctor
 ```
@@ -150,7 +150,7 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 后端和前端都启动后，可以运行 Playwright 浏览器冒烟脚本，验证真实登录、组织选择、仪表盘、客户列表、应用内删除确认、订单中心、销售报表和基础视觉约束：
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000
 ```
 
@@ -161,18 +161,18 @@ npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.
 前后端启动后，可以自动生成 Word/PPT 使用的演示截图：
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 npm run screenshots:demo -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000 --clear-output --include-ai
 ```
 
-默认输出到 `D:\LwcCode\personal-project\报告文档\v2-最终高分版\正式文档\截图`，并生成 `00_screenshot_index.md`。`--include-ai` 会截图 AI 副驾和 AI 审计页，可能触发 LLM 摘要或推荐历史写入；如需保持演示库完全不变，可省略该参数。
+默认输出到 `<REPORT_ROOT>\正式文档\截图`，并生成 `00_screenshot_index.md`。`--include-ai` 会截图 AI 副驾和 AI 审计页，可能触发 LLM 摘要或推荐历史写入；如需保持演示库完全不变，可省略该参数。
 
 ### 数据库迁移与快照
 
 保留现有数据升级表结构时，使用显式迁移命令：
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 .\.venv\Scripts\python.exe -m app.manage migrate
 .\.venv\Scripts\python.exe -m app.manage doctor
 ```
@@ -199,3 +199,4 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 - `backend/`: FastAPI 后端项目
 - `docs/`: 开发日志、部署说明和工程记录
 - `_private/`: 本地内部资料目录，不参与代码仓库提交
+

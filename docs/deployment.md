@@ -3,7 +3,7 @@
 ## 1. Backend Environment
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 Copy-Item .env.example .env
 ```
 
@@ -30,12 +30,12 @@ SMART_CRM_CORS_ORIGINS=["http://localhost:5277","http://127.0.0.1:5277"]
 ## 2. Install Dependencies
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 npm install
 Copy-Item .env.example .env
 ```
@@ -53,7 +53,7 @@ The current frontend is the root React + Vite app under `src/`. Do not start fro
 When pulling a teammate's code update, run the migration command first if you want to keep the current local data:
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 .\.venv\Scripts\python.exe -m app.manage migrate
 .\.venv\Scripts\python.exe -m app.manage doctor
 ```
@@ -63,7 +63,7 @@ cd D:\LwcCode\personal-project\smart-crm\backend
 Use this command whenever the local database needs to be rebuilt:
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 .\.venv\Scripts\python.exe -m app.manage reset-db
 ```
 
@@ -78,7 +78,7 @@ The doctor checks database tables, demo-data scale, LLM configuration state, and
 Run the automated API smoke after the backend is listening:
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 .\backend\.venv\Scripts\python.exe .\scripts\smoke_api.py --base-url http://127.0.0.1:8000
 ```
 
@@ -87,7 +87,7 @@ This script logs in with the demo admin account, checks `/api/health`, current s
 Run the automated browser UI smoke after both backend and frontend are listening:
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000
 ```
 
@@ -96,7 +96,7 @@ This Playwright script first checks `/api/health`, then uses the real login form
 Generate report and presentation screenshots after both services are listening:
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 npm run screenshots:demo -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000 --clear-output --include-ai
 ```
 
@@ -158,14 +158,14 @@ Password: SmartCRM@2026
 Backend:
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Frontend:
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm
+cd <SMART_CRM_ROOT>
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
@@ -191,7 +191,7 @@ http://127.0.0.1:5173/orders?tab=ai&order=12
 ## 5. Verify Auth and Copilot
 
 ```powershell
-cd D:\LwcCode\personal-project\smart-crm\backend
+cd <SMART_CRM_ROOT>\backend
 .\.venv\Scripts\python.exe -m pytest
 ```
 
@@ -335,3 +335,4 @@ Invoke-WebRequest -UseBasicParsing -Headers $auth "http://127.0.0.1:8000/api/ord
 ```
 
 When `page` or `per_page` is provided, list APIs return `{ items, total, page, per_page, pages, has_next, has_previous }`. Without pagination parameters they keep returning the original array shape, so the existing frontend remains compatible.
+
