@@ -6,7 +6,7 @@
 
 ## 本次改动
 
-- 新增 `fetchAuthAuditLogs()` 前端 API 包装，请求 `/api/auth/audit-logs` 并支持 `page/per_page/q/event/status`。
+- 新增 `fetchAuthAuditLogs()` 前端 API 调用函数，请求 `/api/auth/audit-logs` 并支持 `page/per_page/q/event/status`。
 - 侧边栏新增“认证审计”，受 `audit:read` 权限控制，与 AI 审计、操作审计组成三类审计入口。
 - 新增认证审计页面，展示审计总数、本页成功、本页失败、账号治理记录，并提供关键词、事件、状态筛选和上一页/下一页分页。
 - 认证事件标签来自后端真实写入事件：`login`、`register`、`profile_update`、`password_change`、`logout`、`team_create`、`team_update`。

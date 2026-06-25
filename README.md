@@ -2,7 +2,7 @@
 
 一个用于课程设计演示的智能销售管理系统。目前仓库交付入口为：
 
-- 根目录 React + Vite 前端管理台，已包装为深大 AI CRM 风格
+- 根目录 React + Vite 前端管理台，采用深大风格的 AI CRM 界面
 - `backend/` FastAPI + SQLite 后端 API
 - 可配置 OpenAI-compatible 多模态模型的 AI 智能录单流程
 

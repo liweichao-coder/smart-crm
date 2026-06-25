@@ -2,7 +2,7 @@
 
 ## Context
 
-The course exam requires a full software engineering process package, not only code. The project is being upgraded from a basic Smart CRM with AI order draft support into an AI Sales Copilot CRM benchmarked against CordysCRM concepts.
+The course exam requires a full software engineering process package, not only code. The project is being upgraded from a basic Smart CRM with AI order draft support into an AI Sales Copilot CRM aligned with mainstream AI CRM concepts.
 
 ## Code Changes
 

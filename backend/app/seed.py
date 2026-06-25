@@ -148,7 +148,7 @@ def seed_data(session: Session) -> None:
 
     cases = [
         SupportCase(title="导入联系人失败", account="峰值数据", owner="徐柠", priority="hot", status="open", status_label="Open", due_date=today + timedelta(days=1)),
-        SupportCase(title="移动端表格显示错位", account="拓海医疗", owner="顾川", priority="warm", status="working", status_label="Pending", due_date=today + timedelta(days=2)),
+        SupportCase(title="窄屏 Web 表格显示错位", account="拓海医疗", owner="顾川", priority="warm", status="working", status_label="Pending", due_date=today + timedelta(days=2)),
         SupportCase(title="审批流通知延迟", account="永酌公司", owner="陆远", priority="hot", status="working", status_label="Pending", due_date=today),
         SupportCase(title="权限组配置咨询", account="云舟智能", owner="徐柠", priority="cold", status="closed", status_label="Resolved", due_date=today - timedelta(days=2)),
         SupportCase(title="工单 SLA 报表校对", account="辰星物流", owner="顾川", priority="warm", status="open", status_label="Open", due_date=today + timedelta(days=4)),

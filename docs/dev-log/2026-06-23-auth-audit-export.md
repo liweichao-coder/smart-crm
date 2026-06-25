@@ -9,7 +9,7 @@
 - 新增 `GET /api/auth/audit-logs/export.csv`，复用认证审计的 `q/event/status` 筛选条件，由后端生成 UTF-8 BOM CSV。
 - CSV 字段包含日志 ID、时间、事件、状态、账号、用户 ID、组织 ID 和详情。
 - 前端 `AuthAuditPage` 新增“导出 CSV”按钮，导出当前已应用筛选条件下的全部认证审计记录。
-- 新增 `exportAuthAuditLogsCsv()` 前端 API 包装，并扩展 `src/api.test.js` 覆盖下载 URL 和 blob 返回。
+- 新增 `exportAuthAuditLogsCsv()` 前端 API 调用函数，并扩展 `src/api.test.js` 覆盖下载 URL 和 blob 返回。
 - 后端 pytest 覆盖导出内容、筛选结果和销售角色 403，避免只有菜单隐藏而接口可下载。
 
 ## 验证
