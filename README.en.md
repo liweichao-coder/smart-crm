@@ -1,21 +1,21 @@
 # Smart CRM
 
-[简体中文](README.md) | [English](README.en.md)
+[Simplified Chinese](README.md) | [English](README.en.md)
 
-Smart CRM 是一个面向课程设计演示的 **Web 端智能销售管理系统**。系统使用 React + FastAPI + SQLite 实现销售管理闭环，并加入 AI Sales Copilot、智能录单、客户健康画像、销售报表、权限控制和审计留痕。
+Smart CRM is a **web-based intelligent sales management system** built for a software engineering course project. It uses React + FastAPI + SQLite to deliver a complete sales workflow, with AI Sales Copilot, intelligent order capture, customer health profiles, sales reports, permission control, and audit trails.
 
-> 当前交付范围：Web 管理端 + FastAPI 后端。小组成员只需要按本文档启动前后端即可完成演示。
+> Current delivery scope: Web management console + FastAPI backend. Team members can start both services by following this guide.
 
 ## Highlights
 
-| 模块 | 已实现能力 |
+| Module | Implemented Capabilities |
 |---|---|
-| 销售管理 | 客户、联系人、线索/商机、商品、订单、工单、任务、销售目标 |
-| AI Copilot | 商机评分、客户健康画像、跟进建议、经营问答、推荐转任务、人工反馈 |
-| 智能录单 | 文本/图片抽取订单草稿、人工复核、提交真实订单、库存扣减 |
-| 报表分析 | 仪表盘、销售绩效、审批 SLA、经营快照、AI 质量统计 |
-| 权限审计 | 登录会话、RBAC、销售 owner 数据范围、AI 审计、业务审计、认证审计 |
-| 交付验证 | 演示数据 seed、环境 doctor、API smoke、UI smoke、前后端自动测试 |
+| Sales Management | Accounts, contacts, leads/opportunities, products, orders, cases, tasks, sales goals |
+| AI Copilot | Opportunity scoring, customer health profile, follow-up suggestions, business Q&A, recommendation-to-task, human feedback |
+| Intelligent Order Capture | Extract order drafts from text or images, review manually, submit real orders, deduct inventory |
+| Reporting | Dashboard, sales performance, approval SLA, business snapshots, AI quality metrics |
+| Permission & Audit | Bearer sessions, RBAC, owner-scoped sales data, AI audit, business audit, authentication audit |
+| Delivery Verification | Seed demo data, environment doctor, API smoke test, UI smoke test, frontend/backend automated tests |
 
 ## Tech Stack
 
@@ -96,13 +96,13 @@ All seed accounts use the same password: `SmartCRM@2026`.
 
 Recommended demo route:
 
-1. Login as Admin.
+1. Log in as Admin.
 2. Open Dashboard and Notification Center.
 3. Open Accounts, Customer 360, Orders, Sales Reports.
 4. Open AI Copilot and ask a sales question.
 5. Convert a Copilot recommendation to a task.
 6. Open AI Audit, Business Audit, Permission Matrix.
-7. Login as Sales to show owner-scoped data.
+7. Log in as Sales to show owner-scoped data.
 
 ## Environment
 
@@ -124,7 +124,7 @@ SMART_CRM_LLM_VISION_MODEL=
 SMART_CRM_LLM_TIMEOUT_SECONDS=20
 ```
 
-LLM key is optional. Without a key, Copilot and intelligent capture keep working with deterministic fallback results. Do not commit `.env`.
+The LLM key is optional. Without a key, Copilot and intelligent capture still work through deterministic fallback results. Do not commit `.env`.
 
 ## Verification
 
