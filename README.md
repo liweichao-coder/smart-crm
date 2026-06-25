@@ -116,6 +116,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 
 ```env
 SMART_CRM_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
+SMART_CRM_CORS_ORIGIN_REGEX=^https?://(localhost|127\.0\.0\.1):[0-9]+$
 SMART_CRM_DATABASE_URL=sqlite:///./smart_crm.db
 SMART_CRM_LLM_BASE_URL=https://api.deepseek.com
 SMART_CRM_LLM_API_KEY=

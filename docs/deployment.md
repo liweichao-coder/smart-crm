@@ -11,6 +11,7 @@ Edit `.env`:
 
 ```env
 SMART_CRM_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
+SMART_CRM_CORS_ORIGIN_REGEX=^https?://(localhost|127\.0\.0\.1):[0-9]+$
 SMART_CRM_DATABASE_URL=sqlite:///./smart_crm.db
 SMART_CRM_LLM_BASE_URL=https://api.deepseek.com
 SMART_CRM_LLM_API_KEY=
@@ -21,11 +22,7 @@ SMART_CRM_LLM_TIMEOUT_SECONDS=20
 
 Do not commit `.env`; it is ignored by Git.
 
-If the frontend port changes, add the new origin here before starting the backend. For example, a frontend running at `http://127.0.0.1:5277` needs:
-
-```env
-SMART_CRM_CORS_ORIGINS=["http://localhost:5277","http://127.0.0.1:5277"]
-```
+The default regex allows local Vite dev ports such as `5173`, `5174`, or `5277`. If you deploy to a real domain, keep the exact domain in `SMART_CRM_CORS_ORIGINS` and narrow or remove the local regex.
 
 ## 2. Install Dependencies
 

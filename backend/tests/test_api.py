@@ -67,6 +67,21 @@ def test_health_check() -> None:
     assert payload["consistency"]["issue_count"] == 0
 
 
+def test_local_vite_dynamic_port_cors_preflight() -> None:
+    with TestClient(app, auth=False) as client:
+        response = client.options(
+            "/api/auth/login",
+            headers={
+                "Origin": "http://127.0.0.1:5174",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5174"
+
+
 def test_customer_owner_lightweight_migration_backfills_from_contacts(monkeypatch) -> None:
     migration_engine = create_engine(
         "sqlite://",

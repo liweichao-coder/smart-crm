@@ -2226,7 +2226,33 @@ function LoginPage({ onLogin }) {
 
           <div className="crm-auth-copy">
             <span className="crm-overline">欢迎回来</span>
-            <h1>登录后继续处理你的客户流程</h1>
+            <h1>登录后继续推进销售闭环</h1>
+            <p>从客户跟进、AI 建议到订单审批，统一在一个工作台完成。</p>
+          </div>
+
+          <div className="crm-auth-visual" aria-hidden="true">
+            <div className="crm-auth-logo-card">
+              <img className="crm-auth-mascot" src={smartCrmLogo} alt="" />
+              <div className="crm-auth-pipeline">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+            <div className="crm-auth-signal-grid">
+              <div className="crm-auth-signal">
+                <span>今日跟进</span>
+                <strong>8</strong>
+              </div>
+              <div className="crm-auth-signal">
+                <span>AI 建议</span>
+                <strong>24</strong>
+              </div>
+              <div className="crm-auth-signal">
+                <span>待审批</span>
+                <strong>2</strong>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -2238,29 +2264,42 @@ function LoginPage({ onLogin }) {
 
           <form
             className="crm-auth-form"
+            method="post"
             onSubmit={handleSubmit}
           >
-            {error ? <div className="crm-auth-alert">{error}</div> : null}
-            <label className="crm-auth-field">
+            {error ? <div className="crm-auth-alert" id="login-error" role="alert" aria-live="polite">{error}</div> : null}
+            <label className="crm-auth-field" htmlFor="login-account">
               <span>账号</span>
               <input
+                id="login-account"
+                name="account"
                 type="text"
                 value={account}
                 onChange={(event) => setAccount(event.target.value)}
                 placeholder="请输入邮箱号或手机号"
                 autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="next"
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'login-error' : undefined}
                 required
               />
             </label>
 
-            <label className="crm-auth-field">
+            <label className="crm-auth-field" htmlFor="login-password">
               <span>密码</span>
               <input
+                id="login-password"
+                name="password"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="请输入密码"
                 autoComplete="current-password"
+                enterKeyHint="done"
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'login-error' : undefined}
                 required
               />
             </label>
