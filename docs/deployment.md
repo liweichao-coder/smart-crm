@@ -131,6 +131,16 @@ Current demo dataset scale:
 
 This scale is intentionally larger than a toy example but still small enough for stable classroom demos.
 
+## 3.1 Classroom Acceptance Scope
+
+Smart CRM is accepted as a focused course-demo CRM, not as a full enterprise CRM suite. The required walkthrough is:
+
+```text
+Login -> Workbench -> Customers -> Leads/Opportunities -> AI Copilot -> AI Capture -> Orders -> Sales Reports
+```
+
+For this walkthrough, each visible business action should read from or write to the FastAPI + SQLite backend: login uses bearer sessions, workbench metrics come from backend aggregates, customers/leads/orders are persisted records, AI Copilot recommendations are saved for review, AI Capture creates editable drafts, orders update inventory and approval state, and sales reports are recomputed by backend APIs. CordysCRM is used only as product-thinking reference for L2C, workbench, CRM Skills, and BI; Smart CRM keeps its own React + FastAPI + SQLite + AI Copilot implementation and local course visual assets.
+
 Default demo logins:
 
 ```text

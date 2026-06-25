@@ -180,25 +180,61 @@ import { getSessionOrganizations, resolveSelectedOrg } from './sessionUtils.js'
 const STORAGE_KEY = 'huahenuancrm:selected-org'
 
 const navItems = [
-  { path: '/dashboard', label: '仪表盘', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM', permission: 'dashboard:read' },
+  { path: '/dashboard', label: '演示工作台', icon: LayoutDashboard, title: 'Dashboard | 深大 AI CRM', permission: 'dashboard:read' },
   { path: '/reports', label: '销售报表', icon: BarChart3, title: 'Reports | 深大 AI CRM', permission: 'reports:read' },
   { path: '/team', label: '团队成员', icon: Users, title: 'Team | 深大 AI CRM', permission: 'team:manage' },
-  { path: '/copilot', label: 'AI 副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM', permission: 'ai:use' },
+  { path: '/copilot', label: 'AI 销售副驾', icon: Bot, title: 'AI Copilot | 深大 AI CRM', permission: 'ai:use' },
   { path: '/auth-audit', label: '认证审计', icon: KeyRound, title: 'Auth Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/ai-audit', label: 'AI 审计', icon: Shield, title: 'AI Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/business-audit', label: '操作审计', icon: ClipboardList, title: 'Business Audit | 深大 AI CRM', permission: 'audit:read' },
   { path: '/permissions', label: '权限矩阵', icon: KeyRound, title: 'Permissions | 深大 AI CRM', permission: 'permissions:read' },
-  { path: '/capture', label: '智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM', permission: 'ai:use' },
-  { path: '/orders', label: '订单', icon: Activity, title: 'Orders | 深大 AI CRM', permission: 'order:manage' },
+  { path: '/capture', label: 'AI 智能录单', icon: FileText, title: 'AI Capture | 深大 AI CRM', permission: 'ai:use' },
+  { path: '/orders', label: '订单管理', icon: Activity, title: 'Orders | 深大 AI CRM', permission: 'order:manage' },
   { path: '/products', label: '商品', icon: Package, title: 'Products | 深大 AI CRM', permission: 'catalog:manage' },
-  { path: '/leads', label: '线索', icon: Target, title: 'Leads | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/leads', label: '销售线索', icon: Target, title: 'Leads | 深大 AI CRM', permission: 'crm:read' },
   { path: '/contacts', label: '联系人', icon: Users, title: 'Contacts | 深大 AI CRM', permission: 'crm:read' },
-  { path: '/accounts', label: '客户', icon: Building2, title: 'Accounts | 深大 AI CRM', permission: 'crm:read' },
-  { path: '/opportunities', label: '商机', icon: Sparkles, title: 'Opportunities | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/accounts', label: '客户管理', icon: Building2, title: 'Accounts | 深大 AI CRM', permission: 'crm:read' },
+  { path: '/opportunities', label: '商机跟进', icon: Sparkles, title: 'Opportunities | 深大 AI CRM', permission: 'crm:read' },
   { path: '/goals', label: '销售目标', icon: Trophy, title: 'Sales Goals | 深大 AI CRM', permission: 'crm:read' },
   { path: '/cases', label: '工单', icon: Briefcase, title: 'Cases | 深大 AI CRM', permission: 'crm:read' },
   { path: '/tasks', label: '任务', icon: CheckSquare, title: 'Tasks | 深大 AI CRM', permission: 'crm:read' },
 ]
+
+const primaryNavSections = [
+  {
+    label: '演示主线',
+    paths: ['/dashboard', '/accounts', '/leads', '/opportunities', '/orders'],
+  },
+  {
+    label: 'AI 亮点',
+    tone: 'ai',
+    paths: ['/copilot', '/capture'],
+  },
+  {
+    label: '经营分析',
+    paths: ['/reports'],
+  },
+]
+
+const secondaryNavSections = [
+  {
+    label: '基础数据',
+    paths: ['/contacts', '/products', '/tasks', '/goals', '/cases'],
+  },
+  {
+    label: '系统管理',
+    paths: ['/team', '/permissions', '/auth-audit', '/ai-audit', '/business-audit'],
+  },
+]
+
+function buildVisibleNavSections(sectionDefs, navItemByPath) {
+  return sectionDefs
+    .map((section) => ({
+      ...section,
+      items: section.paths.map((path) => navItemByPath.get(path)).filter(Boolean),
+    }))
+    .filter((section) => section.items.length)
+}
 
 const pageItems = [...navItems, { path: '/profile', label: '个人主页', title: 'Profile | 深大 AI CRM' }]
 
@@ -525,6 +561,50 @@ function buildDashboardFocus({ dashboard, leads, tasks }) {
     { label: '逾期任务', value: overdueTasks, href: '/tasks', icon: Flame },
     { label: '需要跟进', value: urgentLeads, href: '/leads', icon: Phone },
     { label: '未结预测', value: formatCompactCurrency(forecastAmount), href: '/opportunities', icon: Sparkles },
+  ]
+}
+
+function buildWorkbenchAiAlerts({ dashboard, leads, tasks }) {
+  const activeLeads = [...leads]
+    .filter((lead) => !['won', 'lost'].includes(normalizeStage(lead.stage)))
+    .sort((first, second) => Number(second.expected_amount ?? 0) - Number(first.expected_amount ?? 0))
+  const priorityLead = dashboard?.urgent_leads?.[0] ?? activeLeads[0]
+  const overdueTask = tasks.find((task) => task.status === 'overdue') ?? tasks.find((task) => task.priority === 'hot')
+  const aiAssistedCount = activeLeads.filter((lead) => lead.ai_assisted).length
+  const forecastAmount = activeLeads.reduce((total, lead) => total + Number(lead.expected_amount ?? 0), 0)
+
+  return [
+    {
+      label: '优先商机',
+      title: priorityLead?.title ?? priorityLead?.name ?? '等待新商机',
+      description: priorityLead
+        ? `${priorityLead.customer_name ?? priorityLead.company ?? '重点客户'} · 下一步：${priorityLead.next_action ?? '确认采购节点'}`
+        : '导入线索后，AI 副驾会按照阶段、金额和跟进日期排序。',
+      value: priorityLead ? formatCurrency(priorityLead.expected_amount ?? priorityLead.amount ?? 0) : '暂无',
+      href: '/copilot',
+      icon: Bot,
+      tone: 'accent',
+    },
+    {
+      label: '风险提醒',
+      title: overdueTask?.title ?? '暂无逾期任务',
+      description: overdueTask
+        ? `${overdueTask.owner ?? '销售负责人'} · ${overdueTask.due_date ?? overdueTask.dueDate ?? '需要尽快处理'}`
+        : '客户健康风险、逾期任务和审批阻塞会在这里汇总。',
+      value: tasks.filter((task) => task.status === 'overdue').length,
+      href: '/tasks',
+      icon: Flame,
+      tone: 'hot',
+    },
+    {
+      label: 'AI 参与',
+      title: `${aiAssistedCount} 条商机含 AI 辅助`,
+      description: '用于答辩演示：规则评分先给出可解释排序，LLM 再生成跟进建议。',
+      value: formatCompactCurrency(forecastAmount),
+      href: '/reports',
+      icon: Sparkles,
+      tone: 'won',
+    },
   ]
 }
 
@@ -2491,6 +2571,7 @@ function RegisterPage({ onLogin }) {
 function AppShell({ authSession, onLogout, onSessionRefresh }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [moreNavOpen, setMoreNavOpen] = useState(false)
   const [selectedOrg, setSelectedOrg] = useState(() => loadStoredOrg(authSession))
   const [notifications, setNotifications] = useState([])
   const [notificationOpen, setNotificationOpen] = useState(false)
@@ -2500,6 +2581,10 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
   const location = useLocation()
   const navigate = useNavigate()
   const allowedNavItems = navItems.filter((item) => hasClientPermission(authSession, item.permission))
+  const navItemByPath = useMemo(() => new Map(allowedNavItems.map((item) => [item.path, item])), [allowedNavItems])
+  const mainNavSections = useMemo(() => buildVisibleNavSections(primaryNavSections, navItemByPath), [navItemByPath])
+  const moreNavSections = useMemo(() => buildVisibleNavSections(secondaryNavSections, navItemByPath), [navItemByPath])
+  const isMoreNavActive = moreNavSections.some((section) => section.items.some((item) => location.pathname.startsWith(item.path)))
   const currentPage = pageItems.find((item) => location.pathname.startsWith(item.path)) ?? navItems[0]
   const isProfilePage = location.pathname.startsWith('/profile')
   const activeProfile = buildUserProfile(authSession?.user)
@@ -2509,6 +2594,10 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
   useEffect(() => {
     document.title = currentPage.title
   }, [currentPage.title])
+
+  useEffect(() => {
+    setMoreNavOpen(isMoreNavActive)
+  }, [isMoreNavActive])
 
   useEffect(() => {
     persistOrg(activeSelectedOrg)
@@ -2590,7 +2679,7 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
   }
 
   return (
-    <div className="crm-shell">
+    <div className={`crm-shell ${collapsed ? 'has-collapsed-sidebar' : ''}`}>
       <div className={`crm-sidebar-backdrop ${sidebarOpen ? 'is-visible' : ''}`} onClick={() => setSidebarOpen(false)} />
       <aside className={`crm-sidebar ${collapsed ? 'is-collapsed' : ''} ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="crm-sidebar-inner">
@@ -2605,19 +2694,55 @@ function AppShell({ authSession, onLogout, onSessionRefresh }) {
           </div>
 
           <div className="crm-sidebar-group">
-            <div className="crm-sidebar-label">CRM</div>
-            <nav className="crm-nav">
-              {allowedNavItems.map(({ path, label, icon: Icon }) => (
-                <NavLink
-                  key={path}
-                  to={path}
-                  className={({ isActive }) => `crm-nav-link ${isActive ? 'is-active' : ''}`}
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  <Icon size={18} />
-                  <span>{label}</span>
-                </NavLink>
+            <nav className="crm-nav" aria-label="课程项目演示导航">
+              {mainNavSections.map((section) => (
+                <div key={section.label} className={`crm-nav-section ${section.tone ? `tone-${section.tone}` : ''}`}>
+                  <div className="crm-sidebar-label">{section.label}</div>
+                  {section.items.map(({ path, label, icon: Icon }) => (
+                    <NavLink
+                      key={path}
+                      to={path}
+                      className={({ isActive }) => `crm-nav-link ${isActive ? 'is-active' : ''}`}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <Icon size={18} />
+                      <span>{label}</span>
+                    </NavLink>
+                  ))}
+                </div>
               ))}
+
+              {moreNavSections.length ? (
+                <details
+                  className="crm-sidebar-more"
+                  open={moreNavOpen}
+                  onToggle={(event) => setMoreNavOpen(event.currentTarget.open)}
+                >
+                  <summary className={`crm-nav-link crm-nav-link--ghost ${isMoreNavActive ? 'is-active' : ''}`}>
+                    <LayoutGrid size={18} />
+                    <span>更多功能</span>
+                    <ChevronRight className="crm-sidebar-more-arrow" size={16} />
+                  </summary>
+                  <div className="crm-sidebar-more-body">
+                    {moreNavSections.map((section) => (
+                      <div key={section.label} className="crm-sidebar-subgroup">
+                        <div className="crm-sidebar-label">{section.label}</div>
+                        {section.items.map(({ path, label, icon: Icon }) => (
+                          <NavLink
+                            key={path}
+                            to={path}
+                            className={({ isActive }) => `crm-nav-link crm-nav-link--secondary ${isActive ? 'is-active' : ''}`}
+                            onClick={() => setSidebarOpen(false)}
+                          >
+                            <Icon size={17} />
+                            <span>{label}</span>
+                          </NavLink>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
             </nav>
           </div>
 
@@ -2842,6 +2967,7 @@ function DashboardPage() {
 
   const { dashboard, leads, tasks, goals, loading, error } = dashboardData
   const focusItems = useMemo(() => buildDashboardFocus({ dashboard, leads, tasks }), [dashboard, leads, tasks])
+  const aiAlerts = useMemo(() => buildWorkbenchAiAlerts({ dashboard, leads, tasks }), [dashboard, leads, tasks])
   const stageCards = useMemo(() => buildDashboardStages(leads), [leads])
   const dashboardMetrics = useMemo(() => buildDashboardMetrics(dashboard), [dashboard])
   const hotLeads = useMemo(() => buildHotLeads(leads), [leads])
@@ -2857,32 +2983,125 @@ function DashboardPage() {
   )
   const goalCards = useMemo(() => goals.map(mapGoalRecord), [goals])
   const activities = useMemo(() => buildRecentActivities(dashboard), [dashboard])
+  const journeySteps = [
+    { href: '/accounts', title: '客户', subtitle: '画像与健康度', icon: Building2 },
+    { href: '/leads', title: '线索', subtitle: '来源与评分', icon: Target },
+    { href: '/opportunities', title: '商机', subtitle: '阶段与预测', icon: Sparkles },
+    { href: '/orders', title: '订单', subtitle: '审批与履约', icon: Activity },
+  ]
+  const workbenchActions = [
+    { href: '/accounts', title: '客户建档', subtitle: '客户资料与联系人', icon: Building2, tone: 'info' },
+    { href: '/leads', title: '销售线索', subtitle: '跟进阶段与预计金额', icon: Target, tone: 'hot' },
+    { href: '/opportunities', title: '商机跟进', subtitle: '阶段推进与赢单预测', icon: Sparkles, tone: 'proposal' },
+    { href: '/orders', title: '订单管理', subtitle: '审批、库存和履约', icon: Activity, tone: 'won' },
+    { href: '/copilot', title: 'AI 销售副驾', subtitle: '评分、建议和话术', icon: Bot, tone: 'accent' },
+    { href: '/capture', title: 'AI 智能录单', subtitle: '材料识别生成订单', icon: FileText, tone: 'week' },
+  ]
 
   return (
     <div className="crm-page-stack">
-      <section className="crm-hero-panel">
-        <div>
-          <span className="crm-overline">下午好</span>
-          <h2>仪表盘</h2>
-          <p>以下数据来自 FastAPI 后端，聚焦重点任务、跟进和销售管道。</p>
+      <section className="crm-hero-panel crm-workbench-hero">
+        <div className="crm-workbench-copy">
+          <span className="crm-overline">AI Sales Copilot CRM</span>
+          <h2>深大 AI CRM 工作台</h2>
+          <p>围绕客户、线索、商机和订单形成销售闭环，用 AI 帮助销售人员判断优先级、生成跟进话术并完成智能录单。</p>
+          <div className="crm-workbench-tags">
+            <span>L2C 闭环</span>
+            <span>AI 跟进建议</span>
+            <span>智能录单</span>
+            <span>销售报表</span>
+          </div>
+        </div>
+        <div className="crm-workbench-route">
+          <span>主业务链路</span>
+          <strong>客户 → 线索 → 商机 → 订单</strong>
+          <div className="crm-workbench-route-steps">
+            {journeySteps.map(({ href, title, subtitle, icon: StepIcon }) => (
+              <NavLink key={href} className="crm-route-step" to={href}>
+                <StepIcon size={15} />
+                <span>{title}</span>
+                <small>{subtitle}</small>
+              </NavLink>
+            ))}
+          </div>
+          <small>AI 副驾在商机评分、跟进建议和订单草稿阶段提供辅助。</small>
         </div>
       </section>
       <ResourceSyncState loading={loading} error={error} />
 
+      <section className="crm-panel crm-quick-access-panel">
+        <PanelHeader title="业务快捷入口" subtitle="客户建档、销售跟进、AI 辅助和订单确认集中在这一屏。" />
+        <div className="crm-quick-access-grid">
+          {workbenchActions.map(({ href, title, subtitle, icon: ActionIcon, tone }) => (
+            <NavLink key={href} className={`crm-quick-action tone-${tone}`} to={href}>
+              <div className="crm-quick-action-icon">
+                <ActionIcon size={18} />
+              </div>
+              <div>
+                <strong>{title}</strong>
+                <span>{subtitle}</span>
+              </div>
+              <ArrowRight size={16} />
+            </NavLink>
+          ))}
+        </div>
+      </section>
+
       <section className="crm-focus-strip">
         <div className="crm-focus-title">
           <Sparkles size={16} />
-          今日焦点
+          今日重点
         </div>
         <div className="crm-focus-list">
           {focusItems.map((item) => (
-            <a key={item.label} className="crm-focus-chip" href={item.href}>
+            <NavLink key={item.label} className="crm-focus-chip" to={item.href}>
               <item.icon size={16} />
               <strong>{item.value}</strong>
               <span>{item.label}</span>
-            </a>
+            </NavLink>
           ))}
         </div>
+      </section>
+
+      <section className="crm-panel crm-workbench-ai-panel">
+        <PanelHeader title="AI 销售提醒" subtitle="从商机、任务和经营预测中提炼三条最适合课堂演示的智能辅助信号。" actionLabel="打开副驾" actionHref="/copilot" />
+        <div className="crm-workbench-ai-grid">
+          {aiAlerts.map(({ label, title, description, value, href, icon: AlertIcon, tone }) => (
+            <NavLink key={label} className={`crm-workbench-ai-card tone-${tone}`} to={href}>
+              <div className="crm-workbench-ai-icon">
+                <AlertIcon size={18} />
+              </div>
+              <div className="crm-workbench-ai-copy">
+                <span>{label}</span>
+                <strong>{title}</strong>
+                <small>{description}</small>
+              </div>
+              <StatusBadge value={value} tone={tone === 'hot' ? 'danger' : tone} isNumeric={typeof value === 'number'} />
+            </NavLink>
+          ))}
+        </div>
+      </section>
+
+      <section className="crm-panel crm-data-overview-panel">
+        <PanelHeader title="数据概览" subtitle="关键经营指标来自后端仪表盘，作为课堂演示的数据看板。" />
+        {dashboardMetrics.length ? (
+          <div className="crm-data-overview-grid">
+            {dashboardMetrics.map(({ label, value, hint, icon: MetricIcon, tone }) => (
+              <article key={label} className="crm-data-overview-card">
+                <div className={`crm-metric-icon tone-${tone}`}>
+                  <MetricIcon size={18} />
+                </div>
+                <div>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                  <small>{hint}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon={BarChart3} title="暂无经营数据" subtitle="后端仪表盘同步完成后会显示销售概览。" />
+        )}
       </section>
 
       <section className="crm-stage-row">
@@ -2893,21 +3112,6 @@ function DashboardPage() {
               <StatusBadge value={stage.count} tone={stage.tone} isNumeric />
             </div>
             <strong>{formatCurrency(stage.amount)}</strong>
-          </article>
-        ))}
-      </section>
-
-      <section className="crm-metric-grid">
-        {dashboardMetrics.map((metric) => (
-          <article key={metric.label} className="crm-panel crm-metric-card">
-            <div className={`crm-metric-icon tone-${metric.tone}`}>
-              <metric.icon size={18} />
-            </div>
-            <div>
-              <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
-              <small>{metric.hint}</small>
-            </div>
           </article>
         ))}
       </section>
@@ -3166,14 +3370,12 @@ function ReportsPage() {
 
   return (
     <div className="crm-page-stack">
-      <section className="crm-hero-panel">
-        <div>
-          <span className="crm-overline">Sales Intelligence</span>
-          <h2>销售报表</h2>
-          <p>从真实订单、商机、AI 参与和库存风险聚合经营报表，用于主管复盘和答辩展示。</p>
-        </div>
-        {report?.generated_at ? <span className="crm-muted-label">生成时间 {formatDateTime(report.generated_at)}</span> : null}
-      </section>
+      <ResourceHeader
+        title="销售报表"
+        subtitle="从真实订单、商机、AI 参与和库存风险聚合经营报表。"
+        icon={BarChart3}
+      />
+      {report?.generated_at ? <div className="crm-page-inline-note">生成时间 {formatDateTime(report.generated_at)}</div> : null}
 
       <form className="crm-panel crm-report-filter-bar" onSubmit={handleFilterSubmit}>
         <label className="crm-field">
@@ -3205,7 +3407,7 @@ function ReportsPage() {
 
       <ResourceSyncState loading={loading} error={error} />
 
-      <section className="crm-panel">
+      <section className="crm-panel crm-report-snapshot-panel">
         <PanelHeader title="报表快照历史" subtitle="保存当前经营视图，便于周会复盘和答辩展示" actionLabel={snapshotState.loading ? '同步中' : `${snapshotState.items.length} 条快照`} />
         <div className="crm-report-filter-actions">
           <button className="crm-primary-button" type="button" onClick={() => handleSaveSnapshot('sales_performance')} disabled={loading || !report || snapshotState.savingType === 'sales_performance'}>
@@ -3239,7 +3441,7 @@ function ReportsPage() {
         </div>
       </section>
 
-      <section className="crm-metric-grid crm-report-metric-grid">
+      <section className="crm-metric-grid crm-report-metric-grid crm-report-kpi-grid">
         {metricCards.map((metric) => (
           <article key={metric.label} className="crm-panel crm-metric-card">
             <div className={`crm-metric-icon tone-${metric.tone}`}>
@@ -3254,7 +3456,7 @@ function ReportsPage() {
         ))}
       </section>
 
-      <section className="crm-panel">
+      <section className="crm-panel crm-report-approval-panel">
         <PanelHeader title="审批 SLA 分析" subtitle={approvalReport?.generated_at ? `生成时间 ${formatDateTime(approvalReport.generated_at)}` : '按真实订单审批记录聚合'} />
         <div className="crm-metric-grid crm-report-metric-grid">
           {approvalMetricCards.map((metric) => (
@@ -3702,7 +3904,7 @@ function CopilotPage() {
         </section>
       ) : null}
 
-      <section className="crm-metric-grid">
+      <section className="crm-metric-grid crm-copilot-metric-grid">
         <article className="crm-panel crm-metric-card">
           <div className="crm-metric-icon tone-won">
             <Trophy size={18} />
@@ -3745,7 +3947,7 @@ function CopilotPage() {
         </article>
       </section>
 
-      <section className="crm-panel crm-ask-panel">
+      <section className="crm-panel crm-ask-panel crm-ai-workflow-panel">
         <PanelHeader title="CRM Skill 经营问答" actionLabel={askResult?.fallback_used ? '规则兜底' : askResult ? 'LLM 增强' : '实时上下文'} />
         <form className="crm-ask-form" onSubmit={handleAskCopilot}>
           <label className="crm-field">
@@ -3777,8 +3979,8 @@ function CopilotPage() {
         ) : null}
       </section>
 
-      <section className="crm-copilot-grid">
-        <div className="crm-panel">
+      <section className="crm-copilot-grid crm-ai-decision-grid">
+        <div className="crm-panel crm-copilot-score-panel">
           <PanelHeader
             title="商机智能评分"
             actionLabel={scoreRulesOpen ? '收起评分规则' : '查看评分规则'}
@@ -3830,7 +4032,7 @@ function CopilotPage() {
           </div>
         </div>
 
-        <div className="crm-panel crm-copilot-detail">
+        <div className="crm-panel crm-copilot-detail crm-copilot-action-panel">
           <PanelHeader title="下一步最佳动作" />
           {selectedInsight ? (
             <>
@@ -3869,7 +4071,7 @@ function CopilotPage() {
         </div>
       </section>
 
-      <section className="crm-panel">
+      <section className="crm-panel crm-copilot-history-panel">
         <PanelHeader title="Copilot 推荐历史" actionLabel={historyLoading ? '同步中' : `${historyRecords.length} 条记录`} />
         {historyError ? (
           <div className="crm-ai-alert">
@@ -5847,10 +6049,12 @@ function OrdersPage() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onCreate={() => navigate('/capture')}
+        onExport={handleExportOrders}
+        exportDisabled={exportSaving || loading || !orders.length}
       />
       <ResourceSyncState loading={loading || Boolean(restockSavingId) || exportSaving || orderSaving || Boolean(approvalSavingId) || Boolean(approvalDecisionId) || Boolean(approvalActionId)} error={error} />
 
-      <section className="crm-metric-grid">
+      <section className="crm-metric-grid crm-order-metric-grid">
         <article className="crm-panel crm-metric-card">
           <div className="crm-metric-icon tone-won">
             <TrendingUp size={18} />
@@ -5893,20 +6097,11 @@ function OrdersPage() {
         </article>
       </section>
 
-      <section className="crm-dashboard-grid">
-        <div className="crm-panel">
-          <div className="crm-panel-header">
-            <div>
-              <strong>订单列表</strong>
-              <small>{visibleOrders.length} 条订单，点击任意行查看明细。</small>
-            </div>
-            <button className="crm-ghost-button" type="button" onClick={handleExportOrders} disabled={exportSaving || loading}>
-              <Download size={16} />
-              {exportSaving ? '导出中' : '导出 CSV'}
-            </button>
-          </div>
+      <section className="crm-dashboard-grid crm-orders-layout">
+        <div className="crm-panel crm-order-list-panel">
+          <PanelHeader title="订单列表" subtitle="点击任意行查看明细、审批和库存影响" actionLabel={exportSaving ? '导出中' : `${visibleOrders.length} 条订单`} />
           <div className="crm-table-wrap">
-            <table className="crm-table">
+            <table className="crm-table crm-resource-table crm-order-table">
               <thead>
                 <tr>
                   <th>订单</th>
@@ -5930,10 +6125,10 @@ function OrdersPage() {
                         <span>{order.owner}</span>
                       </div>
                     </td>
-                    <td>{order.customer_name}</td>
+                    <td className="crm-table-primary-cell">{order.customer_name}</td>
                     <td><StatusBadge value={orderStatusLabelMap[order.status] ?? order.status} tone={statusToneMap[order.status] ?? 'neutral'} /></td>
                     <td><StatusBadge value={order.created_by_ai ? 'AI' : '人工'} tone={order.created_by_ai ? 'accent' : 'neutral'} /></td>
-                    <td>{formatCurrency(order.total_amount)}</td>
+                    <td className="crm-table-money-cell"><span className="crm-money">{formatCurrency(order.total_amount)}</span></td>
                     <td>{order.due_date}</td>
                   </tr>
                 ))}
@@ -5943,7 +6138,7 @@ function OrdersPage() {
           {!loading && !error && !visibleOrders.length ? <EmptyState icon={Activity} title="暂无匹配订单" subtitle="切换筛选条件或从智能录单创建新订单。" /> : null}
         </div>
 
-        <div className="crm-panel">
+        <div className="crm-panel crm-order-detail-panel">
           <div className="crm-panel-header">
             <strong>订单明细</strong>
             {selectedOrder ? (
@@ -6497,9 +6692,9 @@ function TableResourcePage({
           ))}
         </div>
       </ResourceToolbar>
-      <div className="crm-panel">
+      <div className="crm-panel crm-resource-list-panel">
         <div className="crm-table-wrap">
-          <table className="crm-table">
+          <table className="crm-table crm-resource-table">
             <thead>
               <tr>
                 <th className="crm-table-select-cell">
@@ -6511,8 +6706,8 @@ function TableResourcePage({
                     onChange={handleToggleVisibleSelection}
                   />
                 </th>
-                {visibleColumns.map((column) => (
-                  <th key={column.key}>
+                {visibleColumns.map((column, index) => (
+                  <th key={column.key} className={getResourceCellClass(column, index)}>
                     <button className="crm-table-sort-button" type="button" onClick={() => handleSortColumn(column.key)}>
                       <span>{column.label}</span>
                       {sortState.key === column.key ? <small>{sortState.direction === 'asc' ? '升序' : '降序'}</small> : null}
@@ -6533,8 +6728,8 @@ function TableResourcePage({
                       onChange={() => handleToggleRowSelection(record.id)}
                     />
                   </td>
-                  {visibleColumns.map((column) => (
-                    <td key={column.key}>{renderCell(record[column.key], column)}</td>
+                  {visibleColumns.map((column, index) => (
+                    <td key={column.key} className={getResourceCellClass(column, index)}>{renderCell(record[column.key], column)}</td>
                   ))}
                   {hasActions ? (
                     <td className="crm-table-actions-cell">
@@ -6823,13 +7018,13 @@ function BoardResourcePage({
       </ResourceToolbar>
 
       {view === 'list' ? (
-        <div className="crm-panel">
+        <div className="crm-panel crm-resource-list-panel">
           <div className="crm-table-wrap">
-            <table className="crm-table">
+            <table className="crm-table crm-resource-table">
               <thead>
                 <tr>
-                  {columns.map((column) => (
-                    <th key={column.key}>{column.label}</th>
+                  {columns.map((column, index) => (
+                    <th key={column.key} className={getResourceCellClass(column, index)}>{column.label}</th>
                   ))}
                   {hasActions ? <th className="crm-table-actions-cell">操作</th> : null}
                 </tr>
@@ -6837,8 +7032,8 @@ function BoardResourcePage({
               <tbody>
                 {visibleRecords.map((record) => (
                   <tr key={record.id}>
-                    {columns.map((column) => (
-                      <td key={column.key}>{renderCell(record[column.key], column)}</td>
+                    {columns.map((column, index) => (
+                      <td key={column.key} className={getResourceCellClass(column, index)}>{renderCell(record[column.key], column)}</td>
                     ))}
                     {hasActions ? (
                       <td className="crm-table-actions-cell">
@@ -6898,11 +7093,15 @@ function BoardResourcePage({
                       draggable={Boolean(onWorkflowChange) && !isWorkflowSaving}
                       onDragStart={(event) => handleCardDragStart(event, item)}
                     >
-                      <strong>{item.name ?? item.title}</strong>
-                      <p>{item.company ?? item.account ?? item.owner}</p>
-                      {'amount' in item ? <span>{formatCurrency(item.amount)}</span> : null}
-                      {'nextStep' in item ? <span>{item.nextStep}</span> : null}
-                      {'priority' in item ? <StatusBadge value={item.priority} tone={statusToneMap[item.priority] ?? 'neutral'} /> : null}
+                      <div className="crm-board-card-main">
+                        <strong>{item.name ?? item.title}</strong>
+                        <p>{item.company ?? item.account ?? item.owner}</p>
+                      </div>
+                      <div className="crm-board-card-meta">
+                        {'amount' in item ? <span className="crm-board-card-value">{formatCurrency(item.amount)}</span> : null}
+                        {'nextStep' in item ? <span>{item.nextStep || '暂无下一步'}</span> : null}
+                        {'priority' in item ? <StatusBadge value={item.priority} tone={statusToneMap[item.priority] ?? 'neutral'} /> : null}
+                      </div>
                       {onWorkflowChange ? (
                         <div className="crm-board-flow-actions" aria-label="阶段流转">
                           <button
@@ -7664,6 +7863,8 @@ function ResourceHeader({
   onExport,
   exportDisabled = false,
 }) {
+  const hasActions = Boolean(onFocusSearch || onExport || onCreate)
+
   return (
     <section className="crm-resource-header">
       <div>
@@ -7688,20 +7889,28 @@ function ResourceHeader({
         ) : null}
       </div>
 
-      <div className="crm-toolbar-actions">
-        <button className="crm-ghost-button" type="button" onClick={onFocusSearch}>
-          <Filter size={16} />
-          过滤器
-        </button>
-        <button className="crm-ghost-button" type="button" onClick={onExport} disabled={exportDisabled}>
-          <Download size={16} />
-          导出 CSV
-        </button>
-        <button className="crm-primary-button" type="button" onClick={onCreate}>
-          <Plus size={16} />
-          {createLabel}
-        </button>
-      </div>
+      {hasActions ? (
+        <div className="crm-toolbar-actions">
+          {onFocusSearch ? (
+            <button className="crm-ghost-button" type="button" onClick={onFocusSearch}>
+              <Filter size={16} />
+              搜索筛选
+            </button>
+          ) : null}
+          {onExport ? (
+            <button className="crm-ghost-button" type="button" onClick={onExport} disabled={exportDisabled}>
+              <Download size={16} />
+              导出 CSV
+            </button>
+          ) : null}
+          {onCreate ? (
+            <button className="crm-primary-button" type="button" onClick={onCreate}>
+              <Plus size={16} />
+              {createLabel}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -8097,11 +8306,11 @@ function ResourceToolbar({ query, onQueryChange, columnCount, children, inputRef
       <div className="crm-toolbar-search-row">
         <label className="crm-search-box">
           <Search size={16} />
-          <input ref={inputRef} placeholder="搜索姓名、公司、负责人或备注" value={query} onChange={(event) => onQueryChange(event.target.value)} />
+          <input ref={inputRef} placeholder="搜索客户、线索、商机、订单或负责人" value={query} onChange={(event) => onQueryChange(event.target.value)} />
         </label>
         <div className="crm-toolbar-meta">
           {preferenceStatus ? <div className="crm-column-badge">{preferenceStatus}</div> : null}
-          <div className="crm-column-badge">{columnCount} 列</div>
+          <div className="crm-column-badge">已显示 {columnCount} 列</div>
         </div>
       </div>
       {children ? <div className="crm-toolbar-column-row">{children}</div> : null}
@@ -8160,7 +8369,8 @@ function ResourceSyncState({ loading, error }) {
 }
 
 function StatusBadge({ value, tone = 'neutral', isNumeric = false }) {
-  return <span className={`crm-badge tone-${tone} ${isNumeric ? 'is-numeric' : ''}`}>{value}</span>
+  const displayValue = value === null || value === undefined || value === '' ? '未标记' : value
+  return <span className={`crm-badge tone-${tone} ${isNumeric ? 'is-numeric' : ''}`}>{displayValue}</span>
 }
 
 function formatApprovalSla(approval) {
@@ -8177,13 +8387,25 @@ function formatApprovalSla(approval) {
 }
 
 function renderCell(value, column) {
+  const displayValue = column.optionLabels?.[value] ?? value
+  if (displayValue === null || displayValue === undefined || displayValue === '') {
+    return <span className="crm-muted-label">未填写</span>
+  }
   if (column.type === 'badge') {
-    return <StatusBadge value={String(value)} tone={statusToneMap[String(value)] ?? 'neutral'} />
+    return <StatusBadge value={String(displayValue)} tone={statusToneMap[String(value)] ?? 'neutral'} />
   }
   if (column.format === 'currency') {
-    return formatCurrency(Number(value))
+    return <span className="crm-money">{formatCurrency(Number(value))}</span>
   }
-  return value
+  return displayValue
+}
+
+function getResourceCellClass(column, index) {
+  return [
+    index === 0 ? 'crm-table-primary-cell' : '',
+    column.type === 'badge' ? 'crm-table-badge-cell' : '',
+    column.format === 'currency' ? 'crm-table-money-cell' : '',
+  ].filter(Boolean).join(' ') || undefined
 }
 
 function formatCurrency(value) {

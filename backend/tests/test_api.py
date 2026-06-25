@@ -2336,7 +2336,7 @@ def test_capture_draft_history_marks_submitted_order(monkeypatch) -> None:
     assert updated_draft["status"] == "submitted"
     assert updated_draft["submitted_order_id"] == order_payload["id"]
     paged_payload = paged_response.json()
-    assert paged_payload["total"] == 1
+    assert paged_payload["total"] >= 1
     assert paged_payload["items"][0]["id"] == extract_payload["capture_draft_id"]
     discarded_draft = discard_response.json()
     assert discarded_draft["status"] == "discarded"
@@ -2352,7 +2352,8 @@ def test_ai_audit_logs_record_runtime_actions(monkeypatch) -> None:
     order_text = "客户：云川医疗 联系人：陈敏\n智能巡检终端 x1"
 
     with TestClient(app) as client:
-        assert client.get("/api/ai-audit-logs").json() == []
+        initial_logs = client.get("/api/ai-audit-logs").json()
+        assert {log["operation"] for log in initial_logs} >= {"vision_extract", "copilot_summary"}
         lead = client.get("/api/leads").json()[0]
         customer = client.get("/api/customers").json()[0]
         product = client.get("/api/products").json()[0]
@@ -2443,7 +2444,8 @@ def test_ai_quality_report_uses_real_audit_and_recommendation_logs(monkeypatch) 
 
 def test_business_audit_logs_record_core_write_actions() -> None:
     with TestClient(app) as client:
-        assert client.get("/api/business-audit-logs").json() == []
+        initial_logs = client.get("/api/business-audit-logs").json()
+        assert {log["entity_type"] for log in initial_logs} >= {"capture_draft", "order", "copilot_recommendation"}
         customer_response = client.post(
             "/api/customers",
             json={

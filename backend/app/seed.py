@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 
 from sqlmodel import Session, select
 
 from .auth import hash_password
-from .models import AuthUser, Contact, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
+from .models import AIInteractionLog, AuthUser, BusinessAuditLog, CaptureDraft, Contact, CopilotRecommendation, Customer, CustomerActivity, InventoryMovement, LeadStage, OrderApprovalRequest, OrderApprovalStatus, OrderItem, OrderStatus, Organization, Product, SalesGoal, SalesLead, SalesOrder, SupportCase, TaskItem
 
 
 DEMO_AUTH_EMAIL = "demo@smart-crm.local"
 DEMO_AUTH_PASSWORD = "SmartCRM@2026"
+
+
+def encode_seed_json(value: list | dict) -> str:
+    return json.dumps(value, ensure_ascii=False)
 
 
 def ensure_auth_seed(session: Session) -> None:
@@ -45,10 +50,399 @@ def ensure_auth_seed(session: Session) -> None:
         )
 
 
+def ensure_story_demo_seed(session: Session) -> None:
+    """Keep the classroom demo story visible even when seeding an existing DB."""
+
+    organization = session.exec(select(Organization).where(Organization.slug == "szu-ai-crm-course")).first()
+    organization_id = organization.id if organization and organization.id else 1
+    today = date.today()
+    now = datetime.utcnow()
+
+    high_priority_lead = session.exec(
+        select(SalesLead).where(
+            SalesLead.organization_id == organization_id,
+            SalesLead.title == "云舟年度 CRM 升级",
+        )
+    ).first()
+    if high_priority_lead:
+        high_priority_lead.stage = LeadStage.negotiation
+        high_priority_lead.expected_amount = max(high_priority_lead.expected_amount, 268000)
+        high_priority_lead.due_date = today + timedelta(days=1)
+        high_priority_lead.ai_assisted = True
+        high_priority_lead.next_action = "本日内拉齐采购审批、法务条款和交付资源，争取进入合同确认。"
+        session.add(high_priority_lead)
+
+    risk_customer = session.exec(
+        select(Customer).where(
+            Customer.organization_id == organization_id,
+            Customer.company == "星海装备",
+        )
+    ).first()
+    if risk_customer:
+        risk_customer.status = "risk_watch"
+        risk_customer.level = "A"
+        risk_customer.owner = "李伟超"
+        session.add(risk_customer)
+
+        risk_case = session.exec(
+            select(SupportCase).where(
+                SupportCase.organization_id == organization_id,
+                SupportCase.account == "星海装备",
+                SupportCase.title == "离线部署安全审查阻塞",
+            )
+        ).first()
+        if not risk_case:
+            session.add(
+                SupportCase(
+                    organization_id=organization_id,
+                    title="离线部署安全审查阻塞",
+                    account="星海装备",
+                    owner="李伟超",
+                    priority="hot",
+                    status="open",
+                    status_label="Open",
+                    due_date=today,
+                )
+            )
+
+        risk_activity = session.exec(
+            select(CustomerActivity).where(
+                CustomerActivity.organization_id == organization_id,
+                CustomerActivity.customer_id == risk_customer.id,
+                CustomerActivity.subject == "安全审计材料缺口升级",
+            )
+        ).first()
+        if not risk_activity:
+            session.add(
+                CustomerActivity(
+                    organization_id=organization_id,
+                    customer_id=risk_customer.id or 0,
+                    customer_name="星海装备",
+                    owner="李伟超",
+                    activity_type="meeting",
+                    subject="安全审计材料缺口升级",
+                    summary="客户安全负责人要求补充离线部署、审计日志和数据留存说明，否则现场改造项目无法进入采购审批。",
+                    outcome="安全审查阻塞",
+                    next_action="补交安全方案、审计截图和离线部署清单，并约客户安全负责人复核。",
+                    sentiment="risk",
+                    occurred_at=now - timedelta(days=1),
+                )
+            )
+
+        overdue_task = session.exec(
+            select(TaskItem).where(
+                TaskItem.organization_id == organization_id,
+                TaskItem.title == "补交星海装备安全审计材料",
+            )
+        ).first()
+        if not overdue_task:
+            session.add(
+                TaskItem(
+                    organization_id=organization_id,
+                    title="补交星海装备安全审计材料",
+                    description="客户健康风险演示任务：补齐离线部署、审计日志和数据留存说明，避免高价值改造商机卡在安全审查。",
+                    owner="李伟超",
+                    due_date="昨天 18:00",
+                    priority="hot",
+                    status="overdue",
+                    status_label="逾期",
+                )
+            )
+
+    nanshan_customer = session.exec(
+        select(Customer).where(
+            Customer.organization_id == organization_id,
+            Customer.company == "南山科技",
+        )
+    ).first()
+    nanshan_order = None
+    if nanshan_customer:
+        nanshan_order = session.exec(
+            select(SalesOrder)
+            .where(
+                SalesOrder.organization_id == organization_id,
+                SalesOrder.customer_id == nanshan_customer.id,
+                SalesOrder.created_by_ai == True,  # noqa: E712
+            )
+            .order_by(SalesOrder.created_at.desc())
+        ).first()
+    if nanshan_order and nanshan_customer:
+        nanshan_order.created_by_ai = True
+        nanshan_order.ai_confidence_score = max(nanshan_order.ai_confidence_score, 0.86)
+        nanshan_order.notes = "智能录单草稿提交生成的 AI 订单：客户要求 AI 商机评分和私有化部署，已进入经理审批演示。"
+        session.add(nanshan_order)
+        session.flush()
+
+        order_items = session.exec(select(OrderItem).where(OrderItem.order_id == nanshan_order.id)).all()
+        products = {
+            product.id: product
+            for product in session.exec(select(Product).where(Product.organization_id == organization_id)).all()
+        }
+        draft_items = [
+            {
+                "product_id": item.product_id,
+                "product_name": products[item.product_id].name if item.product_id in products else "待复核商品",
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+            }
+            for item in order_items
+        ]
+        draft = session.exec(
+            select(CaptureDraft).where(
+                CaptureDraft.organization_id == organization_id,
+                CaptureDraft.submitted_order_id == nanshan_order.id,
+            )
+        ).first()
+        if not draft:
+            draft = CaptureDraft(
+                organization_id=organization_id,
+                created_by="李伟超",
+                filename="ai-order-nanshan-private-deploy.txt",
+                content_type="text/plain",
+                customer_id=nanshan_customer.id,
+                customer_name=nanshan_customer.contact_person,
+                company=nanshan_customer.company,
+                confidence=nanshan_order.ai_confidence_score,
+                source="seed_demo_story",
+                fallback_used=True,
+                summary="从客户报价文本中抽取 AI 商机评分模块和私有化部署服务，人工复核后提交为订单。",
+                suggested_notes=nanshan_order.notes,
+                raw_text_excerpt="客户：南山科技\nAI 商机评分模块 x6\n私有化部署服务 x1\n交付：三周内\n",
+                items_json=encode_seed_json(draft_items),
+                status="submitted",
+                submitted_order_id=nanshan_order.id,
+            )
+            session.add(draft)
+            session.flush()
+            session.add(
+                AIInteractionLog(
+                    organization_id=organization_id,
+                    operation="vision_extract",
+                    provider="openai-compatible",
+                    model="rule-fallback",
+                    status="fallback",
+                    fallback_used=True,
+                    latency_ms=42,
+                    entity_type="capture_draft",
+                    entity_id=draft.id,
+                    request_summary="ai-order-nanshan-private-deploy.txt / text/plain / 智能录单演示种子",
+                    response_summary="南山科技 / seed_demo_story / 已提交订单草稿",
+                )
+            )
+            session.add(
+                BusinessAuditLog(
+                    organization_id=organization_id,
+                    action="update",
+                    entity_type="capture_draft",
+                    entity_id=draft.id,
+                    operator="李伟超",
+                    status="success",
+                    summary=f"智能录单草稿 #{draft.id} 提交为订单 #{nanshan_order.id}",
+                    detail="演示链路：上传文本识别 -> 人工复核 -> 创建 AI 订单 -> 草稿状态 submitted。",
+                )
+            )
+
+        if draft:
+            capture_ai_log = session.exec(
+                select(AIInteractionLog).where(
+                    AIInteractionLog.organization_id == organization_id,
+                    AIInteractionLog.operation == "vision_extract",
+                    AIInteractionLog.entity_type == "capture_draft",
+                    AIInteractionLog.entity_id == draft.id,
+                )
+            ).first()
+            if not capture_ai_log:
+                session.add(
+                    AIInteractionLog(
+                        organization_id=organization_id,
+                        operation="vision_extract",
+                        provider="openai-compatible",
+                        model="rule-fallback",
+                        status="fallback",
+                        fallback_used=True,
+                        latency_ms=42,
+                        entity_type="capture_draft",
+                        entity_id=draft.id,
+                        request_summary="ai-order-nanshan-private-deploy.txt / text/plain / 智能录单演示种子",
+                        response_summary="南山科技 / seed_demo_story / 已提交订单草稿",
+                    )
+                )
+            capture_audit = session.exec(
+                select(BusinessAuditLog).where(
+                    BusinessAuditLog.organization_id == organization_id,
+                    BusinessAuditLog.entity_type == "capture_draft",
+                    BusinessAuditLog.entity_id == draft.id,
+                )
+            ).first()
+            if not capture_audit:
+                session.add(
+                    BusinessAuditLog(
+                        organization_id=organization_id,
+                        action="update",
+                        entity_type="capture_draft",
+                        entity_id=draft.id,
+                        operator="李伟超",
+                        status="success",
+                        summary=f"智能录单草稿 #{draft.id} 提交为订单 #{nanshan_order.id}",
+                        detail="演示链路：上传文本识别 -> 人工复核 -> 创建 AI 订单 -> 草稿状态 submitted。",
+                    )
+                )
+
+        order_audit = session.exec(
+            select(BusinessAuditLog).where(
+                BusinessAuditLog.organization_id == organization_id,
+                BusinessAuditLog.entity_type == "order",
+                BusinessAuditLog.entity_id == nanshan_order.id,
+                BusinessAuditLog.summary.contains("智能录单"),
+            )
+        ).first()
+        if not order_audit:
+            session.add(
+                BusinessAuditLog(
+                    organization_id=organization_id,
+                    action="create",
+                    entity_type="order",
+                    entity_id=nanshan_order.id,
+                    operator=nanshan_order.owner,
+                    status="success",
+                    summary=f"智能录单生成 AI 订单 #{nanshan_order.id}",
+                    detail=f"客户 {nanshan_customer.company}，总额 {nanshan_order.total_amount:.0f}，可在销售报表中对比 AI/普通订单收入。",
+                )
+            )
+
+    if high_priority_lead and high_priority_lead.id:
+        recommendation = session.exec(
+            select(CopilotRecommendation).where(
+                CopilotRecommendation.organization_id == organization_id,
+                CopilotRecommendation.source == "summary",
+                CopilotRecommendation.lead_id == high_priority_lead.id,
+            )
+        ).first()
+        reasons = [
+            "阶段 negotiation 贡献 78 分",
+            f"预计金额 {high_priority_lead.expected_amount:.0f} 元贡献 24 分",
+            "距离截止 1 天贡献 14 分",
+            "已有 AI 辅助记录，补充 5 分",
+            "客户健康分 74（健康增长客户），补充 4 分",
+            "健康画像建议：推动采购审批并确认服务级别条款",
+        ]
+        if not recommendation:
+            recommendation = CopilotRecommendation(
+                organization_id=organization_id,
+                source="summary",
+                lead_id=high_priority_lead.id,
+                lead_title=high_priority_lead.title,
+                customer_name=high_priority_lead.customer_name,
+                owner=high_priority_lead.owner,
+                region=high_priority_lead.region,
+                stage=high_priority_lead.stage.value,
+                grade="A",
+                rule_score=96,
+                win_rate=0.88,
+                expected_amount=high_priority_lead.expected_amount,
+                next_best_action="本日内拉齐采购审批、法务条款和交付资源，争取进入合同确认。",
+                score_reasons_json=encode_seed_json(reasons),
+                llm_summary="云舟智能年度 CRM 升级是本周最高优先级商机，建议销售经理同步采购、法务和交付排期。",
+                message_draft="建议今天向云舟智能采购负责人确认审批节点，同时附上服务级别、数据安全和交付资源说明。",
+                fallback_used=True,
+                model="rule-fallback",
+            )
+            session.add(recommendation)
+            session.flush()
+            session.add(
+                AIInteractionLog(
+                    organization_id=organization_id,
+                    operation="copilot_summary",
+                    provider="openai-compatible",
+                    model="rule-fallback",
+                    status="fallback",
+                    fallback_used=True,
+                    latency_ms=38,
+                    entity_type="lead",
+                    entity_id=high_priority_lead.id,
+                    request_summary="15 leads / seeded high-priority opportunity",
+                    response_summary="云舟年度 CRM 升级为最高优先级商机",
+                )
+            )
+            session.add(
+                BusinessAuditLog(
+                    organization_id=organization_id,
+                    action="create",
+                    entity_type="copilot_recommendation",
+                    entity_id=recommendation.id,
+                    operator="李伟超",
+                    status="success",
+                    summary=f"保存课堂演示 Copilot 推荐 #{recommendation.id}",
+                    detail="该推荐可在 AI Copilot 历史面板转为任务，并会回写商机下一步动作。",
+                )
+            )
+        else:
+            recommendation.lead_title = high_priority_lead.title
+            recommendation.customer_name = high_priority_lead.customer_name
+            recommendation.owner = high_priority_lead.owner
+            recommendation.region = high_priority_lead.region
+            recommendation.stage = high_priority_lead.stage.value
+            recommendation.grade = "A"
+            recommendation.rule_score = max(recommendation.rule_score, 96)
+            recommendation.win_rate = max(recommendation.win_rate, 0.88)
+            recommendation.expected_amount = high_priority_lead.expected_amount
+            recommendation.next_best_action = "本日内拉齐采购审批、法务条款和交付资源，争取进入合同确认。"
+            recommendation.score_reasons_json = encode_seed_json(reasons)
+            if not recommendation.llm_summary:
+                recommendation.llm_summary = "云舟智能年度 CRM 升级是本周最高优先级商机。"
+            session.add(recommendation)
+        session.flush()
+        recommendation_ai_log = session.exec(
+            select(AIInteractionLog).where(
+                AIInteractionLog.organization_id == organization_id,
+                AIInteractionLog.operation == "copilot_summary",
+                AIInteractionLog.entity_type == "lead",
+                AIInteractionLog.entity_id == high_priority_lead.id,
+            )
+        ).first()
+        if not recommendation_ai_log:
+            session.add(
+                AIInteractionLog(
+                    organization_id=organization_id,
+                    operation="copilot_summary",
+                    provider="openai-compatible",
+                    model="rule-fallback",
+                    status="fallback",
+                    fallback_used=True,
+                    latency_ms=38,
+                    entity_type="lead",
+                    entity_id=high_priority_lead.id,
+                    request_summary="15 leads / seeded high-priority opportunity",
+                    response_summary="云舟年度 CRM 升级为最高优先级商机",
+                )
+            )
+        recommendation_audit = session.exec(
+            select(BusinessAuditLog).where(
+                BusinessAuditLog.organization_id == organization_id,
+                BusinessAuditLog.entity_type == "copilot_recommendation",
+                BusinessAuditLog.entity_id == recommendation.id,
+            )
+        ).first()
+        if not recommendation_audit:
+            session.add(
+                BusinessAuditLog(
+                    organization_id=organization_id,
+                    action="create",
+                    entity_type="copilot_recommendation",
+                    entity_id=recommendation.id,
+                    operator="李伟超",
+                    status="success",
+                    summary=f"保存课堂演示 Copilot 推荐 #{recommendation.id}",
+                    detail="该推荐可在 AI Copilot 历史面板转为任务，并会回写商机下一步动作。",
+                )
+            )
+
+
 def seed_data(session: Session) -> None:
     ensure_auth_seed(session)
     existing_customer = session.exec(select(Customer)).first()
     if existing_customer:
+        ensure_story_demo_seed(session)
         session.commit()
         return
 
@@ -326,4 +720,6 @@ def seed_data(session: Session) -> None:
             )
         )
 
+    session.flush()
+    ensure_story_demo_seed(session)
     session.commit()

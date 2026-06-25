@@ -187,10 +187,10 @@ async function runUiSmoke(args) {
     await page.waitForURL('**/dashboard')
     passed.push('login-and-org')
 
-    await expectVisible(page.getByRole('heading', { name: /仪表盘/ }).first(), 'dashboard heading')
-    await expectVisible(page.locator('.crm-metric-card').first(), 'dashboard metric card')
-    const metricCount = await page.locator('.crm-metric-card').count()
-    expect(metricCount >= 4, `Dashboard should render at least 4 metric cards, got ${metricCount}.`)
+    await expectVisible(page.getByRole('heading', { name: /演示工作台/ }).first(), 'dashboard heading')
+    await expectVisible(page.locator('.crm-data-overview-card').first(), 'dashboard data overview card')
+    const metricCount = await page.locator('.crm-data-overview-card').count()
+    expect(metricCount >= 4, `Dashboard should render at least 4 data overview cards, got ${metricCount}.`)
     await assertNoHorizontalOverflow(page, 'dashboard')
     passed.push('dashboard')
 
@@ -214,7 +214,7 @@ async function runUiSmoke(args) {
     passed.push('orders')
 
     if (args.includeAiPage) {
-      await assertRoute(page, '/copilot', /AI 副驾/, 'copilot')
+      await assertRoute(page, '/copilot', /AI 销售副驾|AI 副驾/, 'copilot')
       passed.push('copilot-page')
     }
 

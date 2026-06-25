@@ -20,6 +20,7 @@ def run_lightweight_migrations() -> None:
             "inventorymovement",
             "contact",
             "customeractivity",
+            "capturedraft",
             "saleslead",
             "supportcase",
             "taskitem",
@@ -29,6 +30,8 @@ def run_lightweight_migrations() -> None:
             "businessauditlog",
             "salesorder",
             "orderapprovalrequest",
+            "reportsnapshot",
+            "notificationstate",
         ]
         for table_name in organization_tables:
             table_exists = connection.execute(
