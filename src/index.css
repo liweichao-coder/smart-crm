@@ -140,8 +140,8 @@ p {
   width: 44px;
   border-radius: 999px;
   object-fit: contain;
-  background: #fff8ef;
-  box-shadow: 0 0 0 1px rgba(181, 36, 42, 0.18);
+  background: #f8fbff;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
 }
 
 .crm-brand-copy,
@@ -309,8 +309,8 @@ p {
   width: 38px;
   border-radius: 999px;
   object-fit: contain;
-  background: #fff8ef;
-  box-shadow: 0 0 0 1px rgba(181, 36, 42, 0.18);
+  background: #f8fbff;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
 }
 
 .crm-main {
@@ -1474,7 +1474,7 @@ p {
   border-radius: 8px;
   border: 1px solid var(--border-strong);
   object-fit: contain;
-  background: #fff8ef;
+  background: #f8fbff;
   padding: 8px;
   box-shadow: var(--shadow-sm);
 }
@@ -1928,8 +1928,8 @@ body {
 .crm-brand-mark {
   border: 2px solid #ffffff;
   border-radius: 999px;
-  outline: 1px solid rgba(181, 36, 42, 0.26);
-  background: #fff8ef;
+  outline: 1px solid rgba(37, 99, 235, 0.24);
+  background: #f8fbff;
   box-shadow: none;
 }
 
@@ -2755,7 +2755,7 @@ body {
 
 .crm-brand-mark {
   border-radius: 999px;
-  background: #fff8ef;
+  background: #f8fbff;
   box-shadow: none;
 }
 
