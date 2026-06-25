@@ -518,6 +518,7 @@ p {
 .crm-content {
   border-top: 0;
   border-radius: 0 0 28px 28px;
+  container: crm-content / inline-size;
   min-height: calc(100vh - 112px);
   padding: 28px;
 }
@@ -565,6 +566,43 @@ p {
   justify-content: space-between;
   padding: 26px 28px;
   background: var(--surface-default);
+}
+
+.crm-resource-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: stretch;
+}
+
+.crm-resource-header > div:first-child {
+  display: grid;
+  gap: 14px;
+  min-inline-size: 0;
+}
+
+.crm-resource-title {
+  align-items: center;
+  flex-direction: row;
+  gap: 14px;
+  min-inline-size: 0;
+  text-align: left;
+}
+
+.crm-toolbar-card {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  align-items: center;
+  justify-content: stretch;
+}
+
+.crm-toolbar-right {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-inline-size: 0;
 }
 
 .crm-focus-strip {
@@ -695,8 +733,21 @@ p {
   letter-spacing: 0;
 }
 
+.crm-metric-card > div:not(.crm-metric-icon) {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+.crm-metric-card span,
+.crm-metric-card strong,
+.crm-metric-card small {
+  display: block;
+}
+
 .crm-metric-card small {
   color: var(--text-tertiary);
+  line-height: 1.45;
 }
 
 .crm-metric-icon,
@@ -1133,6 +1184,7 @@ p {
 }
 
 .crm-column-badge {
+  flex: 0 0 auto;
   padding: 10px 14px;
   border-radius: 14px;
   border: 1px solid var(--border-default);
@@ -2462,6 +2514,63 @@ body {
   overscroll-behavior: contain;
   padding-inline-end: 6px;
   scrollbar-gutter: stable;
+}
+
+@container crm-content (max-width: 760px) {
+  .crm-resource-header,
+  .crm-toolbar-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 16px;
+    padding: 20px 22px;
+  }
+
+  .crm-resource-title {
+    align-items: flex-start;
+  }
+
+  .crm-resource-title h2,
+  .crm-hero-panel h2 {
+    font-size: 26px;
+    line-height: 1.18;
+  }
+
+  .crm-toolbar-actions,
+  .crm-toolbar-right {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .crm-search-box,
+  .crm-column-picker {
+    max-width: none;
+    width: 100%;
+  }
+
+  .crm-column-picker {
+    flex: 1 1 100%;
+  }
+
+  .crm-column-choice {
+    flex: 1 1 118px;
+  }
+
+  .crm-metric-card {
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .crm-copilot-hero {
+    flex-direction: column;
+  }
+
+  .crm-copilot-summary {
+    width: 100%;
+  }
+
+  .crm-copilot-summary--scrollable .crm-ai-text {
+    max-block-size: 132px;
+  }
 }
 
 .crm-copilot-grid {
