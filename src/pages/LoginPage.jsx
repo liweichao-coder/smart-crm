@@ -51,22 +51,24 @@ export default function LoginPage() {
         }}
         className="login-brand-side"
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ display: 'inline-flex', padding: 6, background: '#fff', borderRadius: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.12)' }}>
-            <img src={logo} alt="logo" width={34} height={34} />
+        {/* 居中大 Logo 作为视觉中心 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              padding: 22,
+              background: '#fff',
+              borderRadius: 28,
+              boxShadow: '0 16px 48px rgba(0,0,0,0.22)',
+            }}
+          >
+            <img src={logo} alt="logo" width={120} height={120} />
           </span>
-          <span style={{ fontSize: 22, fontWeight: 700 }}>{BRAND.name}</span>
-        </div>
-        <div>
-          <h1 style={{ color: '#fff', fontSize: 38, fontWeight: 800, lineHeight: 1.25, margin: 0 }}>
-            AI 驱动的
-            <br />
-            智能销售管理平台
-          </h1>
-          <p style={{ fontSize: 16, opacity: 0.9, marginTop: 20, maxWidth: 420 }}>
-            线索到回款全链路管理，内置销售 Copilot、智能录单、商机评分与自动周报，让每一次跟进都更高效。
+          <h1 style={{ color: '#fff', fontSize: 34, fontWeight: 800, margin: '28px 0 0' }}>{BRAND.name}</h1>
+          <p style={{ fontSize: 16, opacity: 0.92, marginTop: 12, maxWidth: 380 }}>
+            AI 驱动的智能销售管理平台，内置销售 Copilot、智能录单、商机评分与自动周报。
           </p>
-          <div style={{ display: 'flex', gap: 28, marginTop: 36 }}>
+          <div style={{ display: 'flex', gap: 28, marginTop: 32 }}>
             {[
               ['Copilot', '对话式洞察'],
               ['智能录单', '一键成单'],
@@ -79,7 +81,7 @@ export default function LoginPage() {
             ))}
           </div>
         </div>
-        <div style={{ fontSize: 13, opacity: 0.7 }}>深大 AI CRM 课程组 · 软件工程实训项目</div>
+        <div style={{ fontSize: 13, opacity: 0.7, textAlign: 'center' }}>深大 AI CRM 课程组 · 软件工程实训项目</div>
       </div>
 
       {/* 表单侧 */}
