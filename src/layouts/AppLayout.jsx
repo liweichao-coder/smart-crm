@@ -16,12 +16,13 @@ import {
   ShoppingOutlined,
   SolutionOutlined,
   TeamOutlined,
+  ThunderboltOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import { useAuth, hasPermission } from '../auth/AuthContext.jsx'
 import { fetchNotifications } from '../api.js'
 import { BRAND } from '../theme.js'
-import logo from '../assets/brand-logo.svg'
+import logo from '../assets/smart-crm-logo.png'
 
 const { Header, Sider, Content } = Layout
 
@@ -33,6 +34,7 @@ const MENU = [
   { key: '/products', icon: <AppstoreOutlined />, label: '产品', perm: 'catalog:manage' },
   { key: '/orders', icon: <ShoppingOutlined />, label: '订单', perm: 'order:manage' },
   { key: '/copilot', icon: <RobotOutlined />, label: 'AI 助手', perm: 'ai:use', highlight: true },
+  { key: '/capture', icon: <ThunderboltOutlined />, label: '智能录单', perm: 'ai:use', highlight: true },
   { key: '/reports', icon: <BarChartOutlined />, label: '报表分析', perm: 'reports:read' },
   { key: '/team', icon: <TeamOutlined />, label: '团队成员', perm: 'team:manage' },
   { key: '/audit', icon: <AuditOutlined />, label: '审计日志', perm: 'audit:read' },
