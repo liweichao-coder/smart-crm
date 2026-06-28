@@ -194,12 +194,10 @@ smart-crm/
 ├─ src/                 React + Vite 前端源码
 ├─ public/              前端静态资源
 ├─ backend/             FastAPI 后端和 SQLite 工具
-├─ docs/                部署说明
 ├─ README.md            中文说明
 └─ README.en.md         英文说明
 ```
 
 ## 更多文档
 
-- 详细部署说明：`docs/deployment.md`
 - 课程报告包：`<REPORT_ROOT>`
