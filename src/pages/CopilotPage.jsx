@@ -342,6 +342,57 @@ function OrderDraftPanel() {
   )
 }
 
+function ReportPanel() {
+  const { message } = AntApp.useApp()
+  const [report, setReport] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [kind, setKind] = useState('')
+
+  const generate = async (k) => {
+    setKind(k)
+    setLoading(true)
+    setReport(null)
+    const question =
+      k === 'daily'
+        ? '请基于当前 CRM 数据生成今日销售经营日报，包含：1) 今日经营概况与关键指标 2) 重点商机进展 3) 风险与逾期待办 4) 明日工作建议。'
+        : '请基于当前 CRM 数据生成本周销售经营周报，包含：1) 本周经营概况与关键指标 2) 销售管道与赢单情况 3) 风险客户与未关闭事项 4) 下周重点计划。'
+    try {
+      const res = await askCopilot({ question })
+      setReport(res)
+    } catch (e) {
+      message.error(e.message || '生成失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card bordered={false}>
+      <Space style={{ marginBottom: 16 }}>
+        <Button type="primary" icon={<FileTextOutlined />} loading={loading && kind === 'daily'} onClick={() => generate('daily')}>
+          生成经营日报
+        </Button>
+        <Button icon={<FileTextOutlined />} loading={loading && kind === 'weekly'} onClick={() => generate('weekly')}>
+          生成经营周报
+        </Button>
+      </Space>
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center' }}><Spin /> <span style={{ color: '#8694AD', marginInlineStart: 8 }}>DeepSeek 正在汇总数据…</span></div>
+      ) : report ? (
+        <div style={{ background: '#F5F8FF', borderRadius: 10, padding: 16 }}>
+          <Typography.Title level={5} style={{ marginTop: 0 }}>{kind === 'daily' ? '销售经营日报' : '销售经营周报'} <ModelTag fallback={report.fallback_used} /></Typography.Title>
+          <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{report.answer}</Typography.Paragraph>
+          {report.evidence?.length ? (
+            <div>{report.evidence.map((e, i) => <Tag key={i} style={{ marginBottom: 4 }}>{e}</Tag>)}</div>
+          ) : null}
+        </div>
+      ) : (
+        <Empty description="点击上方按钮，由 AI 基于实时数据生成日报 / 周报" />
+      )}
+    </Card>
+  )
+}
+
 function SummaryStrip() {
   const [summary, setSummary] = useState(null)
   useEffect(() => {
@@ -379,6 +430,7 @@ export default function CopilotPage() {
           { key: 'chat', label: <span><BulbOutlined /> 对话助手</span>, children: <ChatPanel /> },
           { key: 'rec', label: '商机推荐与评分', children: <Card bordered={false}><RecommendationsPanel /></Card> },
           { key: 'draft', label: 'AI 订单草稿', children: <OrderDraftPanel /> },
+          { key: 'report', label: '经营日报/周报', children: <ReportPanel /> },
         ]}
       />
     </div>

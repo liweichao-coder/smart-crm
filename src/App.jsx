@@ -10,7 +10,10 @@ import LeadsPage from './pages/LeadsPage.jsx'
 import ProductsPage from './pages/ProductsPage.jsx'
 import OrdersPage from './pages/OrdersPage.jsx'
 import CopilotPage from './pages/CopilotPage.jsx'
-import PlaceholderPage from './pages/PlaceholderPage.jsx'
+import CapturePage from './pages/CapturePage.jsx'
+import TeamPage from './pages/TeamPage.jsx'
+import ReportsPage from './pages/ReportsPage.jsx'
+import AuditPage from './pages/AuditPage.jsx'
 
 function RequireAuth({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -47,9 +50,10 @@ export default function App() {
         <Route path="products" element={<ProductsPage />} />
         <Route path="orders" element={<OrdersPage />} />
         <Route path="copilot" element={<CopilotPage />} />
-        <Route path="reports" element={<PlaceholderPage title="报表分析" />} />
-        <Route path="team" element={<PlaceholderPage title="团队成员" />} />
-        <Route path="audit" element={<PlaceholderPage title="审计日志" />} />
+        <Route path="capture" element={<CapturePage />} />
+        <Route path="reports" element={<ReportsPage />} />
+        <Route path="team" element={<TeamPage />} />
+        <Route path="audit" element={<AuditPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

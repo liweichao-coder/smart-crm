@@ -4,7 +4,7 @@ import { App as AntApp, Button, Card, Form, Input, Typography } from 'antd'
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRAND } from '../theme.js'
-import logo from '../assets/brand-logo.svg'
+import logo from '../assets/smart-crm-logo.png'
 
 const DEMO_ACCOUNTS = [
   { account: 'demo@smart-crm.local', label: '管理员 · 李伟超' },
@@ -52,7 +52,9 @@ export default function LoginPage() {
         className="login-brand-side"
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src={logo} alt="logo" width={40} height={40} style={{ filter: 'brightness(0) invert(1)' }} />
+          <span style={{ display: 'inline-flex', padding: 6, background: '#fff', borderRadius: 12, boxShadow: '0 4px 14px rgba(0,0,0,0.12)' }}>
+            <img src={logo} alt="logo" width={34} height={34} />
+          </span>
           <span style={{ fontSize: 22, fontWeight: 700 }}>{BRAND.name}</span>
         </div>
         <div>
