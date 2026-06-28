@@ -36,6 +36,7 @@ __pycache__/
 
 # Local/private
 _private/
+tmp/
 Thumbs.db
 .DS_Store
 
