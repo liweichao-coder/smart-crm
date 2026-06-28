@@ -15,7 +15,7 @@ Smart CRM 是一个面向课程设计演示的 **Web 端智能销售管理系统
 | 智能录单 | 文本/图片抽取订单草稿、人工复核、提交真实订单、库存扣减 |
 | 报表分析 | 仪表盘、销售绩效、审批 SLA、经营快照、AI 质量统计 |
 | 权限审计 | 登录会话、RBAC、销售 owner 数据范围、AI 审计、业务审计、认证审计 |
-| 交付验证 | 演示数据 seed、环境 doctor、API smoke、UI smoke、前后端自动测试 |
+| 交付验证 | 演示数据 seed、环境 doctor、前后端自动测试 |
 
 ## 技术栈
 
@@ -24,7 +24,7 @@ Smart CRM 是一个面向课程设计演示的 **Web 端智能销售管理系统
 | 前端 | React 19, Vite, Ant Design |
 | 后端 | FastAPI, SQLModel, SQLite |
 | AI | OpenAI-compatible API, DeepSeek-compatible config, deterministic fallback |
-| 测试 | node:test, pytest, Playwright smoke |
+| 测试 | node:test, pytest |
 
 ```mermaid
 flowchart LR
@@ -57,7 +57,7 @@ flowchart LR
 - Node.js 20+
 - npm 10+
 - Python 3.12
-- Chrome，仅运行 `npm run smoke:ui` 时需要
+- Chrome / Edge（演示用浏览器）
 
 ### 2. 启动后端
 
@@ -165,20 +165,6 @@ cd <SMART_CRM_ROOT>\backend
 .\.venv\Scripts\python.exe -m app.manage doctor
 ```
 
-前后端都启动后，可以运行接口和浏览器冒烟测试：
-
-```powershell
-cd <SMART_CRM_ROOT>
-.\backend\.venv\Scripts\python.exe .\scripts\smoke_api.py --base-url http://127.0.0.1:8000
-npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000
-```
-
-如果需要把 AI Copilot 页面也纳入浏览器冒烟测试：
-
-```powershell
-npm run smoke:ui -- --frontend-url http://127.0.0.1:5173 --api-url http://127.0.0.1:8000 --include-ai-page
-```
-
 ## 演示数据
 
 重置标准课堂演示数据库：
@@ -208,8 +194,7 @@ smart-crm/
 ├─ src/                 React + Vite 前端源码
 ├─ public/              前端静态资源
 ├─ backend/             FastAPI 后端和 SQLite 工具
-├─ scripts/             API 冒烟、UI 冒烟和截图辅助脚本
-├─ docs/                部署说明和开发日志
+├─ docs/                部署说明
 ├─ README.md            中文说明
 └─ README.en.md         英文说明
 ```
@@ -217,5 +202,4 @@ smart-crm/
 ## 更多文档
 
 - 详细部署说明：`docs/deployment.md`
-- 开发日志：`docs/dev-log/`
 - 课程报告包：`<REPORT_ROOT>`
