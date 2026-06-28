@@ -49,8 +49,8 @@ flowchart LR
    ```
    （没有配置 SSH 时用 HTTPS：`git clone https://github.com/liweichao-coder/smart-crm.git`）
 3. 按下面"2 启动后端""3 启动前端"操作即可。数据库会在 `reset-db` 时自动生成演示数据。
-4. **AI 真实功能需要 DeepSeek 密钥**：向组长李伟超索取 key，填入 `backend\.env` 的 `SMART_CRM_LLM_API_KEY=`。
-   不填也能运行和演示，AI 会自动降级为本地结果（界面标"本地降级"）；要展示真实大模型效果就必须填。**切勿把 key 提交到仓库。**
+4. **AI 真实功能需要 DeepSeek 密钥（请自行申请）**：到 DeepSeek 开放平台 <https://platform.deepseek.com> 注册并创建一个 API Key，填入 `backend\.env` 的 `SMART_CRM_LLM_API_KEY=`。
+   不填也能运行和演示，AI 会自动降级为本地结果（界面标"本地降级"）；要展示真实大模型效果就必须填。**每人用自己的 key，切勿把 key 提交到仓库。**
 
 ### 1. 环境要求
 
